@@ -128,7 +128,7 @@ fun EscrowPayScreen(
                             scope.launch {
                                 WalletConnectionState.signAndSendTransaction(
                                     scope = scope,
-                                    recipientAddress = listing?.sellerWallet ?: "EscrowVault_SIMULATED",
+                                    recipientAddress = session?.sellerWallet ?: listing?.sellerWallet ?: return@launch,
                                     amountSol = amountSol,
                                     onSuccess = { sig ->
                                         isLoading = false

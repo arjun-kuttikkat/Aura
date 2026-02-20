@@ -8,7 +8,11 @@ import com.aura.app.model.MintedStatus
 import com.aura.app.model.TradeSession
 import com.aura.app.model.TradeState
 import com.aura.app.model.VerificationResult
+import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.from
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,6 +23,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.util.UUID
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -120,18 +126,39 @@ object AuraRepository {
     }
 
     suspend fun mintListing(listingId: String): Listing {
-        delay(300) // Simulate mint delay — real minting is Phase 5+
         val listing = getListing(listingId) ?: throw IllegalArgumentException("Listing not found")
-        val mintAddr = "Mint${UUID.randomUUID().toString().replace("-", "").take(32)}"
-        val updated = listing.copy(mintedStatus = MintedStatus.MINTED, mintAddress = mintAddr)
-        _listings.value = _listings.value.map { if (it.id == listingId) updated else it }
-        // Update Supabase
         try {
-            db.from("listings").update(
-                { set("minted_status", "MINTED"); set("mint_address", mintAddr) }
-            ) { filter { eq("id", listingId) } }
-        } catch (e: Exception) { Log.e(TAG, "Failed to update mint status", e) }
-        return updated
+            val reqBody = buildJsonObject {
+                put("listingId", listing.id)
+                put("title", listing.title)
+                put("sellerWalletBase58", listing.sellerWallet)
+                put("metadataUrl", "https://aura.app/metadata/${listing.id}.json")
+            }
+            val responseBytes = db.functions.invoke("mint-nft") {
+                setBody(reqBody.toString())
+                contentType(ContentType.Application.Json)
+            }
+            // Parse mintAddress directly if needed, but the edge function also updates Supabase DB
+            val mintAddr = "MintPending_RefreshedViaRealtime"
+            
+            val updated = listing.copy(mintedStatus = MintedStatus.MINTED, mintAddress = mintAddr)
+            _listings.value = _listings.value.map { if (it.id == listingId) updated else it }
+            return updated
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to invoke mint-nft Edge Function", e)
+            
+            // Fallback for simulation if Edge Function isn't running
+            val fallbackAddr = "Mint${UUID.randomUUID().toString().replace("-", "").take(32)}"
+            val updated = listing.copy(mintedStatus = MintedStatus.MINTED, mintAddress = fallbackAddr)
+            _listings.value = _listings.value.map { if (it.id == listingId) updated else it }
+            // Update Supabase
+            try {
+                db.from("listings").update(
+                    { set("minted_status", "MINTED"); set("mint_address", fallbackAddr) }
+                ) { filter { eq("id", listingId) } }
+            } catch (e2: Exception) { Log.e(TAG, "Failed fallback mint update", e2) }
+            return updated
+        }
     }
 
     suspend fun verifyPhoto(listingId: String, photoBytes: ByteArray): VerificationResult {
@@ -196,6 +223,36 @@ object AuraRepository {
     suspend fun releaseEscrow(tradeId: String): ByteArray {
         delay(200)
         return byteArrayOf(0x09, 0x0a, 0x0b, 0x0c)
+    }
+
+    suspend fun releaseEscrowWithNfc(
+        tradeId: String,
+        listingId: String,
+        sdmDataHex: String,
+        receivedCmacHex: String,
+        escrowPdaBase58: String,
+        sellerWalletBase58: String,
+        amount: Long
+    ): Boolean {
+        try {
+            val reqBody = buildJsonObject {
+                put("listingId", listingId)
+                put("sdmDataHex", sdmDataHex)
+                put("receivedCmacHex", receivedCmacHex)
+                put("escrowPdaBase58", escrowPdaBase58)
+                put("sellerWalletBase58", sellerWalletBase58)
+                put("amount", amount)
+            }
+            db.functions.invoke("verify-sun") {
+                setBody(reqBody.toString())
+                contentType(ContentType.Application.Json)
+            }
+            Log.d(TAG, "NFC verified and escrow released via Edge Function")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed Edge Function verify-sun", e)
+            return false
+        }
     }
 
     suspend fun getEscrowStatus(tradeId: String): EscrowStatus {

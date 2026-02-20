@@ -78,7 +78,13 @@ fun NavGraph(
                 )
             }
             composable(Routes.SETTINGS) {
-                SettingsScreen()
+                SettingsScreen(
+                    onLogout = {
+                        navController.navigate(Routes.ONBOARDING) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    }
+                )
             }
             composable(Routes.CREATE_LISTING) {
                 CreateListingScreen(

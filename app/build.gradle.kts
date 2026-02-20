@@ -97,6 +97,7 @@ dependencies {
     // Supabase
     implementation("io.github.jan-tennert.supabase:postgrest-kt:3.1.4")
     implementation("io.github.jan-tennert.supabase:realtime-kt:3.1.4")
+    implementation("io.github.jan-tennert.supabase:functions-kt:3.1.4")
     implementation("io.ktor:ktor-client-okhttp:3.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
 

@@ -203,19 +203,25 @@ fun ListingDetailScreen(
                 }
                 Button(
                     onClick = {
-                        AuraRepository.createTradeSession(
-                            listingId = listing.id,
-                            buyerWallet = walletAddress ?: "BUYER_PLACEHOLDER",
-                            sellerWallet = listing.sellerWallet,
-                        )
-                        onStartMeetup()
+                        walletAddress?.let { wallet ->
+                            AuraRepository.createTradeSession(
+                                listingId = listing.id,
+                                buyerWallet = wallet,
+                                sellerWallet = listing.sellerWallet,
+                            )
+                            onStartMeetup()
+                        }
                     },
+                    enabled = walletAddress != null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    Text("Start Meetup / Buy", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (walletAddress != null) "Start Meetup / Buy" else "Connect Wallet First",
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         }

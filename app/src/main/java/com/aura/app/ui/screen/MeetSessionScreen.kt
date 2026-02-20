@@ -61,11 +61,26 @@ fun MeetSessionScreen(
     val walletAddress by WalletConnectionState.walletAddress.collectAsState()
     val nfcState by NfcHandoverManager.state.collectAsState()
 
-    // Auto-advance when NFC confirms the chip read
+    // Auto-advance when NFC confirms the chip read and backend verification succeeds
     LaunchedEffect(nfcState) {
         if (nfcState is NfcHandshakeResult.Confirmed) {
-            AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
-            onHandshakeComplete()
+            val confirmedState = nfcState as NfcHandshakeResult.Confirmed
+            session?.let { s ->
+                val listing = AuraRepository.getListing(s.listingId)
+                val success = AuraRepository.releaseEscrowWithNfc(
+                    tradeId = s.id,
+                    listingId = s.listingId,
+                    sdmDataHex = confirmedState.sdmDataHex,
+                    receivedCmacHex = confirmedState.cmacHex,
+                    escrowPdaBase58 = "AuRAVaULtXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+                    sellerWalletBase58 = s.sellerWallet,
+                    amount = listing?.priceLamports ?: 0L
+                )
+                if (success) {
+                    AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
+                    onHandshakeComplete()
+                }
+            }
         }
     }
 
@@ -157,7 +172,7 @@ fun MeetSessionScreen(
                                 style = MaterialTheme.typography.headlineSmall
                             )
                             Text(
-                                state.sunUrl.take(60) + "…",
+                                "Cryptographic proof (CMAC) sent to Backend for settlement",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

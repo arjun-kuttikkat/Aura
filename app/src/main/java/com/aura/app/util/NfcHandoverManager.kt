@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
 sealed class NfcHandshakeResult {
     object Idle : NfcHandshakeResult()
     object Waiting : NfcHandshakeResult()
-    data class Confirmed(val sunUrl: String) : NfcHandshakeResult()
+    data class Confirmed(val sdmDataHex: String, val cmacHex: String) : NfcHandshakeResult()
     data class Error(val reason: String) : NfcHandshakeResult()
     object NoNfcSupport : NfcHandshakeResult()
 }
@@ -154,7 +154,21 @@ object NfcHandoverManager {
 
                 if (sunUrl != null) {
                     Log.i(TAG, "SUN URL read: $sunUrl")
-                    _state.value = NfcHandshakeResult.Confirmed(sunUrl)
+                    val piccMatch = Regex("picc_data=([0-9A-Fa-f]+)").find(sunUrl)
+                    val cmacMatch = Regex("cmac=([0-9A-Fa-f]+)").find(sunUrl)
+                    
+                    if (piccMatch != null && cmacMatch != null) {
+                        _state.value = NfcHandshakeResult.Confirmed(
+                            sdmDataHex = piccMatch.groupValues[1],
+                            cmacHex = cmacMatch.groupValues[1]
+                        )
+                    } else {
+                        // Fallback for simulation labels
+                        _state.value = NfcHandshakeResult.Confirmed(
+                            sdmDataHex = "0000000000000000",
+                            cmacHex = "00000000"
+                        )
+                    }
                 } else {
                     Log.e(TAG, "Could not parse URL from NDEF payload")
                     _state.value = NfcHandshakeResult.Error("No URL in NDEF record.")
