@@ -68,7 +68,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
-import com.aura.app.data.MockBackend
+import com.aura.app.data.AuraRepository
 import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.launch
 import java.io.File
@@ -188,14 +188,14 @@ fun CreateListingScreen(
                             errorMsg = null
                             scope.launch {
                                 try {
-                                    val listing = MockBackend.createListing(
+                                    val listing = AuraRepository.createListing(
                                         sellerWallet = walletAddress!!,
                                         title = title.ifBlank { "Untitled" },
                                         priceLamports = (price * 1_000_000_000).toLong(),
                                         imageRefs = capturedImagePath?.let { listOf(it) } ?: emptyList(),
                                         condition = condition,
                                     )
-                                    MockBackend.mintListing(listing.id)
+                                    AuraRepository.mintListing(listing.id)
                                     onListingCreated()
                                 } catch (e: Exception) {
                                     errorMsg = e.message ?: "Failed"

@@ -45,7 +45,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.aura.app.data.MockBackend
+import com.aura.app.data.AuraRepository
 import com.aura.app.model.MintedStatus
 import com.aura.app.ui.components.MainTopBar
 import com.aura.app.ui.theme.Gold500
@@ -58,7 +58,7 @@ import com.aura.app.ui.theme.Orange700
 fun HomeScreen(
     onListingClick: (String) -> Unit,
 ) {
-    val listings by MockBackend.listings.collectAsState(initial = emptyList())
+    val listings by AuraRepository.listings.collectAsState(initial = emptyList())
 
     Scaffold(
         topBar = {

@@ -68,3 +68,4 @@ google-services.json
 
 # Log files
 *.log
+node_modules

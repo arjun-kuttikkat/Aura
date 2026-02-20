@@ -15,7 +15,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.aura.app.data.MockBackend
+import com.aura.app.data.AuraRepository
 import com.aura.app.ui.components.MainBottomBar
 import com.aura.app.ui.screen.CreateListingScreen
 import com.aura.app.ui.screen.EscrowPayScreen
@@ -29,6 +29,7 @@ import com.aura.app.ui.screen.SettingsScreen
 import com.aura.app.ui.screen.FaceVerificationScreen
 import com.aura.app.ui.screen.TradeCompleteScreen
 import com.aura.app.ui.screen.VerifyItemScreen
+import com.aura.app.wallet.WalletConnectionState
 
 private val MAIN_TAB_ROUTES = setOf(
     Routes.HOME,
@@ -40,7 +41,7 @@ private val MAIN_TAB_ROUTES = setOf(
 @Composable
 fun NavGraph(
     navController: NavHostController = rememberNavController(),
-    startDestination: String = Routes.ONBOARDING,
+    startDestination: String = if (WalletConnectionState.walletAddress.value != null) Routes.HOME else Routes.ONBOARDING,
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route?.let { route ->
@@ -87,7 +88,7 @@ fun NavGraph(
             }
             composable(Routes.LISTING_DETAIL) { backStackEntry ->
             val listingId = backStackEntry.arguments?.getString("listingId") ?: return@composable
-            val session by MockBackend.currentTradeSession.collectAsState(initial = null)
+            val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
             ListingDetailScreen(
                 listingId = listingId,
                 tradeSession = session,

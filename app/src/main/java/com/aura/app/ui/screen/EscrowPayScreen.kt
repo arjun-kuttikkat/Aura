@@ -30,7 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.aura.app.data.MockBackend
+import com.aura.app.data.AuraRepository
 import com.aura.app.model.EscrowState
 import com.aura.app.model.TradeState
 import com.aura.app.wallet.WalletConnectionState
@@ -42,8 +42,8 @@ fun EscrowPayScreen(
     onComplete: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val session by MockBackend.currentTradeSession.collectAsState(initial = null)
-    val listing = session?.let { MockBackend.getListing(it.listingId) }
+    val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
+    val listing = session?.let { AuraRepository.getListing(it.listingId) }
     
     // Wallet State
     val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
@@ -128,13 +128,13 @@ fun EscrowPayScreen(
                             scope.launch {
                                 WalletConnectionState.signAndSendTransaction(
                                     scope = scope,
-                                    recipientAddress = "EscrowVault_SIMULATED", // Hardcoded for demo plan
+                                    recipientAddress = listing?.sellerWallet ?: "EscrowVault_SIMULATED",
                                     amountSol = amountSol,
                                     onSuccess = { sig ->
                                         isLoading = false
                                         txSig = sig
                                         status = EscrowState.LOCKED
-                                        MockBackend.updateTradeState(TradeState.ESCROW_LOCKED)
+                                        AuraRepository.updateTradeState(TradeState.ESCROW_LOCKED)
                                     },
                                     onError = { e ->
                                         isLoading = false
@@ -173,7 +173,7 @@ fun EscrowPayScreen(
                 
                 Button(
                     onClick = {
-                        MockBackend.updateTradeState(TradeState.COMPLETE)
+                        AuraRepository.updateTradeState(TradeState.COMPLETE)
                         onComplete()
                     },
                     modifier = Modifier.fillMaxWidth(),
