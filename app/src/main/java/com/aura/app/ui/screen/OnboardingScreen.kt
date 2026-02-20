@@ -31,14 +31,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.aura.app.ui.components.AppLogo
 import com.aura.app.wallet.WalletConnectionState
-import com.aura.app.wallet.WalletService
 import kotlinx.coroutines.launch
 
 @Composable
 fun OnboardingScreen(
     onWalletConnected: () -> Unit,
 ) {
-    val walletService = remember { WalletService() }
     val scope = rememberCoroutineScope()
     var isLoading by mutableStateOf(false)
     var errorMsg by mutableStateOf<String?>(null)
@@ -75,17 +73,17 @@ fun OnboardingScreen(
             onClick = {
                 isLoading = true
                 errorMsg = null
-                scope.launch {
-                    walletService.connect()
-                        .onSuccess { pubkey ->
-                            WalletConnectionState.setConnected(pubkey)
-                            onWalletConnected()
-                        }
-                        .onFailure {
-                            errorMsg = it.message ?: "Connection failed"
-                            isLoading = false
-                        }
-                }
+                WalletConnectionState.connect(
+                    scope = scope,
+                    onSuccess = {
+                        isLoading = false
+                        onWalletConnected()
+                    },
+                    onError = {
+                        isLoading = false
+                        errorMsg = it.message ?: "Connection failed"
+                    }
+                )
             },
             modifier = Modifier
                 .fillMaxWidth()

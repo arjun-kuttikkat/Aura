@@ -57,7 +57,7 @@ fun ListingDetailScreen(
     onBack: () -> Unit,
 ) {
     val listing = MockBackend.getListing(listingId)
-    val pubkey by WalletConnectionState.pubkey.collectAsState()
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState()
 
     Scaffold(
         topBar = {
@@ -205,7 +205,7 @@ fun ListingDetailScreen(
                     onClick = {
                         MockBackend.createTradeSession(
                             listingId = listing.id,
-                            buyerWallet = pubkey ?: "BUYER_PLACEHOLDER",
+                            buyerWallet = walletAddress ?: "BUYER_PLACEHOLDER",
                             sellerWallet = listing.sellerWallet,
                         )
                         onStartMeetup()

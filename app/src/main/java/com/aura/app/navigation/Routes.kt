@@ -11,7 +11,9 @@ object Routes {
     const val MEET_SESSION = "meet_session"
     const val VERIFY_ITEM = "verify_item"
     const val ESCROW_PAY = "escrow_pay"
+
     const val TRADE_COMPLETE = "trade_complete"
+    const val FACE_VERIFICATION = "face_verification"
 
     fun listingDetail(listingId: String) = "listing_detail/$listingId"
 }

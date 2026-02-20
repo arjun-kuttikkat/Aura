@@ -26,6 +26,7 @@ import com.aura.app.ui.screen.OnboardingScreen
 import com.aura.app.ui.screen.ProfileScreen
 import com.aura.app.ui.screen.RewardsScreen
 import com.aura.app.ui.screen.SettingsScreen
+import com.aura.app.ui.screen.FaceVerificationScreen
 import com.aura.app.ui.screen.TradeCompleteScreen
 import com.aura.app.ui.screen.VerifyItemScreen
 
@@ -71,7 +72,9 @@ fun NavGraph(
                 RewardsScreen()
             }
             composable(Routes.PROFILE) {
-                ProfileScreen()
+                ProfileScreen(
+                    onVerifyIdentity = { navController.navigate(Routes.FACE_VERIFICATION) }
+                )
             }
             composable(Routes.SETTINGS) {
                 SettingsScreen()
@@ -113,6 +116,14 @@ fun NavGraph(
         composable(Routes.TRADE_COMPLETE) {
             TradeCompleteScreen(
                 onDone = { navController.navigate(Routes.HOME) { popUpTo(0) { inclusive = true } } },
+            )
+        }
+        composable(Routes.FACE_VERIFICATION) {
+            FaceVerificationScreen(
+                onVerificationSuccess = {
+                    navController.popBackStack()
+                },
+                onBack = { navController.popBackStack() }
             )
         }
         }

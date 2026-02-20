@@ -24,8 +24,10 @@ import com.aura.app.wallet.WalletConnectionState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen() {
-    val pubkey by WalletConnectionState.pubkey.collectAsState()
+fun ProfileScreen(
+    onVerifyIdentity: () -> Unit
+) {
+    val pubkey by WalletConnectionState.walletAddress.collectAsState()
     val trustScore = 75
     val tier = TrustTier.SILVER
 
@@ -71,6 +73,14 @@ fun ProfileScreen() {
                     )
                     Text("Tier: ${tier.name}", style = MaterialTheme.typography.bodyMedium)
                 }
+            }
+
+            androidx.compose.material3.Button(
+                onClick = onVerifyIdentity,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Verify Identity (KYC)")
             }
         }
     }

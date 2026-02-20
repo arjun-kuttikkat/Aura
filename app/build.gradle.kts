@@ -66,7 +66,20 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
-    // TODO: Add Mobile Wallet Adapter (MWA) when wiring to real wallet.
-    // Uncomment and sync - e.g.:
-    // implementation("com.solanamobile:mobile-wallet-adapter-clientlib-ktx:2.0.3")
+
+    // Solana Mobile Wallet Adapter
+    implementation(libs.solana.mwa)
+    implementation(libs.solana.web3)
+    implementation(libs.solana.rpc)
+    implementation(libs.solana.multimult)
+    
+    // ML Kit Face Detection
+    implementation(libs.mlkit.face.detection)
+
+
+    // Coroutines Guava
+    implementation(libs.kotlinx.coroutines.guava)
+
+    // Accompanist Permissions
+    implementation(libs.accompanist.permissions)
 }

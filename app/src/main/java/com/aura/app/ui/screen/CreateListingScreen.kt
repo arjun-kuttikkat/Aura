@@ -79,7 +79,7 @@ fun CreateListingScreen(
     onListingCreated: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val pubkey by WalletConnectionState.pubkey.collectAsState()
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -175,7 +175,7 @@ fun CreateListingScreen(
                         imagePath = capturedImagePath,
                         onEdit = { step = 2 },
                         onSubmit = {
-                            if (pubkey == null) {
+                            if (walletAddress == null) {
                                 errorMsg = "Wallet not connected"
                                 return@ReviewStep
                             }
@@ -189,7 +189,7 @@ fun CreateListingScreen(
                             scope.launch {
                                 try {
                                     val listing = MockBackend.createListing(
-                                        sellerWallet = pubkey!!,
+                                        sellerWallet = walletAddress!!,
                                         title = title.ifBlank { "Untitled" },
                                         priceLamports = (price * 1_000_000_000).toLong(),
                                         imageRefs = capturedImagePath?.let { listOf(it) } ?: emptyList(),

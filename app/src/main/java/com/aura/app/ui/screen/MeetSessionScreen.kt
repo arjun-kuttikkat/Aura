@@ -49,12 +49,12 @@ fun MeetSessionScreen(
     onBack: () -> Unit,
 ) {
     val session by MockBackend.currentTradeSession.collectAsState(initial = null)
-    val pubkey by WalletConnectionState.pubkey.collectAsState()
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState()
     var showQr by mutableStateOf(true)
 
-    val qrBitmap = remember(session?.id, pubkey) {
+    val qrBitmap = remember(session?.id, walletAddress) {
         session?.let { s ->
-            val data = "aura:meet:${s.id}:${pubkey ?: ""}"
+            val data = "aura:meet:${s.id}:${walletAddress ?: ""}"
             generateQrBitmap(data, 256)
         }
     }

@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.aura.app.data.MockBackend
 import com.aura.app.model.EscrowState
 import com.aura.app.model.TradeState
-import com.aura.app.wallet.WalletService
+import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,12 +44,15 @@ fun EscrowPayScreen(
 ) {
     val session by MockBackend.currentTradeSession.collectAsState(initial = null)
     val listing = session?.let { MockBackend.getListing(it.listingId) }
-    val walletService = remember { WalletService() }
+    
+    // Wallet State
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
-    var status by mutableStateOf<EscrowState?>(null)
-    var txSig by mutableStateOf<String?>(null)
-    var isLoading by mutableStateOf(false)
-    var errorMsg by mutableStateOf<String?>(null)
+    
+    var status by remember { mutableStateOf<EscrowState?>(null) }
+    var txSig by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
@@ -81,61 +84,105 @@ fun EscrowPayScreen(
                 )
             }
             Spacer(modifier = Modifier.height(16.dp))
-            if (status == null || status == EscrowState.PENDING) {
-                Button(
-                    onClick = {
-                        val tradeId = session?.id ?: return@Button
-                        val amount = listing?.priceLamports ?: 0L
-                        isLoading = true
-                        errorMsg = null
-                        scope.launch {
-                            try {
-                                val txBytes = MockBackend.initEscrow(tradeId, amount)
-                                walletService.signAndSendTransaction(txBytes)
-                                    .onSuccess { sig ->
+            
+            // Connection Prompt
+            if (walletAddress == null) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Wallet Not Connected", style = MaterialTheme.typography.titleMedium)
+                        Text("Connect your Solana wallet to proceed with payment.")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                isLoading = true
+                                WalletConnectionState.connect(
+                                    scope = scope,
+                                    onSuccess = { isLoading = false },
+                                    onError = { 
+                                        isLoading = false 
+                                        errorMsg = it.message
+                                    }
+                                )
+                            },
+                            enabled = !isLoading
+                        ) {
+                            Text("Connect Wallet")
+                        }
+                    }
+                }
+            } else {
+                Text("Paying with: ${walletAddress?.take(4)}...${walletAddress?.takeLast(4)}")
+                
+                if (status == null || status == EscrowState.PENDING) {
+                    Button(
+                        onClick = {
+                            val amount = listing?.priceLamports ?: 0L
+                            val amountSol = amount / 1_000_000_000.0
+                            
+                            isLoading = true
+                            errorMsg = null
+                            
+                            scope.launch {
+                                WalletConnectionState.signAndSendTransaction(
+                                    scope = scope,
+                                    recipientAddress = "EscrowVault_SIMULATED", // Hardcoded for demo plan
+                                    amountSol = amountSol,
+                                    onSuccess = { sig ->
+                                        isLoading = false
                                         txSig = sig
                                         status = EscrowState.LOCKED
                                         MockBackend.updateTradeState(TradeState.ESCROW_LOCKED)
+                                    },
+                                    onError = { e ->
+                                        isLoading = false
+                                        errorMsg = e.message ?: "Transaction failed"
                                     }
-                                    .onFailure {
-                                        errorMsg = it.message ?: "Sign failed"
-                                    }
-                            } catch (e: Exception) {
-                                errorMsg = e.message ?: "Failed"
-                            } finally {
-                                isLoading = false
+                                )
                             }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoading,
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(modifier = Modifier.height(24.dp), color = MaterialTheme.colorScheme.onPrimary)
+                        } else {
+                            Text("Confirmed: Pay %.2f SOL".format(listing?.priceLamports?.div(1_000_000_000.0) ?: 0.0))
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isLoading,
-                ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(modifier = Modifier.height(24.dp), color = MaterialTheme.colorScheme.onPrimary)
-                    } else {
-                        Text("Sign & Pay")
                     }
                 }
             }
+            
             errorMsg?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            
             if (status == EscrowState.LOCKED || txSig != null) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Escrow locked", style = MaterialTheme.typography.titleMedium)
-                        txSig?.let { Text("Tx: $it", style = MaterialTheme.typography.bodySmall) }
+                        Text("Escrow Locked", style = MaterialTheme.typography.titleMedium)
+                        Text("Funds secured in Vault.", style = MaterialTheme.typography.bodyMedium)
+                        txSig?.let { Text("Sig: $it", style = MaterialTheme.typography.bodySmall) }
                     }
                 }
+                
+                Spacer(modifier = Modifier.weight(1f))
+                
                 Button(
                     onClick = {
                         MockBackend.updateTradeState(TradeState.COMPLETE)
                         onComplete()
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                 ) {
-                    Text("Complete Trade")
+                    Text("Complete Trade & Release Goods")
                 }
             }
         }
