@@ -114,6 +114,19 @@ object MockBackend {
         return byteArrayOf(0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08)
     }
 
+    suspend fun releaseEscrowWithNfc(
+        tradeId: String,
+        listingId: String,
+        sdmDataHex: String,
+        receivedCmacHex: String,
+        escrowPdaBase58: String,
+        sellerWalletBase58: String,
+        amount: Long
+    ): Boolean {
+        delay(300)
+        return true
+    }
+
     suspend fun releaseEscrow(tradeId: String): ByteArray {
         delay(200)
         return byteArrayOf(0x09, 0x0a, 0x0b, 0x0c)
