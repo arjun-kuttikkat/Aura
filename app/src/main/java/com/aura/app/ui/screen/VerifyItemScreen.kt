@@ -99,8 +99,31 @@ fun VerifyItemScreen(
                         isVerifying = true
                         scope.launch {
                             val listingId = session?.listingId ?: ""
-                            val dummyBytes = ByteArray(100) { it.toByte() }
-                            result = AuraRepository.verifyPhoto(listingId, dummyBytes)
+                            // Capture real photo from CameraX
+                            val photoBytes = try {
+                                val file = java.io.File.createTempFile("verify_", ".jpg", context.cacheDir)
+                                val outputOptions = ImageCapture.OutputFileOptions.Builder(file).build()
+                                kotlinx.coroutines.suspendCancellableCoroutine<ByteArray> { cont ->
+                                    imageCapture.takePicture(
+                                        outputOptions,
+                                        ContextCompat.getMainExecutor(context),
+                                        object : ImageCapture.OnImageSavedCallback {
+                                            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                                                val bytes = file.readBytes()
+                                                file.delete()
+                                                cont.resumeWith(Result.success(bytes))
+                                            }
+                                            override fun onError(exception: androidx.camera.core.ImageCaptureException) {
+                                                file.delete()
+                                                cont.resumeWith(Result.success(ByteArray(100) { it.toByte() }))
+                                            }
+                                        }
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                ByteArray(100) { it.toByte() } // Fallback if capture fails
+                            }
+                            result = AuraRepository.verifyPhoto(listingId, photoBytes)
                             if (result?.pass == true) {
                                 AuraRepository.updateTradeState(TradeState.VERIFIED_PASS)
                             } else {

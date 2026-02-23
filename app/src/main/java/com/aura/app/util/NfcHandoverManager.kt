@@ -164,11 +164,10 @@ object NfcHandoverManager {
                             payloadUrl = sunUrl
                         )
                     } else {
-                        // Fallback for simulation labels
-                        _state.value = NfcHandshakeResult.Confirmed(
-                            sdmDataHex = "0000000000000000",
-                            cmacHex = "00000000",
-                            payloadUrl = sunUrl
+                        // Strict validation: reject tags without valid SUN cryptographic fields
+                        Log.e(TAG, "NFC tag missing picc_data/cmac fields. Rejecting unverifiable tag.")
+                        _state.value = NfcHandshakeResult.Error(
+                            "Invalid NFC tag: missing cryptographic SUN data. Ensure an NTAG 424 DNA tag is used."
                         )
                     }
                 } else {

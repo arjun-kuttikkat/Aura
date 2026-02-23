@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -14,27 +13,36 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,13 +56,13 @@ import coil.compose.AsyncImage
 import com.aura.app.data.AuraRepository
 import com.aura.app.model.MintedStatus
 import com.aura.app.ui.components.MainTopBar
+import com.aura.app.ui.theme.DarkCard
+import com.aura.app.ui.theme.GlassBorder
+import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.Orange700
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Send
-
+import com.aura.app.ui.theme.SuccessGreen
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -62,36 +70,39 @@ fun HomeScreen(
     onListingClick: (String) -> Unit,
 ) {
     val listings by AuraRepository.listings.collectAsState(initial = emptyList())
+    val profile by AuraRepository.currentProfile.collectAsState()
 
     Scaffold(
         topBar = {
             MainTopBar(
-                title = "Aura", 
+                title = "Aura",
                 logoSize = 44.dp,
-                onZoneResourceClick = { onListingClick(com.aura.app.navigation.Routes.ZONE_REFINEMENT) }
+                onZoneResourceClick = { onListingClick(com.aura.app.navigation.Routes.ZONE_REFINEMENT) },
             )
         },
         floatingActionButton = {
             Column(
                 horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                androidx.compose.material3.ExtendedFloatingActionButton(
+                ExtendedFloatingActionButton(
                     onClick = { onListingClick(com.aura.app.navigation.Routes.P2P_EXCHANGE) },
-                    icon = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.Send, "Quick Pay") },
-                    text = { Text("Quick Pay") },
+                    icon = { Icon(Icons.Filled.Send, "Quick Pay") },
+                    text = { Text("Quick Pay", fontWeight = FontWeight.Bold) },
                     containerColor = Gold500,
-                    contentColor = Color.White
+                    contentColor = Color.Black,
+                    shape = RoundedCornerShape(16.dp),
                 )
-                androidx.compose.material3.ExtendedFloatingActionButton(
+                ExtendedFloatingActionButton(
                     onClick = { onListingClick(com.aura.app.navigation.Routes.AURA_CHECK) },
-                    icon = { androidx.compose.material3.Icon(Icons.Filled.Star, "Aura Check") },
-                    text = { Text("Daily Aura Check") },
+                    icon = { Icon(Icons.Filled.Star, "Aura Check") },
+                    text = { Text("Aura Check", fontWeight = FontWeight.Bold) },
                     containerColor = Orange500,
-                    contentColor = Color.White
+                    contentColor = Color.Black,
+                    shape = RoundedCornerShape(16.dp),
                 )
             }
-        }
+        },
     ) { padding ->
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -102,6 +113,25 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // Hero card spanning full width
+            item(span = { GridItemSpan(2) }) {
+                HeroBannerCard(
+                    auraScore = profile?.auraScore ?: 50,
+                    streakDays = profile?.streakDays ?: 0,
+                    listingsCount = listings.size,
+                )
+            }
+
+            // Section header
+            item(span = { GridItemSpan(2) }) {
+                Text(
+                    "Marketplace",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+
             items(
                 items = listings,
                 key = { it.id },
@@ -127,6 +157,96 @@ fun HomeScreen(
 }
 
 @Composable
+private fun HeroBannerCard(
+    auraScore: Int,
+    streakDays: Int,
+    listingsCount: Int,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Orange500.copy(alpha = 0.15f),
+                        Gold500.copy(alpha = 0.1f),
+                        Color.Transparent,
+                    ),
+                ),
+            )
+            .border(1.dp, GlassBorder, RoundedCornerShape(20.dp))
+            .padding(20.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column {
+                Text(
+                    "Your Aura",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "$auraScore",
+                        style = MaterialTheme.typography.displaySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Orange500,
+                    )
+                    Text(
+                        "/100",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.LocalFireDepartment,
+                        contentDescription = null,
+                        tint = Orange500,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        "$streakDays day streak",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(GlassSurface)
+                        .border(2.dp, Orange500.copy(alpha = 0.5f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = null,
+                        tint = Gold500,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "$listingsCount items",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ListingCard(
     title: String,
     priceSol: Double,
@@ -138,29 +258,18 @@ private fun ListingCard(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(0.75f)
-            .shadow(8.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.15f))
+            .shadow(12.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.25f))
             .clip(RoundedCornerShape(16.dp))
-            .border(
-                width = 1.dp,
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Orange500.copy(alpha = 0.3f),
-                        Color.Transparent,
-                    ),
-                ),
-                shape = RoundedCornerShape(16.dp),
-            )
             .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = DarkCard),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
+                    .fillMaxWidth(),
             ) {
                 if (imageUrl != null) {
                     AsyncImage(
@@ -176,24 +285,33 @@ private fun ListingCard(
                             .background(
                                 Brush.linearGradient(
                                     colors = listOf(
-                                        Orange500.copy(alpha = 0.4f),
-                                        Gold500.copy(alpha = 0.3f),
+                                        Orange500.copy(alpha = 0.3f),
+                                        Gold500.copy(alpha = 0.2f),
                                     ),
                                 ),
                             ),
-                    )
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Default.Star,
+                            contentDescription = null,
+                            tint = Orange500.copy(alpha = 0.4f),
+                            modifier = Modifier.size(48.dp),
+                        )
+                    }
                 }
+                // Status badge
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp)
+                        .clip(RoundedCornerShape(8.dp))
                         .background(
                             when (status) {
-                                MintedStatus.VERIFIED -> Orange700
+                                MintedStatus.VERIFIED -> SuccessGreen
                                 MintedStatus.MINTED -> Gold500
-                                MintedStatus.PENDING -> Color.Gray
+                                MintedStatus.PENDING -> Color.Gray.copy(alpha = 0.8f)
                             },
-                            RoundedCornerShape(8.dp),
                         )
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 ) {
@@ -205,7 +323,7 @@ private fun ListingCard(
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
             }
@@ -218,12 +336,13 @@ private fun ListingCard(
                     text = title,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
+                    maxLines = 1,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
                     text = "%.2f SOL".format(priceSol),
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = Orange500,
                     fontWeight = FontWeight.Bold,
                 )
             }

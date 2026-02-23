@@ -13,7 +13,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WalletConnectionState.init(ActivityResultSender(this), this)
+        WalletConnectionState.init { intent ->
+            startActivity(intent)
+        }
         NfcHandoverManager.init(this)
         enableEdgeToEdge()
         setContent {
