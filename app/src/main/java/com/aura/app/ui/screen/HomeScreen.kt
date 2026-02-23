@@ -51,6 +51,9 @@ import com.aura.app.ui.components.MainTopBar
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.Orange700
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Send
 
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -62,8 +65,33 @@ fun HomeScreen(
 
     Scaffold(
         topBar = {
-            MainTopBar(title = "Aura", logoSize = 44.dp)
+            MainTopBar(
+                title = "Aura", 
+                logoSize = 44.dp,
+                onZoneResourceClick = { onListingClick(com.aura.app.navigation.Routes.ZONE_REFINEMENT) }
+            )
         },
+        floatingActionButton = {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                androidx.compose.material3.ExtendedFloatingActionButton(
+                    onClick = { onListingClick(com.aura.app.navigation.Routes.P2P_EXCHANGE) },
+                    icon = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.Send, "Quick Pay") },
+                    text = { Text("Quick Pay") },
+                    containerColor = Gold500,
+                    contentColor = Color.White
+                )
+                androidx.compose.material3.ExtendedFloatingActionButton(
+                    onClick = { onListingClick(com.aura.app.navigation.Routes.AURA_CHECK) },
+                    icon = { androidx.compose.material3.Icon(Icons.Filled.Star, "Aura Check") },
+                    text = { Text("Daily Aura Check") },
+                    containerColor = Orange500,
+                    contentColor = Color.White
+                )
+            }
+        }
     ) { padding ->
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),

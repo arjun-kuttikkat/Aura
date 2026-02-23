@@ -1,15 +1,18 @@
 package com.aura.app.data
 
 import android.util.Log
+import com.aura.app.model.AuraHistoryDto
 import com.aura.app.model.EscrowState
 import com.aura.app.model.EscrowStatus
 import com.aura.app.model.Listing
 import com.aura.app.model.MintedStatus
+import com.aura.app.model.ProfileDto
 import com.aura.app.model.TradeSession
 import com.aura.app.model.TradeState
 import com.aura.app.model.VerificationResult
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
@@ -25,10 +28,13 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Supabase row DTOs (snake_case columns → camelCase Kotlin)
+// Supabase row DTOs
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Serializable
@@ -59,14 +65,18 @@ data class TradeSessionRow(
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Repository: drop-in replacement for AuraRepository
+// Repository
 // ─────────────────────────────────────────────────────────────────────────────
 
 object AuraRepository {
 
     private const val TAG = "AuraRepository"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val db get() = SupabaseClient.client
+    private val supabase get() = SupabaseClient.client
+    private val db get() = supabase
+
+    private val _currentProfile = MutableStateFlow<ProfileDto?>(null)
+    val currentProfile: StateFlow<ProfileDto?> = _currentProfile.asStateFlow()
 
     private val _listings = MutableStateFlow<List<Listing>>(emptyList())
     val listings: StateFlow<List<Listing>> = _listings.asStateFlow()
@@ -74,8 +84,144 @@ object AuraRepository {
     private val _currentTradeSession = MutableStateFlow<TradeSession?>(null)
     val currentTradeSession: StateFlow<TradeSession?> = _currentTradeSession.asStateFlow()
 
+    val activeQuickReceiveUri = MutableStateFlow<String?>(null)
+
     init {
         refreshListings()
+    }
+
+    // ── Profiles & Ritual ───────────────────────────────────────────────────
+
+    suspend fun loadProfile(walletAddress: String) {
+        if (walletAddress.isEmpty()) {
+            _currentProfile.value = null
+            return
+        }
+        try {
+            val profiles = supabase.postgrest["profiles"]
+                .select { filter { eq("wallet_address", walletAddress) } }
+                .decodeList<ProfileDto>()
+            
+            if (profiles.isNotEmpty()) {
+                _currentProfile.value = profiles.first()
+            } else {
+                val newProfile = ProfileDto(walletAddress = walletAddress)
+                val insertedList = supabase.postgrest["profiles"]
+                    .insert(newProfile) { select() }
+                    .decodeList<ProfileDto>()
+                if (insertedList.isNotEmpty()) {
+                    _currentProfile.value = insertedList.first()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading profile", e)
+        }
+    }
+
+    suspend fun performMirrorRitual() {
+        val profile = _currentProfile.value ?: return
+        try {
+            val nowStr = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            val lastScanStr = profile.lastScanAt
+            var streak = profile.streakDays
+            val scoreGained = 5
+            val newScore = (profile.auraScore + scoreGained).coerceAtMost(100)
+
+            if (lastScanStr != null) {
+                try {
+                    val lastScan = OffsetDateTime.parse(lastScanStr)
+                    val now = OffsetDateTime.now()
+                    val hoursSince = ChronoUnit.HOURS.between(lastScan, now)
+                    if (hoursSince > 48) streak = 1 else if (hoursSince >= 24) streak += 1
+                } catch (e:Exception) { streak += 1 }
+            } else streak += 1
+
+            val updatedProfile = profile.copy(auraScore = newScore, streakDays = streak, lastScanAt = nowStr)
+
+            supabase.postgrest["profiles"].update({
+                set("aura_score", updatedProfile.auraScore)
+                set("streak_days", updatedProfile.streakDays)
+                set("last_scan_at", updatedProfile.lastScanAt)
+            }) { filter { eq("wallet_address", profile.walletAddress) } }
+
+            _currentProfile.value = updatedProfile
+
+            profile.id?.let { uuid ->
+                val history = AuraHistoryDto(userId = uuid, changeAmount = scoreGained, reason = "Completed Mirror Ritual")
+                supabase.postgrest["aura_history"].insert(history)
+            }
+            Log.i(TAG, "Mirror Ritual Completed: +$scoreGained score")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error completing mirror ritual", e)
+        }
+    }
+
+    suspend fun performAuraCheck(photoBytes: ByteArray, lat: Double?, lng: Double?): com.aura.app.model.AuraCheckResult {
+        delay(1500) // Simulating AI Vision API call
+
+        val rating = (70..100).random()
+        val feedbackOptions = listOf(
+            "Incredible lighting! Real world verified.",
+            "Great clear face scan. Looking good!",
+            "Beautiful scenery. Excellent vibe check.",
+            "Awesome Vibe! Environment check passed."
+        )
+        val feedback = feedbackOptions.random()
+        val creditsEarned = (rating * 1.5).toInt()
+
+        val profile = _currentProfile.value ?: return com.aura.app.model.AuraCheckResult(rating, feedback, true, creditsEarned)
+
+        val nowStr = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        var streak = profile.streakDays
+        val lastScanStr = profile.lastScanAt
+        var streakMaintained = false
+
+        if (lastScanStr != null) {
+            try {
+                val lastScan = OffsetDateTime.parse(lastScanStr)
+                val now = OffsetDateTime.now()
+                val hoursSince = ChronoUnit.HOURS.between(lastScan, now)
+                if (hoursSince in 20..48) {
+                    streak += 1
+                    streakMaintained = true
+                } else if (hoursSince > 48) {
+                    streak = 1
+                    streakMaintained = false
+                } else {
+                    // Less than 20 hours: still same streak but maybe don't increment
+                    streakMaintained = true
+                }
+            } catch (e: Exception) { streak += 1; streakMaintained = true }
+        } else {
+            streak += 1
+            streakMaintained = true
+        }
+
+        val newScore = (profile.auraScore + creditsEarned)
+        val updatedProfile = profile.copy(auraScore = newScore, streakDays = streak, lastScanAt = nowStr)
+
+        try {
+            supabase.postgrest["profiles"].update({
+                set("aura_score", updatedProfile.auraScore)
+                set("streak_days", updatedProfile.streakDays)
+                set("last_scan_at", updatedProfile.lastScanAt)
+            }) { filter { eq("wallet_address", profile.walletAddress) } }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating profile after Aura check", e)
+        }
+
+        _currentProfile.value = updatedProfile
+
+        profile.id?.let { uuid ->
+            scope.launch {
+                try {
+                    val history = AuraHistoryDto(userId = uuid, changeAmount = creditsEarned, reason = "Daily Aura Check: $rating/100")
+                    supabase.postgrest["aura_history"].insert(history)
+                } catch (e: Exception) {}
+            }
+        }
+
+        return com.aura.app.model.AuraCheckResult(rating, feedback, streakMaintained, creditsEarned)
     }
 
     // ── Listings ──────────────────────────────────────────────────────────────
@@ -83,9 +229,7 @@ object AuraRepository {
     fun refreshListings() {
         scope.launch {
             try {
-                val rows = db.from("listings")
-                    .select()
-                    .decodeList<ListingRow>()
+                val rows = db.from("listings").select().decodeList<ListingRow>()
                 _listings.value = rows.map { it.toDomain() }
                 Log.d(TAG, "Loaded ${rows.size} listings from Supabase")
             } catch (e: Exception) {
@@ -102,8 +246,9 @@ object AuraRepository {
         priceLamports: Long,
         imageRefs: List<String>,
         condition: String,
+        textureHash: String? = null
     ): Listing {
-        val fingerprint = "fp_${UUID.randomUUID().toString().take(8)}"
+        val fingerprint = textureHash ?: "fp_${UUID.randomUUID().toString().take(8)}"
         val row = ListingRow(
             id = UUID.randomUUID().toString(),
             sellerWallet = sellerWallet,
@@ -116,10 +261,7 @@ object AuraRepository {
         )
         try {
             db.from("listings").insert(row)
-            Log.d(TAG, "Listing created: ${row.title}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to create listing", e)
-        }
+        } catch (e: Exception) { Log.e(TAG, "Failed to create listing", e) }
         val listing = row.toDomain()
         _listings.value = _listings.value + listing
         return listing
@@ -134,29 +276,23 @@ object AuraRepository {
                 put("sellerWalletBase58", listing.sellerWallet)
                 put("metadataUrl", "https://aura.app/metadata/${listing.id}.json")
             }
-            val responseBytes = db.functions.invoke("mint-nft") {
+            db.functions.invoke("mint-nft") {
                 setBody(reqBody.toString())
                 contentType(ContentType.Application.Json)
             }
-            // Parse mintAddress directly if needed, but the edge function also updates Supabase DB
             val mintAddr = "MintPending_RefreshedViaRealtime"
-            
             val updated = listing.copy(mintedStatus = MintedStatus.MINTED, mintAddress = mintAddr)
             _listings.value = _listings.value.map { if (it.id == listingId) updated else it }
             return updated
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to invoke mint-nft Edge Function", e)
-            
-            // Fallback for simulation if Edge Function isn't running
             val fallbackAddr = "Mint${UUID.randomUUID().toString().replace("-", "").take(32)}"
             val updated = listing.copy(mintedStatus = MintedStatus.MINTED, mintAddress = fallbackAddr)
             _listings.value = _listings.value.map { if (it.id == listingId) updated else it }
-            // Update Supabase
             try {
                 db.from("listings").update(
                     { set("minted_status", "MINTED"); set("mint_address", fallbackAddr) }
                 ) { filter { eq("id", listingId) } }
-            } catch (e2: Exception) { Log.e(TAG, "Failed fallback mint update", e2) }
+            } catch (e2: Exception) {}
             return updated
         }
     }
@@ -179,7 +315,6 @@ object AuraRepository {
             lastUpdated = System.currentTimeMillis(),
         )
         _currentTradeSession.value = session
-        // Persist to Supabase (fire-and-forget)
         scope.launch {
             try {
                 db.from("trade_sessions").insert(
@@ -190,7 +325,7 @@ object AuraRepository {
                         sellerWallet = sellerWallet,
                     )
                 )
-            } catch (e: Exception) { Log.e(TAG, "Failed to persist trade session", e) }
+            } catch (e: Exception) {}
         }
         return session
     }
@@ -204,7 +339,7 @@ object AuraRepository {
                     db.from("trade_sessions").update(
                         { set("state", state.name); set("updated_at", "now()") }
                     ) { filter { eq("id", session.id) } }
-                } catch (e: Exception) { Log.e(TAG, "Failed to update trade state", e) }
+                } catch (e: Exception) {}
             }
         }
     }

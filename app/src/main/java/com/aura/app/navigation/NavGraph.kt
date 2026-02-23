@@ -133,6 +133,21 @@ fun NavGraph(
                 onBack = { navController.popBackStack() }
             )
         }
+        composable(Routes.AURA_CHECK) {
+            com.aura.app.ui.screen.AuraCheckScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.P2P_EXCHANGE) {
+            com.aura.app.ui.screen.P2PExchangeScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.ZONE_REFINEMENT) {
+            com.aura.app.ui.screen.ZoneRefinementScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
         }
         }
         if (showBottomBar) {

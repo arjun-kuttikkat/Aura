@@ -177,6 +177,7 @@ fun FaceVerificationScreen(
                         if (verificationProgress >= 1f) {
                             verificationComplete = true
                             feedbackText = "Verification Complete!"
+                            com.aura.app.data.AuraRepository.performMirrorRitual()
                             delay(1000)
                             onVerificationSuccess()
                         }

@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import com.aura.app.model.TrustTier
 import com.aura.app.ui.components.MainTopBar
 import com.aura.app.wallet.WalletConnectionState
+import com.aura.app.data.AuraRepository
+import androidx.compose.runtime.LaunchedEffect
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -28,8 +30,23 @@ fun ProfileScreen(
     onVerifyIdentity: () -> Unit
 ) {
     val pubkey by WalletConnectionState.walletAddress.collectAsState()
-    val trustScore = 75
-    val tier = TrustTier.SILVER
+    val profile by AuraRepository.currentProfile.collectAsState()
+
+    LaunchedEffect(pubkey) {
+        pubkey?.let { 
+            AuraRepository.loadProfile(it)
+        }
+    }
+
+    val trustScore = profile?.auraScore ?: 50
+    val streak = profile?.streakDays ?: 0
+    val tier = when {
+        trustScore >= 90 -> TrustTier.PLATINUM
+        trustScore >= 80 -> TrustTier.GOLD
+        trustScore >= 70 -> TrustTier.SILVER
+        trustScore >= 50 -> TrustTier.BRONZE
+        else -> TrustTier.NEW
+    }
 
     Scaffold(
         topBar = {
@@ -72,6 +89,7 @@ fun ProfileScreen(
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Text("Tier: ${tier.name}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Active Streak: $streak 🔥", style = MaterialTheme.typography.bodyMedium)
                 }
             }
 

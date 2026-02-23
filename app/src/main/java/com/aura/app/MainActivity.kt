@@ -8,7 +8,6 @@ import com.aura.app.navigation.NavGraph
 import com.aura.app.ui.theme.AuraTheme
 import com.aura.app.util.NfcHandoverManager
 import com.aura.app.wallet.WalletConnectionState
-import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
 
 class MainActivity : ComponentActivity() {
 

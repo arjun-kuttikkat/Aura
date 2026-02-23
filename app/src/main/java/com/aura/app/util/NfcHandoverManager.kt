@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
 sealed class NfcHandshakeResult {
     object Idle : NfcHandshakeResult()
     object Waiting : NfcHandshakeResult()
-    data class Confirmed(val sdmDataHex: String, val cmacHex: String) : NfcHandshakeResult()
+    data class Confirmed(val sdmDataHex: String, val cmacHex: String, val payloadUrl: String? = null) : NfcHandshakeResult()
     data class Error(val reason: String) : NfcHandshakeResult()
     object NoNfcSupport : NfcHandshakeResult()
 }
@@ -160,13 +160,15 @@ object NfcHandoverManager {
                     if (piccMatch != null && cmacMatch != null) {
                         _state.value = NfcHandshakeResult.Confirmed(
                             sdmDataHex = piccMatch.groupValues[1],
-                            cmacHex = cmacMatch.groupValues[1]
+                            cmacHex = cmacMatch.groupValues[1],
+                            payloadUrl = sunUrl
                         )
                     } else {
                         // Fallback for simulation labels
                         _state.value = NfcHandshakeResult.Confirmed(
                             sdmDataHex = "0000000000000000",
-                            cmacHex = "00000000"
+                            cmacHex = "00000000",
+                            payloadUrl = sunUrl
                         )
                     }
                 } else {
