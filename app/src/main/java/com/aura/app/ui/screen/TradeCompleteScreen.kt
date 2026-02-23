@@ -21,15 +21,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.aura.app.data.MockBackend
+import com.aura.app.data.AuraRepository
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TradeCompleteScreen(
     onDone: () -> Unit,
 ) {
-    val session by MockBackend.currentTradeSession.collectAsState(initial = null)
-    val listing = session?.let { MockBackend.getListing(it.listingId) }
+    val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
+    val listing = session?.let { AuraRepository.getListing(it.listingId) }
 
     Scaffold { padding ->
         Column(
@@ -58,7 +58,7 @@ fun TradeCompleteScreen(
             Spacer(modifier = Modifier.height(32.dp))
             Button(
                 onClick = {
-                    MockBackend.clearTradeSession()
+                    AuraRepository.clearTradeSession()
                     onDone()
                 },
                 modifier = Modifier.fillMaxWidth(),

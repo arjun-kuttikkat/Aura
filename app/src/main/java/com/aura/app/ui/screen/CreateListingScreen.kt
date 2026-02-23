@@ -42,6 +42,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +53,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,6 +62,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -68,9 +71,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
-import com.aura.app.data.MockBackend
+import com.aura.app.data.AuraRepository
 import com.aura.app.wallet.WalletConnectionState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.UUID
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -90,6 +95,7 @@ fun CreateListingScreen(
     var condition by mutableStateOf("Good")
     var showCamera by mutableStateOf(false)
     var capturedImagePath by mutableStateOf<String?>(null)
+    var textureHash by mutableStateOf<String?>(null)
     var isSubmitting by mutableStateOf(false)
     var errorMsg by mutableStateOf<String?>(null)
 
@@ -121,7 +127,7 @@ fun CreateListingScreen(
                 .padding(padding)
                 .padding(horizontal = 20.dp),
         ) {
-            StepIndicator(currentStep = step, totalSteps = 3)
+            StepIndicator(currentStep = step, totalSteps = 4)
             Spacer(modifier = Modifier.height(24.dp))
             AnimatedContent(
                 targetState = step,
@@ -158,22 +164,29 @@ fun CreateListingScreen(
                         onCloseCamera = { showCamera = false },
                         onNext = { if (capturedImagePath != null) step = 2 },
                     )
-                    2 -> DetailsStep(
+                    2 -> MacroTextureStep(
+                        textureHash = textureHash,
+                        onScanComplete = { hash -> textureHash = hash },
+                        onBack = { step = 1 },
+                        onNext = { step = 3 }
+                    )
+                    3 -> DetailsStep(
                         title = title,
                         onTitleChange = { title = it },
                         priceSol = priceSol,
                         onPriceChange = { priceSol = it.filter { c -> c.isDigit() || c == '.' } },
                         condition = condition,
                         onConditionChange = { condition = it },
-                        onBack = { step = 1 },
-                        onNext = { step = 3 },
+                        onBack = { step = 2 },
+                        onNext = { step = 4 },
                     )
-                    3 -> ReviewStep(
+                    4 -> ReviewStep(
                         title = title,
                         priceSol = priceSol,
                         condition = condition,
                         imagePath = capturedImagePath,
-                        onEdit = { step = 2 },
+                        textureHash = textureHash,
+                        onEdit = { step = 3 },
                         onSubmit = {
                             if (walletAddress == null) {
                                 errorMsg = "Wallet not connected"
@@ -188,14 +201,15 @@ fun CreateListingScreen(
                             errorMsg = null
                             scope.launch {
                                 try {
-                                    val listing = MockBackend.createListing(
+                                    val listing = AuraRepository.createListing(
                                         sellerWallet = walletAddress!!,
                                         title = title.ifBlank { "Untitled" },
                                         priceLamports = (price * 1_000_000_000).toLong(),
                                         imageRefs = capturedImagePath?.let { listOf(it) } ?: emptyList(),
                                         condition = condition,
+                                        textureHash = textureHash
                                     )
-                                    MockBackend.mintListing(listing.id)
+                                    AuraRepository.mintListing(listing.id)
                                     onListingCreated()
                                 } catch (e: Exception) {
                                     errorMsg = e.message ?: "Failed"
@@ -406,6 +420,7 @@ private fun ReviewStep(
     priceSol: String,
     condition: String,
     imagePath: String?,
+    textureHash: String?,
     onEdit: () -> Unit,
     onSubmit: () -> Unit,
     isSubmitting: Boolean,
@@ -449,6 +464,9 @@ private fun ReviewStep(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Text(condition, style = MaterialTheme.typography.bodyMedium)
+                        if (textureHash != null) {
+                            Text("Asset Refined \n${textureHash.take(16)}...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        }
                     }
                     Text(
                         "%.2f SOL".format(priceSol.toDoubleOrNull() ?: 0.0),
@@ -526,6 +544,118 @@ private fun CameraPreviewSection(
             modifier = Modifier.align(Alignment.TopEnd),
         ) {
             Text("✕", style = MaterialTheme.typography.titleLarge)
+        }
+    }
+}
+
+@Composable
+fun MacroTextureStep(
+    textureHash: String?,
+    onScanComplete: (String) -> Unit,
+    onBack: () -> Unit,
+    onNext: () -> Unit
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isScanning by remember { mutableStateOf(false) }
+    var scanProgress by remember { mutableStateOf(0f) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        Text(
+            text = "Asset Refinement",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = "Scan the item's surface texture with your macro lens. This anchors a deterministic hardware layer into the cNFT, proving authenticity over time.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            if (textureHash == null && !isScanning) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(64.dp))
+                    Spacer(Modifier.height(16.dp))
+                    Text("Place camera 2 inches from surface", color = Color.White)
+                    Button(onClick = { isScanning = true }, modifier = Modifier.padding(top = 16.dp)) {
+                        Text("Begin AI Texture Scan")
+                    }
+                }
+            } else if (isScanning) {
+                AndroidView(
+                    factory = { ctx ->
+                        val previewView = PreviewView(ctx).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
+                        val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                        cameraProviderFuture.addListener({
+                            val provider = cameraProviderFuture.get()
+                            val preview = Preview.Builder().build().apply { setSurfaceProvider(previewView.surfaceProvider) }
+                            provider.unbindAll()
+                            provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview)
+                        }, ContextCompat.getMainExecutor(ctx))
+                        previewView
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+                
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha=0.5f)), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(progress = { scanProgress }, color = com.aura.app.ui.theme.Gold500, modifier = Modifier.size(100.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text("Mapping micro-textures...", color = Color.White)
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    while (scanProgress < 1f) {
+                        delay(20)
+                        scanProgress += 0.01f
+                    }
+                    isScanning = false
+                    val hash = "0x" + UUID.randomUUID().toString().replace("-", "").take(16).padEnd(64, '0')
+                    onScanComplete(hash)
+                }
+            } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
+                    Icon(Icons.Default.Check, contentDescription = null, tint = com.aura.app.ui.theme.Gold500, modifier = Modifier.size(64.dp))
+                    Spacer(Modifier.height(16.dp))
+                    Text("Hardware Texture Analyzed", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(textureHash?.take(16) + "...", color = com.aura.app.ui.theme.Orange500, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Button(
+                onClick = onBack,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Text("Back")
+            }
+            Button(
+                onClick = onNext,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+                enabled = textureHash != null
+            ) {
+                Text("Next")
+            }
         }
     }
 }

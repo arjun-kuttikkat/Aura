@@ -41,7 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import com.aura.app.data.MockBackend
+import com.aura.app.data.AuraRepository
 import com.aura.app.model.TradeState
 import com.aura.app.util.NfcHandoverManager
 import com.aura.app.util.NfcHandshakeResult
@@ -57,7 +57,7 @@ fun MeetSessionScreen(
     onHandshakeComplete: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val session by MockBackend.currentTradeSession.collectAsState(initial = null)
+    val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
     val walletAddress by WalletConnectionState.walletAddress.collectAsState()
     val nfcState by NfcHandoverManager.state.collectAsState()
 
@@ -66,8 +66,8 @@ fun MeetSessionScreen(
         if (nfcState is NfcHandshakeResult.Confirmed) {
             val confirmedState = nfcState as NfcHandshakeResult.Confirmed
             session?.let { s ->
-                val listing = MockBackend.getListing(s.listingId)
-                val success = MockBackend.releaseEscrowWithNfc(
+                val listing = AuraRepository.getListing(s.listingId)
+                val success = AuraRepository.releaseEscrowWithNfc(
                     tradeId = s.id,
                     listingId = s.listingId,
                     sdmDataHex = confirmedState.sdmDataHex,
@@ -77,7 +77,7 @@ fun MeetSessionScreen(
                     amount = listing?.priceLamports ?: 0L
                 )
                 if (success) {
-                    MockBackend.updateTradeState(TradeState.BOTH_PRESENT)
+                    AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
                     onHandshakeComplete()
                 }
             }
@@ -214,7 +214,7 @@ fun MeetSessionScreen(
                                 )
                             }
                             Button(onClick = {
-                                MockBackend.updateTradeState(TradeState.BOTH_PRESENT)
+                                AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
                                 onHandshakeComplete()
                             }) {
                                 Text("Continue without NFC")
@@ -234,7 +234,7 @@ fun MeetSessionScreen(
                 Spacer(modifier = Modifier.height(32.dp))
                 Button(
                     onClick = {
-                        MockBackend.updateTradeState(TradeState.BOTH_PRESENT)
+                        AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
                         onHandshakeComplete()
                     },
                     colors = ButtonDefaults.outlinedButtonColors()

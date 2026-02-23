@@ -168,9 +168,18 @@ object WalletConnectionState {
                     ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
                 }
 
-                // TODO: Build a real SystemProgram.transfer TX here
-                // For now, return a confirmation that the session was established
-                "mwa-tx-authorized"
+                // TODO: Build a real SystemProgram.transfer or Anchor Escrow TX here
+                // We use a dummy payload for the prototype that the wallet might reject/simulate, 
+                // but it successfully tests the MWA integration pathway.
+                val simulatedTxPayload = ByteArray(64) { it.toByte() }
+                
+                val result = client.signAndSendTransactions(
+                    arrayOf(simulatedTxPayload),
+                    null // minContextSlot
+                ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+
+                val signatureBytes = result.signatures[0]
+                Base58.encodeToString(signatureBytes)
             } finally {
                 scenario.close()
                     .get(ASSOCIATION_TIMEOUT_MS, TimeUnit.MILLISECONDS)

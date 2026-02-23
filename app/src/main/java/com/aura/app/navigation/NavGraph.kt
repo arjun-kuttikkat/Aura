@@ -15,7 +15,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.aura.app.data.MockBackend
+import com.aura.app.data.AuraRepository
 import com.aura.app.ui.components.MainBottomBar
 import com.aura.app.ui.screen.CreateListingScreen
 import com.aura.app.ui.screen.EscrowPayScreen
@@ -87,7 +87,7 @@ fun NavGraph(
             }
             composable(Routes.LISTING_DETAIL) { backStackEntry ->
             val listingId = backStackEntry.arguments?.getString("listingId") ?: return@composable
-            val session by MockBackend.currentTradeSession.collectAsState(initial = null)
+            val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
             ListingDetailScreen(
                 listingId = listingId,
                 tradeSession = session,
@@ -123,6 +123,21 @@ fun NavGraph(
                 onVerificationSuccess = {
                     navController.popBackStack()
                 },
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.AURA_CHECK) {
+            com.aura.app.ui.screen.AuraCheckScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.P2P_EXCHANGE) {
+            com.aura.app.ui.screen.P2PExchangeScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.ZONE_REFINEMENT) {
+            com.aura.app.ui.screen.ZoneRefinementScreen(
                 onBack = { navController.popBackStack() }
             )
         }

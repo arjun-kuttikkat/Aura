@@ -31,6 +31,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Phase 9: HCE App-less Escrow Service -->
+        <service android:name=".util.AuraHceService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NFC_SERVICE">
+            <intent-filter>
+                <action android:name="android.nfc.cardemulation.action.HOST_APDU_SERVICE" />
+            </intent-filter>
+            <meta-data android:name="android.nfc.cardemulation.host_apdu_service"
+                android:resource="@xml/apdu_service" />
+        </service>
     </application>
 
 </manifest>

@@ -14,6 +14,9 @@ object Routes {
 
     const val TRADE_COMPLETE = "trade_complete"
     const val FACE_VERIFICATION = "face_verification"
+    const val AURA_CHECK = "aura_check"
+    const val P2P_EXCHANGE = "p2p_exchange"
+    const val ZONE_REFINEMENT = "zone_refinement"
 
     fun listingDetail(listingId: String) = "listing_detail/$listingId"
 }

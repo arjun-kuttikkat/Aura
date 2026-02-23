@@ -15,11 +15,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainTopBar(
     title: String,
     logoSize: Dp = 28.dp,
+    onZoneResourceClick: (() -> Unit)? = null
 ) {
     TopAppBar(
         title = {
@@ -34,6 +40,17 @@ fun MainTopBar(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
+            }
+        },
+        actions = {
+            if (onZoneResourceClick != null) {
+                IconButton(onClick = onZoneResourceClick) {
+                    Icon(
+                        imageVector = Icons.Default.Map,
+                        contentDescription = "Zone Map",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(

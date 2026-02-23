@@ -40,7 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.aura.app.data.MockBackend
+import com.aura.app.data.AuraRepository
 import com.aura.app.model.Listing
 import com.aura.app.model.MintedStatus
 import com.aura.app.model.TradeSession
@@ -56,7 +56,7 @@ fun ListingDetailScreen(
     onStartMeetup: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val listing = MockBackend.getListing(listingId)
+    val listing = AuraRepository.getListing(listingId)
     val walletAddress by WalletConnectionState.walletAddress.collectAsState()
 
     Scaffold(
@@ -203,7 +203,7 @@ fun ListingDetailScreen(
                 }
                 Button(
                     onClick = {
-                        MockBackend.createTradeSession(
+                        AuraRepository.createTradeSession(
                             listingId = listing.id,
                             buyerWallet = walletAddress ?: "BUYER_PLACEHOLDER",
                             sellerWallet = listing.sellerWallet,

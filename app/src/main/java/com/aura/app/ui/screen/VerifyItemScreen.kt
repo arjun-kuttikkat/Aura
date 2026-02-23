@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.aura.app.data.MockBackend
+import com.aura.app.data.AuraRepository
 import com.aura.app.model.TradeState
 import com.aura.app.model.VerificationResult
 import kotlinx.coroutines.launch
@@ -53,7 +53,7 @@ fun VerifyItemScreen(
     onVerified: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val session by MockBackend.currentTradeSession.collectAsState(initial = null)
+    val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
@@ -100,11 +100,11 @@ fun VerifyItemScreen(
                         scope.launch {
                             val listingId = session?.listingId ?: ""
                             val dummyBytes = ByteArray(100) { it.toByte() }
-                            result = MockBackend.verifyPhoto(listingId, dummyBytes)
+                            result = AuraRepository.verifyPhoto(listingId, dummyBytes)
                             if (result?.pass == true) {
-                                MockBackend.updateTradeState(TradeState.VERIFIED_PASS)
+                                AuraRepository.updateTradeState(TradeState.VERIFIED_PASS)
                             } else {
-                                MockBackend.updateTradeState(TradeState.VERIFIED_FAIL)
+                                AuraRepository.updateTradeState(TradeState.VERIFIED_FAIL)
                             }
                             isVerifying = false
                         }
