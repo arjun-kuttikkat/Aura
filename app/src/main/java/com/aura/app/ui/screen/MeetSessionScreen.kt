@@ -60,6 +60,15 @@ fun MeetSessionScreen(
     val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
     val walletAddress by WalletConnectionState.walletAddress.collectAsState()
     val nfcState by NfcHandoverManager.state.collectAsState()
+    val sellerProfile by AuraRepository.currentProfile.collectAsState() // Fetching seller's Aura context
+
+    // Calculate dynamic risk level based on the seller's Aura Score
+    val sellerAura = sellerProfile?.auraScore ?: 50
+    val riskLevel = when {
+        sellerAura >= 80 -> com.aura.app.ui.components.RiskLevel.SAFE
+        sellerAura >= 50 -> com.aura.app.ui.components.RiskLevel.MODERATE
+        else -> com.aura.app.ui.components.RiskLevel.HIGH_RISK
+    }
 
     // Auto-advance when NFC confirms the chip read and backend verification succeeds
     LaunchedEffect(nfcState) {
@@ -111,6 +120,13 @@ fun MeetSessionScreen(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            
+            com.aura.app.ui.components.TradeRiskOracle(
+                sellerWallet = session?.sellerWallet ?: "?",
+                sellerAuraScore = sellerAura,
+                sellerAccountAgeDays = sellerProfile?.streakDays ?: 0, // Using streak as proxy for account age
+                modifier = Modifier.padding(bottom = 32.dp)
+            )
 
             AnimatedContent(
                 targetState = nfcState,
@@ -234,12 +250,16 @@ fun MeetSessionScreen(
                 Spacer(modifier = Modifier.height(32.dp))
                 Button(
                     onClick = {
+                        if (riskLevel == com.aura.app.ui.components.RiskLevel.HIGH_RISK) {
+                            // Enforce NFC for high-risk trades. Cannot bypass manually.
+                            return@Button 
+                        }
                         AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
                         onHandshakeComplete()
                     },
                     colors = ButtonDefaults.outlinedButtonColors()
                 ) {
-                    Text("Simulate Handshake (debug only)")
+                    Text(if (riskLevel == com.aura.app.ui.components.RiskLevel.HIGH_RISK) "Simulate Disabled (High Risk)" else "Simulate Handshake (debug only)")
                 }
             }
         }

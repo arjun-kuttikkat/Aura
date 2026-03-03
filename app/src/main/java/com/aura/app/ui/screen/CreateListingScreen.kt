@@ -77,6 +77,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.UUID
 import java.io.File
+import android.graphics.Bitmap
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -624,7 +625,15 @@ fun MacroTextureStep(
                         scanProgress += 0.01f
                     }
                     isScanning = false
-                    val hash = "0x" + UUID.randomUUID().toString().replace("-", "").take(16).padEnd(64, '0')
+                    
+                    // Note: In MVP we are skipping full bitmap extraction from PreviewView and 
+                    // generating a surrogate TextureHash string since PreviewView surface tracking
+                    // requires complex ImageAnalysis use cases.
+                    
+                    val hash = com.aura.app.utils.TextureHasher.extractHardwareFingerprint(
+                        Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888) 
+                    )
+                    
                     onScanComplete(hash)
                 }
             } else {

@@ -2,19 +2,28 @@
 // Dynamic Core NFTs — mints and evolves on-chain reputation badges
 // Seed (0-7 days) → Sprout (8-30) → Tree (31-90) → Aura (90+)
 
+// @ts-ignore
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts"
+// @ts-ignore
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+// @ts-ignore
 import { createUmi } from "https://esm.sh/@metaplex-foundation/umi-bundle-defaults"
+// @ts-ignore
 import { generateSigner, keypairIdentity, publicKey } from "https://esm.sh/@metaplex-foundation/umi"
+// @ts-ignore
 import {
     createV1,
     updateV1,
     fetchAssetV1,
 } from "https://esm.sh/@metaplex-foundation/mpl-core"
 
+// @ts-ignore
 const SOLANA_RPC = Deno.env.get("SOLANA_RPC_URL") || "https://api.devnet.solana.com"
+// @ts-ignore
 const AUTHORITY_KEY = JSON.parse(Deno.env.get("SOLANA_AUTHORITY_KEY") || "[]")
+// @ts-ignore
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
+// @ts-ignore
 const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 
 const corsHeaders = {
@@ -131,7 +140,7 @@ serve(async (req: Request) => {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         })
     } catch (e) {
-        return new Response(JSON.stringify({ error: e.message }), {
+        return new Response(JSON.stringify({ error: (e as Error).message }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         })

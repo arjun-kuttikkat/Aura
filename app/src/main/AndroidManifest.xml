@@ -3,6 +3,10 @@
 
     <!-- Network for Solana RPC and MWA -->
     <uses-permission android:name="android.permission.INTERNET" />
+    
+    <!-- Location permissions for Ad placement -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!-- Camera for face verification -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -42,6 +46,10 @@
             <meta-data android:name="android.nfc.cardemulation.host_apdu_service"
                 android:resource="@xml/apdu_service" />
         </service>
+
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${MAPS_API_KEY}" />
     </application>
 
 </manifest>

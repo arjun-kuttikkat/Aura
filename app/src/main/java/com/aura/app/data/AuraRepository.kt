@@ -49,6 +49,7 @@ data class ListingRow(
     @SerialName("mint_address") val mintAddress: String? = null,
     @SerialName("fingerprint_hash") val fingerprintHash: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("h3_index") val h3Index: String? = null,
 )
 
 @Serializable
@@ -105,7 +106,8 @@ object AuraRepository {
             if (profiles.isNotEmpty()) {
                 _currentProfile.value = profiles.first()
             } else {
-                val newProfile = ProfileDto(walletAddress = walletAddress)
+                // Ensure brand-new profiles start exactly at 0 to fuel the Game Loop.
+                val newProfile = ProfileDto(walletAddress = walletAddress, auraScore = 0)
                 val insertedList = supabase.postgrest["profiles"]
                     .insert(newProfile) { select() }
                     .decodeList<ProfileDto>()
@@ -237,12 +239,26 @@ object AuraRepository {
 
     // ── Listings ──────────────────────────────────────────────────────────────
 
-    fun refreshListings() {
+    fun refreshListings(h3Zone: String? = null) {
         scope.launch {
             try {
-                val rows = db.from("listings").select().decodeList<ListingRow>()
+                val rows = if (h3Zone != null) {
+                    // Use H3 Spatial RPC
+                    val reqBody = buildJsonObject {
+                        put("h3_zones", kotlinx.serialization.json.buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive(h3Zone)) })
+                    }
+                    db.postgrest.rpc("get_listings_by_h3_zones", reqBody)
+                        .decodeList<ListingRow>()
+                        .filter { it.mintedStatus != "ARCHIVED" } // Phase 4 Museum filter
+                } else {
+                    // Fallback to all globally active listings
+                    db.from("listings").select {
+                        filter { neq("minted_status", "ARCHIVED") } // Phase 4 Museum filter
+                    }.decodeList<ListingRow>()
+                }
+                
                 _listings.value = rows.map { it.toDomain() }
-                Log.d(TAG, "Loaded ${rows.size} listings from Supabase")
+                Log.d(TAG, "Loaded ${rows.size} listings from Supabase (Hotzone: ${h3Zone ?: "Global"})")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load listings", e)
             }
@@ -324,6 +340,21 @@ object AuraRepository {
         } catch (e: Exception) {
             Log.e(TAG, "verify-photo Edge Function failed", e)
             return VerificationResult(score = 0.5f, pass = false, reason = "Verification service unavailable")
+        }
+    }
+
+    suspend fun archiveListing(listingId: String) {
+        val listing = getListing(listingId) ?: return
+        try {
+            Log.d(TAG, "Archiving listing $listingId to Museum")
+            db.from("listings").update(
+                { set("minted_status", "ARCHIVED") }
+            ) { filter { eq("id", listingId) } }
+            
+            // Remove from local memory so the active feed shrinks dynamically
+            _listings.value = _listings.value.filter { it.id != listingId }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to archive listing", e)
         }
     }
 

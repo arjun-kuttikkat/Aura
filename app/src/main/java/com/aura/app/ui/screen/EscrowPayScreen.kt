@@ -2,11 +2,13 @@ package com.aura.app.ui.screen
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -29,6 +31,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aura.app.data.AuraRepository
 import com.aura.app.model.EscrowState
@@ -45,8 +48,9 @@ fun EscrowPayScreen(
     val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
     val listing = session?.let { AuraRepository.getListing(it.listingId) }
     
-    // Wallet State
+    // Wallet & Profile State
     val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
+    val currentProfile by AuraRepository.currentProfile.collectAsState()
     val scope = rememberCoroutineScope()
     
     var status by remember { mutableStateOf<EscrowState?>(null) }
@@ -82,6 +86,30 @@ fun EscrowPayScreen(
                     text = "%.2f SOL".format(it.priceLamports / 1_000_000_000.0),
                     style = MaterialTheme.typography.headlineSmall,
                 )
+                
+                // --- Phase 3: Reputation-Based Yield ---
+                val score = currentProfile?.auraScore ?: 0
+                if (score > 80) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    ) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("💎", style = MaterialTheme.typography.headlineSmall)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text("Aura Platinum Perk Applied!", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Text("Platform fee (0.5 SOL) waived due to high Trust Score.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "+ 0.5 SOL Platform Fee (Reach 80 Aura to waive fees)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(16.dp))
             

@@ -17,4 +17,5 @@ enum class MintedStatus {
     PENDING,
     MINTED,
     VERIFIED,
+    ARCHIVED,
 }

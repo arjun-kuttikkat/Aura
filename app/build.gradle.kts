@@ -29,6 +29,7 @@ android {
         buildConfigField("String", "HELIUS_KEY", "\"${localProps.getProperty("HELIUS_API_KEY", "")}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${localProps.getProperty("SUPABASE_URL", "")}\"")
         buildConfigField("String", "SUPABASE_KEY", "\"${localProps.getProperty("SUPABASE_KEY", "")}\"")
+        manifestPlaceholders["MAPS_API_KEY"] = localProps.getProperty("MAPS_API_KEY", "PLACEHOLDER_KEY")
     }
 
     buildTypes {
@@ -83,12 +84,14 @@ dependencies {
     implementation(libs.solana.rpc)
     implementation(libs.solana.multimult)
     
-    // ML Kit Face Detection
+    // ML Kit
     implementation(libs.mlkit.face.detection)
+    implementation("com.google.mlkit:image-labeling:17.0.9")
 
 
-    // Coroutines Guava
+    // Coroutines Guava & Play Services
     implementation(libs.kotlinx.coroutines.guava)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 
     // Supabase
     implementation("io.github.jan-tennert.supabase:postgrest-kt:3.1.4")
@@ -115,4 +118,14 @@ dependencies {
     // Animation & Persistence
     implementation(libs.lottie.compose)
     implementation(libs.datastore.preferences)
+
+    // New Additions: Maps, 3D Avatars, Confetti Animations
+    implementation(libs.maps.compose)
+    implementation(libs.play.services.maps)
+    implementation(libs.play.services.location)
+    implementation(libs.sceneview.arsceneview)
+    implementation(libs.konfetti.compose)
+    
+    // Uber H3 Spatial Indexing
+    implementation("com.uber:h3:4.1.1")
 }

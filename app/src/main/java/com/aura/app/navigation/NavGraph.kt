@@ -19,6 +19,7 @@ import com.aura.app.data.AuraRepository
 import com.aura.app.ui.components.MainBottomBar
 import com.aura.app.ui.screen.CreateListingScreen
 import com.aura.app.ui.screen.EscrowPayScreen
+import com.aura.app.ui.screen.ChatDetailScreen
 import com.aura.app.ui.screen.HomeScreen
 import com.aura.app.ui.screen.ListingDetailScreen
 import com.aura.app.ui.screen.MeetSessionScreen
@@ -33,9 +34,9 @@ import com.aura.app.wallet.WalletConnectionState
 
 private val MAIN_TAB_ROUTES = setOf(
     Routes.HOME,
-    Routes.REWARDS,
+    Routes.FAVORITES,
+    Routes.CHATS,
     Routes.PROFILE,
-    Routes.SETTINGS,
 )
 
 @Composable
@@ -69,6 +70,12 @@ fun NavGraph(
                     onListingClick = { id -> navController.navigate(Routes.listingDetail(id)) },
                 )
             }
+            composable(Routes.FAVORITES) {
+                com.aura.app.ui.screen.FavoritesScreen()
+            }
+            composable(Routes.CHATS) {
+                com.aura.app.ui.screen.ChatsScreen()
+            }
             composable(Routes.REWARDS) {
                 RewardsScreen()
             }
@@ -87,9 +94,33 @@ fun NavGraph(
                 )
             }
             composable(Routes.CREATE_LISTING) {
-                CreateListingScreen(
-                    onListingCreated = { navController.popBackStack() },
-                    onBack = { navController.popBackStack() },
+                com.aura.app.ui.screen.PlaceAdCategoryScreen(
+                    onCategorySelected = { category -> navController.navigate(Routes.placeAdType(category)) },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Routes.PLACE_AD_TYPE) { backStackEntry ->
+                val category = backStackEntry.arguments?.getString("category") ?: ""
+                com.aura.app.ui.screen.PlaceAdTypeScreen(
+                    category = category,
+                    onSellWithAI = { navController.navigate(Routes.PLACE_AD_UPLOAD) },
+                    onClassicPost = { navController.navigate(Routes.PLACE_AD_UPLOAD) },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Routes.PLACE_AD_UPLOAD) {
+                com.aura.app.ui.screen.PlaceAdAiUploadScreen(
+                    onNext = { navController.navigate(Routes.PLACE_AD_LOCATION) },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Routes.PLACE_AD_LOCATION) {
+                com.aura.app.ui.screen.PlaceAdLocationScreen(
+                    onLocationConfirmed = { 
+                        // Once location is confirmed, creation is complete -> Go Home
+                        navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } } 
+                    },
+                    onBack = { navController.popBackStack() }
                 )
             }
             composable(Routes.LISTING_DETAIL) { backStackEntry ->
@@ -100,6 +131,14 @@ fun NavGraph(
                 tradeSession = session,
                 onStartMeetup = { navController.navigate(Routes.MEET_SESSION) },
                 onBack = { navController.popBackStack() },
+                onChatClicked = { navController.navigate(Routes.chatDetail(listingId)) }
+            )
+        }
+        composable(Routes.CHAT_DETAIL) { backStackEntry ->
+            val listingId = backStackEntry.arguments?.getString("listingId") ?: return@composable
+            ChatDetailScreen(
+                listingId = listingId,
+                onBack = { navController.popBackStack() }
             )
         }
         composable(Routes.MEET_SESSION) {
