@@ -1,0 +1,133 @@
+package com.aura.app.data
+
+import android.content.Context
+import android.content.SharedPreferences
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+object AuraPreferences {
+    private const val PREFS_NAME = "aura_prefs"
+    private lateinit var prefs: SharedPreferences
+
+    private val _isDarkMode = MutableStateFlow(true)
+    val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
+
+    private val _notificationsEnabled = MutableStateFlow(true)
+    val notificationsEnabled: StateFlow<Boolean> = _notificationsEnabled.asStateFlow()
+
+    private val _transactionAlerts = MutableStateFlow(true)
+    val transactionAlerts: StateFlow<Boolean> = _transactionAlerts.asStateFlow()
+
+    private val _biometricsEnabled = MutableStateFlow(false)
+    val biometricsEnabled: StateFlow<Boolean> = _biometricsEnabled.asStateFlow()
+
+    private val _seedBackedUp = MutableStateFlow(false)
+    val seedBackedUp: StateFlow<Boolean> = _seedBackedUp.asStateFlow()
+
+    private val _publicProfile = MutableStateFlow(true)
+    val publicProfile: StateFlow<Boolean> = _publicProfile.asStateFlow()
+
+    private val _walletAddress = MutableStateFlow<String?>(null)
+    val walletAddress: StateFlow<String?> = _walletAddress.asStateFlow()
+
+    private val _identityVerified = MutableStateFlow(false)
+    val identityVerified: StateFlow<Boolean> = _identityVerified.asStateFlow()
+
+    private val _totalAuraEarned = MutableStateFlow(0)
+    val totalAuraEarned: StateFlow<Int> = _totalAuraEarned.asStateFlow()
+
+    private val _displayName = MutableStateFlow("")
+    val displayName: StateFlow<String> = _displayName.asStateFlow()
+
+    private val _bio = MutableStateFlow("")
+    val bio: StateFlow<String> = _bio.asStateFlow()
+
+    private val _avatarColorIndex = MutableStateFlow(0)
+    val avatarColorIndex: StateFlow<Int> = _avatarColorIndex.asStateFlow()
+
+    fun init(context: Context) {
+        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        _isDarkMode.value = prefs.getBoolean("dark_mode", true)
+        _notificationsEnabled.value = prefs.getBoolean("notifications", true)
+        _transactionAlerts.value = prefs.getBoolean("transaction_alerts", true)
+        _biometricsEnabled.value = prefs.getBoolean("biometrics", false)
+        _seedBackedUp.value = prefs.getBoolean("seed_backed_up", false)
+        _publicProfile.value = prefs.getBoolean("public_profile", true)
+        _walletAddress.value = prefs.getString("wallet_address", null)
+        _identityVerified.value = prefs.getBoolean("identity_verified", false)
+        _totalAuraEarned.value = prefs.getInt("total_aura_earned", 0)
+        _displayName.value = prefs.getString("display_name", "") ?: ""
+        _bio.value = prefs.getString("bio", "") ?: ""
+        _avatarColorIndex.value = prefs.getInt("avatar_color_index", 0)
+    }
+
+    fun setDarkMode(enabled: Boolean) {
+        _isDarkMode.value = enabled
+        prefs.edit().putBoolean("dark_mode", enabled).apply()
+    }
+
+    fun setNotifications(enabled: Boolean) {
+        _notificationsEnabled.value = enabled
+        prefs.edit().putBoolean("notifications", enabled).apply()
+    }
+
+    fun setTransactionAlerts(enabled: Boolean) {
+        _transactionAlerts.value = enabled
+        prefs.edit().putBoolean("transaction_alerts", enabled).apply()
+    }
+
+    fun setBiometrics(enabled: Boolean) {
+        _biometricsEnabled.value = enabled
+        prefs.edit().putBoolean("biometrics", enabled).apply()
+    }
+
+    fun setSeedBackedUp(enabled: Boolean) {
+        _seedBackedUp.value = enabled
+        prefs.edit().putBoolean("seed_backed_up", enabled).apply()
+    }
+
+    fun setPublicProfile(enabled: Boolean) {
+        _publicProfile.value = enabled
+        prefs.edit().putBoolean("public_profile", enabled).apply()
+    }
+
+    fun setIdentityVerified(verified: Boolean) {
+        _identityVerified.value = verified
+        prefs.edit().putBoolean("identity_verified", verified).apply()
+    }
+
+    fun addAuraReward(amount: Int) {
+        val newTotal = _totalAuraEarned.value + amount
+        _totalAuraEarned.value = newTotal
+        prefs.edit().putInt("total_aura_earned", newTotal).apply()
+    }
+
+    fun setDisplayName(name: String) {
+        _displayName.value = name
+        prefs.edit().putString("display_name", name).apply()
+    }
+
+    fun setBio(bio: String) {
+        _bio.value = bio
+        prefs.edit().putString("bio", bio).apply()
+    }
+
+    fun setAvatarColorIndex(index: Int) {
+        _avatarColorIndex.value = index
+        prefs.edit().putInt("avatar_color_index", index).apply()
+    }
+
+    fun setWalletInfo(address: String?, authToken: String?) {
+        _walletAddress.value = address
+        prefs.edit().apply {
+            putString("wallet_address", address)
+            putString("auth_token", authToken)
+            apply()
+        }
+    }
+
+    fun getAuthToken(): String? {
+        return prefs.getString("auth_token", null)
+    }
+}

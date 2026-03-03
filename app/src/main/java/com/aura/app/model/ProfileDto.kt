@@ -10,6 +10,9 @@ data class ProfileDto(
     @SerialName("aura_score") val auraScore: Int = 50,
     @SerialName("streak_days") val streakDays: Int = 0,
     @SerialName("last_scan_at") val lastScanAt: String? = null,
+    @SerialName("total_trades") val totalTrades: Int = 0,
+    @SerialName("apex_zones") val apexZones: List<String> = emptyList(),
+    @SerialName("directives_completed") val directivesCompleted: Int = 0,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null
 )

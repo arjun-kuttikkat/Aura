@@ -44,7 +44,8 @@ import androidx.compose.ui.unit.dp
 import com.aura.app.navigation.Routes
 import com.aura.app.ui.theme.GlassBorder
 import com.aura.app.ui.theme.GlassSurface
-import com.aura.app.ui.theme.Orange500
+import com.aura.app.ui.theme.SolanaGreen
+import com.aura.app.ui.theme.DarkVoid
 
 data class BottomNavItem(
     val route: String,
@@ -118,9 +119,9 @@ fun MainBottomBar(
                 .align(Alignment.Center)
                 .offset(y = (-14).dp)
                 .size(56.dp)
-                .shadow(20.dp, CircleShape, spotColor = Orange500.copy(alpha = 0.4f))
+                .shadow(20.dp, CircleShape, spotColor = SolanaGreen.copy(alpha = 0.4f))
                 .clip(CircleShape)
-                .background(Orange500)
+                .background(SolanaGreen)
                 .border(2.dp, Color.White.copy(alpha = 0.15f), CircleShape)
                 .clickable { onNavigate(centerItem.route) },
             contentAlignment = Alignment.Center,
@@ -129,7 +130,7 @@ fun MainBottomBar(
                 imageVector = centerItem.icon,
                 contentDescription = centerItem.label,
                 modifier = Modifier.size(28.dp),
-                tint = Color.Black,
+                tint = DarkVoid,
             )
         }
     }
@@ -160,13 +161,13 @@ private fun RowScope.BottomNavBarItem(
             imageVector = item.icon,
             contentDescription = item.label,
             modifier = Modifier.size(22.dp),
-            tint = if (selected) Orange500 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            tint = if (selected) SolanaGreen else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
         )
         Text(
             text = item.label,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = if (selected) Orange500 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            color = if (selected) SolanaGreen else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
         )
         // Active indicator dot
         if (selected) {
@@ -174,7 +175,7 @@ private fun RowScope.BottomNavBarItem(
                 modifier = Modifier
                     .size(4.dp)
                     .clip(CircleShape)
-                    .background(Orange500),
+                    .background(SolanaGreen),
             )
         } else {
             Spacer(modifier = Modifier.height(4.dp))

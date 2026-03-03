@@ -51,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -78,7 +79,7 @@ import java.util.UUID
 
 enum class ZoneState { MAP, SCANNING, RESULT }
 
-data class TurfZone(val id: String, val name: String, val distanceMeters: Int, val isRefined: Boolean, val ownerHash: String? = null)
+data class TurfZone(val id: String, val name: String, val distanceMeters: Int, val isRefined: Boolean, val ownerHash: String? = null, val gravity: Double = 0.0)
 
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -92,13 +93,24 @@ fun ZoneRefinementScreen(onBack: () -> Unit) {
     var scanProgress by remember { mutableStateOf(0f) }
     var proofHash by remember { mutableStateOf<String?>(null) }
     
-    val dummyZones = remember {
-        listOf(
-            TurfZone("z1", "Central Park Coffee", 45, false),
-            TurfZone("z2", "Tech Hub Lobby", 120, true, "AuRaVa...9821"),
-            TurfZone("z3", "University Library", 310, false),
-            TurfZone("z4", "Downtown Train Station", 890, true, "XyZ12...ABcD")
-        )
+    // Pull zones from HotzoneManager (live GPS data with fallback to demo)
+    val hotzones by com.aura.app.data.HotzoneManager.nearbyZones.collectAsState()
+    val turfZones = remember(hotzones) {
+        if (hotzones.isNotEmpty()) {
+            hotzones.map { hz: com.aura.app.model.Hotzone -> TurfZone(hz.id, hz.name, hz.distanceMeters ?: 0, hz.isRefined, hz.apexWallet, hz.gravity) }
+        } else {
+            listOf(
+                TurfZone("z1", "Central Park Coffee", 45, false),
+                TurfZone("z2", "Tech Hub Lobby", 120, true, "AuRaVa...9821", 336.0),
+                TurfZone("z3", "University Library", 310, false),
+                TurfZone("z4", "Downtown Train Station", 890, true, "XyZ12...ABcD", 4140.0)
+            )
+        }
+    }
+
+    // Refresh GPS location on compose
+    LaunchedEffect(Unit) {
+        com.aura.app.data.HotzoneManager.refreshLocation()
     }
 
     Scaffold(
@@ -190,7 +202,7 @@ fun ZoneRefinementScreen(onBack: () -> Unit) {
                         Spacer(modifier = Modifier.height(8.dp))
                         
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(dummyZones) { zone ->
+                            items(turfZones) { zone ->
                                 Card(
                                     modifier = Modifier.fillMaxWidth().clickable {
                                         selectedZone = zone
@@ -206,10 +218,15 @@ fun ZoneRefinementScreen(onBack: () -> Unit) {
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column {
-                                            Text(zone.name, fontWeight = FontWeight.SemiBold)
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(zone.name, fontWeight = FontWeight.SemiBold)
+                                                if (zone.isRefined && zone.ownerHash != null) {
+                                                    Text(" 👑", style = MaterialTheme.typography.titleMedium)
+                                                }
+                                            }
                                             Text("${zone.distanceMeters}m away", style = MaterialTheme.typography.bodySmall)
                                             if (zone.isRefined) {
-                                                Text("Owned by: ${zone.ownerHash}", color = Color.Red, style = MaterialTheme.typography.labelSmall)
+                                                Text("Apex: ${zone.ownerHash}  •  Gravity: ${String.format("%.0f", zone.gravity)}", color = Color.Red, style = MaterialTheme.typography.labelSmall)
                                             } else {
                                                 Text("Unrefined (Available)", color = Color.Green, style = MaterialTheme.typography.labelSmall)
                                             }
@@ -280,7 +297,7 @@ fun ZoneRefinementScreen(onBack: () -> Unit) {
                             
                             Box(modifier = Modifier.size(200.dp), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(
-                                    progress = { scanProgress },
+                                    progress = scanProgress,
                                     color = Gold500,
                                     modifier = Modifier.size(200.dp),
                                     strokeWidth = 8.dp

@@ -2,12 +2,19 @@ package com.aura.app.ui.screen
 
 import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,7 +44,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -46,6 +57,8 @@ import com.aura.app.model.TradeState
 import com.aura.app.util.NfcHandoverManager
 import com.aura.app.util.NfcHandshakeResult
 import com.aura.app.wallet.WalletConnectionState
+import com.aura.app.ui.util.HapticEngine
+import com.aura.app.ui.util.springScale
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.WriterException
@@ -62,18 +75,30 @@ fun MeetSessionScreen(
     val nfcState by NfcHandoverManager.state.collectAsState()
 
     // Auto-advance when NFC confirms the chip read and backend verification succeeds
+    val view = LocalView.current
     LaunchedEffect(nfcState) {
         if (nfcState is NfcHandshakeResult.Confirmed) {
             val confirmedState = nfcState as NfcHandshakeResult.Confirmed
+            HapticEngine.triggerSuccess(view)
+            
             session?.let { s ->
                 val listing = AuraRepository.getListing(s.listingId)
+                val metadataUri = listing?.images?.firstOrNull() ?: ""
+                val assetTitle = listing?.title ?: "Aura Verified Asset"
+                
                 val success = AuraRepository.releaseEscrowWithNfc(
                     tradeId = s.id,
                     listingId = s.listingId,
                     sdmDataHex = confirmedState.sdmDataHex,
                     receivedCmacHex = confirmedState.cmacHex,
-                    escrowPdaBase58 = "AuRAVaULtXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+                    escrowPdaBase58 = try {
+                        val pda = com.aura.app.wallet.AnchorTransactionBuilder.deriveEscrowPda(s.listingId)
+                        android.util.Base64.encodeToString(pda.address, android.util.Base64.NO_WRAP)
+                    } catch (_: Exception) { "" },
                     sellerWalletBase58 = s.sellerWallet,
+                    buyerWalletBase58 = walletAddress,
+                    assetUri = metadataUri,
+                    assetTitle = assetTitle,
                     amount = listing?.priceLamports ?: 0L
                 )
                 if (success) {
@@ -81,6 +106,8 @@ fun MeetSessionScreen(
                     onHandshakeComplete()
                 }
             }
+        } else if (nfcState is NfcHandshakeResult.Error) {
+            HapticEngine.triggerThud(view)
         }
     }
 
@@ -124,12 +151,42 @@ fun MeetSessionScreen(
                     when (state) {
 
                         is NfcHandshakeResult.Waiting -> {
-                            Icon(
-                                imageVector = Icons.Default.Nfc,
-                                contentDescription = "NFC",
-                                modifier = Modifier.size(96.dp),
-                                tint = MaterialTheme.colorScheme.primary
+                            val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                            val pulseScale by infiniteTransition.animateFloat(
+                                initialValue = 1f,
+                                targetValue = 2.5f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(1500, easing = FastOutLinearInEasing),
+                                    repeatMode = RepeatMode.Restart
+                                ),
+                                label = "scale"
                             )
+                            val pulseAlpha by infiniteTransition.animateFloat(
+                                initialValue = 0.8f,
+                                targetValue = 0f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(1500, easing = FastOutLinearInEasing),
+                                    repeatMode = RepeatMode.Restart
+                                ),
+                                label = "alpha"
+                            )
+
+                            Box(contentAlignment = Alignment.Center) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(96.dp)
+                                        .scale(pulseScale)
+                                        .alpha(pulseAlpha)
+                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.Nfc,
+                                    contentDescription = "NFC",
+                                    modifier = Modifier.size(96.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                             Text(
                                 "Tap the physical item's chip",
                                 style = MaterialTheme.typography.headlineSmall,
@@ -229,19 +286,8 @@ fun MeetSessionScreen(
                 }
             }
 
-            // Debug-only simulate button — remove for production releases
-            if (true) {
-                Spacer(modifier = Modifier.height(32.dp))
-                Button(
-                    onClick = {
-                        AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
-                        onHandshakeComplete()
-                    },
-                    colors = ButtonDefaults.outlinedButtonColors()
-                ) {
-                    Text("Simulate Handshake (debug only)")
-                }
-            }
+            // Strict Mode: Handshake must occur via NFC tap or fallback QR.
+            // Debug simulation bypassed.
         }
     }
 }

@@ -43,7 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aura.app.data.AuraRepository
 import com.aura.app.ui.components.MainTopBar
-import com.aura.app.ui.theme.DarkCard
+import com.aura.app.ui.theme.SlateElevated
 import com.aura.app.ui.theme.GlassBorder
 import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.Gold500
@@ -56,6 +56,13 @@ fun RewardsScreen() {
     val profile by AuraRepository.currentProfile.collectAsState()
     val auraScore = profile?.auraScore ?: 50
     val streak = profile?.streakDays ?: 0
+    val totalAura by com.aura.app.data.AuraPreferences.totalAuraEarned.collectAsState()
+    val completedToday by com.aura.app.data.DirectivesManager.completedToday.collectAsState()
+    val animatedAura by androidx.compose.animation.core.animateIntAsState(
+        targetValue = totalAura,
+        animationSpec = androidx.compose.animation.core.tween(1200),
+        label = "aura"
+    )
 
     Scaffold(
         topBar = { MainTopBar(title = "Rewards") },
@@ -85,13 +92,13 @@ fun RewardsScreen() {
                     Icon(Icons.Default.Token, contentDescription = null, tint = Gold500, modifier = Modifier.size(40.dp))
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "0.00 \$AURA",
+                        "$animatedAura \$AURA",
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         color = Gold500,
                     )
                     Text(
-                        "Earn tokens with every verified trade",
+                        if (totalAura == 0) "Complete directives to earn tokens" else "$completedToday directives completed today",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -178,7 +185,7 @@ private fun RewardCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = DarkCard),
+        colors = CardDefaults.cardColors(containerColor = SlateElevated),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -35,6 +36,17 @@ import com.aura.app.model.EscrowState
 import com.aura.app.model.TradeState
 import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.launch
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.foundation.border
+import androidx.compose.material.icons.filled.CheckCircle
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieCompositionSpec
+import com.airbnb.lottie.compose.rememberLottieComposition
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,7 +107,8 @@ fun EscrowPayScreen(
                         Text("Wallet Not Connected", style = MaterialTheme.typography.titleMedium)
                         Text("Connect your Solana wallet to proceed with payment.")
                         Spacer(modifier = Modifier.height(8.dp))
-                        Button(
+                        com.aura.app.ui.components.AuraPrimaryButton(
+                            text = "Connect Wallet",
                             onClick = {
                                 isLoading = true
                                 WalletConnectionState.connect(
@@ -108,82 +121,116 @@ fun EscrowPayScreen(
                                 )
                             },
                             enabled = !isLoading
-                        ) {
-                            Text("Connect Wallet")
-                        }
+                        )
                     }
                 }
             } else {
-                Text("Paying with: ${walletAddress?.take(4)}...${walletAddress?.takeLast(4)}")
+                val isSuccess = status == EscrowState.LOCKED || txSig != null
                 
-                if (status == null || status == EscrowState.PENDING) {
-                    Button(
-                        onClick = {
-                            val amount = listing?.priceLamports ?: 0L
-                            val amountSol = amount / 1_000_000_000.0
-                            
-                            isLoading = true
-                            errorMsg = null
-                            
-                            scope.launch {
-                                WalletConnectionState.signAndSendTransaction(
-                                    scope = scope,
-                                    recipientAddress = session?.sellerWallet ?: listing?.sellerWallet ?: return@launch,
-                                    amountSol = amountSol,
-                                    onSuccess = { sig ->
+                // ── 300ms Liquid Morphing State Completion Protocol ──
+                androidx.compose.animation.AnimatedContent(
+                    targetState = isSuccess,
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(300)) togetherWith
+                                fadeOut(animationSpec = tween(300))
+                    },
+                    modifier = Modifier.fillMaxWidth().animateContentSize(animationSpec = tween(300)),
+                    label = "morphing_button"
+                ) { success ->
+                    if (!success) {
+                        com.aura.app.ui.components.AuraPrimaryButton(
+                            text = if (isLoading) "Processing..." else "Confirmed: Pay %.2f SOL".format(listing?.priceLamports?.div(1_000_000_000.0) ?: 0.0),
+                            onClick = {
+                                val amount = listing?.priceLamports ?: 0L
+                                val amountSol = amount / 1_000_000_000.0
+                                
+                                isLoading = true
+                                errorMsg = null
+                                
+                                scope.launch {
+                                    try {
+                                        // 1. Fetch serialized Escrow TX from our backend/smart-contract interface
+                                        // The backend constructs the message and returns it as a ByteArray, which we encode to Base64
+                                        // for safe transport across layers here before the wallet adapter takes it.
+                                        val escrowTxBytes = AuraRepository.initEscrow(
+                                            tradeId = session?.id ?: return@launch,
+                                            amount = amount
+                                        )
+                                        val base64Tx = android.util.Base64.encodeToString(escrowTxBytes, android.util.Base64.NO_WRAP)
+                                        
+                                        // 2. Pass to Mobile Wallet Adapter for physical signing
+                                        WalletConnectionState.signAndSendTransaction(
+                                            scope = scope,
+                                            base64EncodedTx = base64Tx,
+                                            onSuccess = { sig ->
+                                                isLoading = false
+                                                txSig = sig
+                                                status = EscrowState.LOCKED
+                                                AuraRepository.updateTradeState(TradeState.ESCROW_LOCKED)
+                                            },
+                                            onError = { e ->
+                                                isLoading = false
+                                                errorMsg = e.message ?: "Transaction failed"
+                                            }
+                                        )
+                                    } catch (e: Exception) {
                                         isLoading = false
-                                        txSig = sig
-                                        status = EscrowState.LOCKED
-                                        AuraRepository.updateTradeState(TradeState.ESCROW_LOCKED)
-                                    },
-                                    onError = { e ->
-                                        isLoading = false
-                                        errorMsg = e.message ?: "Transaction failed"
+                                        errorMsg = "Escrow Init Failed: ${e.message}"
                                     }
+                                }
+                            },
+                            enabled = !isLoading
+                        )
+                    } else {
+                        val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "escrow_pulse")
+                        val bgAlpha by infiniteTransition.animateFloat(
+                            initialValue = 0.05f, targetValue = 0.35f,
+                            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                                animation = tween(1200, easing = androidx.compose.animation.core.FastOutLinearInEasing),
+                                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+                            ), label = "bg_alpha"
+                        )
+                        // Success State Morph
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, com.aura.app.ui.theme.SolanaGreen.copy(alpha = bgAlpha * 2), androidx.compose.foundation.shape.RoundedCornerShape(16.dp)),
+                            colors = CardDefaults.cardColors(containerColor = com.aura.app.ui.theme.SolanaGreen.copy(alpha = bgAlpha)),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                val composition by rememberLottieComposition(
+                                    LottieCompositionSpec.Url("https://lottie.host/80fb48c8-b5cc-4ff2-bc0d-bf5dc34ebc21/j5QvL9VdK4.json")
                                 )
+                                LottieAnimation(
+                                    composition = composition,
+                                    iterations = 1,
+                                    modifier = Modifier.size(64.dp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Escrow Locked", style = MaterialTheme.typography.titleMedium, color = com.aura.app.ui.theme.SolanaGreen)
+                                txSig?.let { Text("Sig: ${it.take(8)}...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !isLoading,
-                    ) {
-                        if (isLoading) {
-                            CircularProgressIndicator(modifier = Modifier.height(24.dp), color = MaterialTheme.colorScheme.onPrimary)
-                        } else {
-                            Text("Confirmed: Pay %.2f SOL".format(listing?.priceLamports?.div(1_000_000_000.0) ?: 0.0))
                         }
                     }
                 }
             }
             
-            errorMsg?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            errorMsg?.let { Text(it, color = com.aura.app.ui.theme.RadicalRed) }
             
             if (status == EscrowState.LOCKED || txSig != null) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Escrow Locked", style = MaterialTheme.typography.titleMedium)
-                        Text("Funds secured in Vault.", style = MaterialTheme.typography.bodyMedium)
-                        txSig?.let { Text("Sig: $it", style = MaterialTheme.typography.bodySmall) }
-                    }
-                }
-                
                 Spacer(modifier = Modifier.weight(1f))
-                
-                Button(
+                com.aura.app.ui.components.AuraPrimaryButton(
+                    text = "Complete Trade & Release Goods",
                     onClick = {
                         AuraRepository.updateTradeState(TradeState.COMPLETE)
                         onComplete()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                ) {
-                    Text("Complete Trade & Release Goods")
-                }
+                    }
+                )
             }
         }
     }

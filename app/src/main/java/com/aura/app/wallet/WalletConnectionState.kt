@@ -33,8 +33,15 @@ object WalletConnectionState {
     // Store a reference for starting the intent
     private var intentLauncher: ((Intent) -> Unit)? = null
 
+    // Attempt to restore session on init
     fun init(launcher: (Intent) -> Unit) {
         intentLauncher = launcher
+        val savedAddress = com.aura.app.data.AuraPreferences.walletAddress.value
+        val savedToken = com.aura.app.data.AuraPreferences.getAuthToken()
+        if (savedAddress != null && savedToken != null) {
+            _walletAddress.value = savedAddress
+            _authToken.value = savedToken
+        }
     }
 
     fun connect(
@@ -44,12 +51,18 @@ object WalletConnectionState {
     ) {
         scope.launch {
             try {
-                val result = withContext(Dispatchers.IO) {
-                    performAuthorization()
+                if (_walletAddress.value == null || _authToken.value == null) {
+                    val result = withContext(Dispatchers.IO) {
+                        performAuthorization(null) // No existing token, perform full authorization
+                    }
+                    _walletAddress.value = result.first
+                    _authToken.value = result.second
+                    com.aura.app.data.AuraPreferences.setWalletInfo(result.first, result.second)
+                    onSuccess(result.first)
+                } else {
+                    // Already connected, just report success with current address
+                    _walletAddress.value?.let { onSuccess(it) }
                 }
-                _walletAddress.value = result.first
-                _authToken.value = result.second
-                onSuccess(result.first)
             } catch (e: ActivityNotFoundException) {
                 onError(Exception("No MWA-compatible wallet found. Install Phantom or Solflare."))
             } catch (e: Exception) {
@@ -59,7 +72,7 @@ object WalletConnectionState {
         }
     }
 
-    private suspend fun performAuthorization(): Pair<String, String> {
+    private suspend fun performAuthorization(token: String?): Pair<String, String> {
         val scenario = LocalAssociationScenario(Scenario.DEFAULT_CLIENT_TIMEOUT_MS)
 
         val associationIntent = LocalAssociationIntentCreator.createAssociationIntent(
@@ -81,19 +94,38 @@ object WalletConnectionState {
                 as MobileWalletAdapterClient
 
             try {
-                // Authorize
-                val authResult = client.authorize(
-                    Uri.parse("https://aura.app"),    // identityUri
-                    Uri.parse("favicon.ico"),          // iconUri
-                    "Aura",                             // identityName
-                    "mainnet-beta"                      // cluster
-                ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                // Try Reauthorize first if we have a token
+                val authResult = if (token != null) {
+                    try {
+                        client.reauthorize(
+                            Uri.parse("https://aura.app"),
+                            Uri.parse("favicon.ico"),
+                            "Aura",
+                            token
+                        ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    } catch (e: Exception) {
+                        // Reauth failed, fallback to authorize
+                        client.authorize(
+                            Uri.parse("https://aura.app"),
+                            Uri.parse("favicon.ico"),
+                            "Aura",
+                            "mainnet-beta"
+                        ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    }
+                } else {
+                    client.authorize(
+                        Uri.parse("https://aura.app"),
+                        Uri.parse("favicon.ico"),
+                        "Aura",
+                        "mainnet-beta"
+                    ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                }
 
                 val pubKeyBytes = authResult.accounts[0].publicKey
                 val address = Base58.encodeToString(pubKeyBytes)
-                val token = authResult.authToken
+                val newToken = authResult.authToken
 
-                Pair(address, token)
+                Pair(address, newToken)
             } finally {
                 scenario.close()
                     .get(ASSOCIATION_TIMEOUT_MS, TimeUnit.MILLISECONDS)
@@ -109,15 +141,14 @@ object WalletConnectionState {
 
     suspend fun signAndSendTransaction(
         scope: CoroutineScope,
-        recipientAddress: String,
-        amountSol: Double,
+        base64EncodedTx: String,
         onSuccess: (String) -> Unit,
         onError: (Exception) -> Unit
     ) {
         scope.launch {
             try {
                 val txSignature = withContext(Dispatchers.IO) {
-                    performTransaction(recipientAddress, amountSol)
+                    performTransaction(base64EncodedTx)
                 }
                 onSuccess(txSignature)
             } catch (e: Exception) {
@@ -128,8 +159,7 @@ object WalletConnectionState {
     }
 
     private suspend fun performTransaction(
-        recipientAddress: String,
-        amountSol: Double
+        base64EncodedTx: String
     ): String {
         val scenario = LocalAssociationScenario(Scenario.DEFAULT_CLIENT_TIMEOUT_MS)
 
@@ -168,18 +198,18 @@ object WalletConnectionState {
                     ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
                 }
 
-                // TODO: Build a real SystemProgram.transfer or Anchor Escrow TX here
-                // We use a dummy payload for the prototype that the wallet might reject/simulate, 
-                // but it successfully tests the MWA integration pathway.
-                val simulatedTxPayload = ByteArray(64) { it.toByte() }
+                // Decode the serialized transaction built by the Repository / Edge Function
+                val txPayload = android.util.Base64.decode(base64EncodedTx, android.util.Base64.NO_WRAP)
                 
                 val result = client.signAndSendTransactions(
-                    arrayOf(simulatedTxPayload),
+                    arrayOf(txPayload),
                     null // minContextSlot
-                ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-
-                val signatureBytes = result.signatures[0]
-                Base58.encodeToString(signatureBytes)
+                )
+                
+                // For Kotlin MWA bindings, result may be wrapped in Execution or deferred
+                val resolvedResult = result.get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                val signatureBytes = resolvedResult.signatures[0]
+                return Base58.encodeToString(signatureBytes)
             } finally {
                 scenario.close()
                     .get(ASSOCIATION_TIMEOUT_MS, TimeUnit.MILLISECONDS)
@@ -196,5 +226,6 @@ object WalletConnectionState {
     fun disconnect() {
         _walletAddress.value = null
         _authToken.value = null
+        com.aura.app.data.AuraPreferences.setWalletInfo(null, null)
     }
 }

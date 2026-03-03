@@ -51,18 +51,40 @@ serve(async (req) => {
         const authorityKeypair = Keypair.fromSecretKey(bs58.decode(secretKeyStr));
         const escrowPda = new PublicKey(escrowPdaBase58);
         const sellerPubkey = new PublicKey(sellerWalletBase58);
-        const vaultPda = PublicKey.findProgramAddressSync([Buffer.from("vault"), escrowPda.toBuffer()], new PublicKey("AuRAVaULtXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"))[0];
+        const PROGRAM_ID = new PublicKey("BMKWLYrXtuuxp4TA4yNhrs9LbomR1fMdbrko6R7Qj5WM");
+        const vaultPda = PublicKey.findProgramAddressSync([Buffer.from("vault"), escrowPda.toBuffer()], PROGRAM_ID)[0];
 
-        // Build the instruction mapping to the Anchor `release_funds`
-        // (This requires the compiled IDL instruction discriminator. For brevity in this raw transaction, we skip the Anchor serialization and assume a direct instruction call).
+        // Build release_funds_and_mint instruction
+        // Anchor discriminator for "global:release_funds_and_mint"
+        const crypto = await import("node:crypto");
+        const discriminator = crypto.createHash("sha256")
+            .update("global:release_funds_and_mint")
+            .digest()
+            .slice(0, 8);
 
-        // 3. Mark Trade Session as Completed in Supabase DB (Simulated here)
-        // await supabase.from('trade_sessions').update({ status: 'COMPLETED' }).eq('listing_id', listingId);
+        const tx = new Transaction();
+        tx.add({
+            programId: PROGRAM_ID,
+            keys: [
+                { pubkey: sellerPubkey, isSigner: false, isWritable: true },
+                { pubkey: escrowPda, isSigner: false, isWritable: true },
+                { pubkey: vaultPda, isSigner: false, isWritable: true },
+                { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+            ],
+            data: discriminator,
+        });
+
+        tx.feePayer = authorityKeypair.publicKey;
+        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+        tx.sign(authorityKeypair);
+
+        const signature = await connection.sendRawTransaction(tx.serialize());
+        await connection.confirmTransaction(signature, "confirmed");
 
         return new Response(JSON.stringify({
             success: true,
             message: "NFC Verified and Escrow successfully released",
-            // txSignature: signature
+            txSignature: signature
         }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });

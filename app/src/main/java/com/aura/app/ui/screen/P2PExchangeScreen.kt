@@ -3,6 +3,12 @@ package com.aura.app.ui.screen
 import android.app.Activity
 import android.net.Uri
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -18,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -49,7 +56,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -61,6 +70,16 @@ import com.aura.app.util.NfcHandshakeResult
 import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import java.util.concurrent.Executors
+import com.aura.app.util.FaceAnalyzer
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 enum class ExchangeMode { SEND, RECEIVE }
 
@@ -116,20 +135,36 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                 // solana:ADDRESS?amount=X
                 val recipient = uri.schemeSpecificPart.substringBefore("?")
                 val amount = uri.getQueryParameter("amount")?.toDoubleOrNull() ?: 0.0
+                val lamports = (amount * 1_000_000_000).toLong()
                 
-                WalletConnectionState.signAndSendTransaction(
-                    scope = scope,
-                    recipientAddress = recipient,
-                    amountSol = amount,
-                    onSuccess = { sig ->
-                        txSignature = sig
-                        isProcessingTx = false
-                    },
-                    onError = { e ->
-                        txError = e.message ?: "Transaction failed"
+                // Build real SOL transfer transaction
+                scope.launch {
+                    try {
+                        val senderWallet = walletAddress ?: throw Exception("Wallet not connected")
+                        val txBytes = com.aura.app.wallet.AnchorTransactionBuilder.buildSolTransferTx(
+                            fromPubkey = senderWallet,
+                            toPubkey = recipient,
+                            lamports = lamports,
+                        )
+                        val base64Tx = android.util.Base64.encodeToString(txBytes, android.util.Base64.NO_WRAP)
+                        
+                        WalletConnectionState.signAndSendTransaction(
+                            scope = scope,
+                            base64EncodedTx = base64Tx,
+                            onSuccess = { sig ->
+                                txSignature = sig
+                                isProcessingTx = false
+                            },
+                            onError = { e ->
+                                txError = e.message ?: "Transaction failed"
+                                isProcessingTx = false
+                            }
+                        )
+                    } catch (e: Exception) {
+                        txError = e.message ?: "Failed to build transaction"
                         isProcessingTx = false
                     }
-                )
+                }
             }
         }
     }
@@ -206,7 +241,21 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                             CircularProgressIndicator()
                             Text("Signing transaction securely via MWA...")
                         } else {
-                            Icon(Icons.Default.Nfc, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(96.dp))
+                            val infiniteTransition = rememberInfiniteTransition(label = "pulse_sender")
+                            val pulseScale by infiniteTransition.animateFloat(
+                                initialValue = 1f, targetValue = 2.5f,
+                                animationSpec = infiniteRepeatable(animation = tween(1500, easing = FastOutLinearInEasing), repeatMode = RepeatMode.Restart), label = "scale"
+                            )
+                            val pulseAlpha by infiniteTransition.animateFloat(
+                                initialValue = 0.8f, targetValue = 0f,
+                                animationSpec = infiniteRepeatable(animation = tween(1500, easing = FastOutLinearInEasing), repeatMode = RepeatMode.Restart), label = "alpha"
+                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Box(
+                                    modifier = Modifier.size(96.dp).scale(pulseScale).alpha(pulseAlpha).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                                )
+                                Icon(Icons.Default.Nfc, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(96.dp))
+                            }
                             Text("Ready to Send", style = MaterialTheme.typography.headlineMedium)
                             Text(
                                 "Tap your phone to the merchant's Aura device to instantly pay over a secure zero-trust NFC connection.",
@@ -243,17 +292,58 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                                 Text("Generate Secure Request")
                             }
                         } else if (isLivenessVerifying) {
-                            CircularProgressIndicator(modifier = Modifier.size(64.dp))
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text("Verifying Face Liveness (ML Kit)...", style = MaterialTheme.typography.titleMedium)
-                            Text("Proving your physical presence to prevent remote exploits.", textAlign = TextAlign.Center)
-                            
-                            LaunchedEffect(Unit) {
-                                // Real ML Kit face detection processes frames continuously
-                                // In production: FaceDetector.process(image) checks smilingProbability > 0.5
-                                delay(800) // Brief processing time for ML Kit inference
-                                isLivenessVerified = true
-                                isLivenessVerifying = false
+                            val lifecycleOwner = LocalLifecycleOwner.current
+                            Box(modifier = Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(16.dp))) {
+                                AndroidView(
+                                    factory = { ctx ->
+                                        val previewView = PreviewView(ctx).apply {
+                                            scaleType = PreviewView.ScaleType.FILL_CENTER
+                                        }
+                                        val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                                        cameraProviderFuture.addListener({
+                                            val cameraProvider = cameraProviderFuture.get()
+                                            val preview = Preview.Builder().build().also {
+                                                it.setSurfaceProvider(previewView.surfaceProvider)
+                                            }
+                                            val imageAnalysis = ImageAnalysis.Builder()
+                                                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                                .build()
+                                                .also {
+                                                    it.setAnalyzer(Executors.newSingleThreadExecutor(), FaceAnalyzer(
+                                                        onFaceDetected = {
+                                                            // Face recognized mapping to physical presence
+                                                            isLivenessVerified = true
+                                                            isLivenessVerifying = false
+                                                        },
+                                                        onNoFaceDetected = {}
+                                                    ))
+                                                }
+                                            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+                                            try {
+                                                cameraProvider.unbindAll()
+                                                cameraProvider.bindToLifecycle(
+                                                    lifecycleOwner,
+                                                    cameraSelector,
+                                                    preview,
+                                                    imageAnalysis
+                                                )
+                                            } catch (exc: Exception) {
+                                                android.util.Log.e("P2P", "Camera binding failed", exc)
+                                            }
+                                        }, ContextCompat.getMainExecutor(ctx))
+                                        previewView
+                                    },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                Column(
+                                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Bottom
+                                ) {
+                                    CircularProgressIndicator(color = Color.Green)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("Verifying physical presence...", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                                }
                             }
                         } else {
                             Icon(Icons.Default.QrCode, contentDescription = null, tint = com.aura.app.ui.theme.Orange500, modifier = Modifier.size(96.dp))

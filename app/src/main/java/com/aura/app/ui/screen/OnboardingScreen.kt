@@ -57,8 +57,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.aura.app.ui.theme.Gold500
-import com.aura.app.ui.theme.Orange500
+import com.aura.app.ui.theme.UltraViolet
+import com.aura.app.ui.theme.SolanaGreen
+import com.aura.app.ui.theme.DarkVoid
 import com.aura.app.ui.theme.SolanaGradientEnd
 import com.aura.app.ui.theme.SolanaGradientStart
 import com.aura.app.ui.theme.SuccessGreen
@@ -134,7 +135,7 @@ fun OnboardingScreen(
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
-                        listOf(Orange500, Color.Transparent)
+                        listOf(UltraViolet, Color.Transparent)
                     )
                 )
         )
@@ -148,7 +149,7 @@ fun OnboardingScreen(
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
-                        listOf(Gold500, Color.Transparent)
+                        listOf(SolanaGreen, Color.Transparent)
                     )
                 )
         )
@@ -195,8 +196,7 @@ fun OnboardingScreen(
                 ) {
                     Icon(
                         step.icon, contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = Orange500,
+                        tint = SolanaGreen,
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
@@ -226,7 +226,7 @@ fun OnboardingScreen(
                             .size(if (idx == currentStep) 10.dp else 6.dp)
                             .clip(CircleShape)
                             .background(
-                                if (idx == currentStep) Orange500
+                                if (idx == currentStep) SolanaGreen
                                 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                             ),
                     )
@@ -278,8 +278,8 @@ fun OnboardingScreen(
                     enabled = !isLoading,
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Orange500,
-                        contentColor = Color.Black,
+                        containerColor = SolanaGreen,
+                        contentColor = DarkVoid,
                     ),
                 ) {
                     if (isLoading) {

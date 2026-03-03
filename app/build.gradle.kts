@@ -33,7 +33,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -115,4 +116,12 @@ dependencies {
     // Animation & Persistence
     implementation(libs.lottie.compose)
     implementation(libs.datastore.preferences)
+
+    // Google Fonts
+    implementation("androidx.compose.ui:ui-text-google-fonts:1.6.1")
+
+    // GPS / Location — Hotzone Turf Wars
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("com.google.android.gms:play-services-tasks:18.2.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 }

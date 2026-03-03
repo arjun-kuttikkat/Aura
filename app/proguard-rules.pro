@@ -1,21 +1,53 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# ProGuard/R8 rules for Aura
+# ══════════════════════════════════════════════════════════════════
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# ── Kotlinx Serialization ─────────────────────────────────────────
+-keepattributes *Annotation*, InnerClasses
+-dontnote kotlinx.serialization.AnnotationsKt
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+-keepclassmembers @kotlinx.serialization.Serializable class ** {
+    *** Companion;
+    *** INSTANCE;
+    kotlinx.serialization.KSerializer serializer(...);
+}
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+-keepclasseswithmembers class ** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
+-keep,includedescriptorclasses class com.aura.app.model.**$$serializer { *; }
+-keepclassmembers class com.aura.app.model.** {
+    *** Companion;
+}
+
+# ── Supabase / Ktor ───────────────────────────────────────────────
+-keep class io.github.jan.supabase.** { *; }
+-keep class io.ktor.** { *; }
+-dontwarn io.ktor.**
+-dontwarn io.github.jan.supabase.**
+
+# ── Solana Mobile Wallet Adapter ──────────────────────────────────
+-keep class com.solana.mobilewalletadapter.** { *; }
+-keep class com.funkatronics.** { *; }
+-dontwarn com.solana.mobilewalletadapter.**
+-dontwarn com.funkatronics.**
+
+# ── ML Kit Face Detection ─────────────────────────────────────────
+-keep class com.google.mlkit.** { *; }
+-dontwarn com.google.mlkit.**
+
+# ── Google Play Services Location ─────────────────────────────────
+-keep class com.google.android.gms.location.** { *; }
+
+# ── ZXing QR ──────────────────────────────────────────────────────
+-keep class com.google.zxing.** { *; }
+
+# ── Coil Image Loading ────────────────────────────────────────────
+-keep class coil.** { *; }
+
+# ── Lottie ────────────────────────────────────────────────────────
+-keep class com.airbnb.lottie.** { *; }
+
+# ── Keep line numbers for crash stack traces ──────────────────────
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
