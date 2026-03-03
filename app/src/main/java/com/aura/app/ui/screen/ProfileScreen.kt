@@ -5,9 +5,14 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.AnimatedVisibility
+import com.aura.app.ui.util.pulseGlow
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -151,6 +156,12 @@ fun ProfileScreen(
     Scaffold(
         topBar = { MainTopBar(title = "Profile") },
     ) { padding ->
+        var contentVisible by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            kotlinx.coroutines.delay(100)
+            contentVisible = true
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -171,8 +182,22 @@ fun ProfileScreen(
                 } ?: false
             }
 
-            Box(contentAlignment = Alignment.Center) {
-                com.aura.app.ui.components.AuraCoreRenderer(
+            AnimatedVisibility(
+                visible = contentVisible,
+                enter = fadeIn(tween(400)) + slideInVertically(
+                    initialOffsetY = { 50 },
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                )
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    // Avatar Glow
+                    Box(
+                        modifier = Modifier
+                            .size(180.dp)
+                            .clip(CircleShape)
+                            .background(Brush.radialGradient(listOf(SuccessGreen.copy(alpha = 0.2f), Color.Transparent)))
+                    )
+                    com.aura.app.ui.components.AuraCoreRenderer(
                     streakDays = streakRaw,
                     auraScore = trustScoreRaw,
                     isDegraded = isDegraded,
@@ -185,9 +210,18 @@ fun ProfileScreen(
                     color = Color.White.copy(alpha = 0.9f),
                 )
             }
+            }
 
-            // ── Display Name (tap to edit) ──
-            Text(
+            AnimatedVisibility(
+                visible = contentVisible,
+                enter = fadeIn(tween(400, delayMillis = 100)) + slideInVertically(
+                    initialOffsetY = { 50 },
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                )
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    // ── Display Name (tap to edit) ──
+                    Text(
                 text = displayName.ifBlank { "Tap to set name" },
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
@@ -241,8 +275,16 @@ fun ProfileScreen(
                     if (index < avatarPalette.size - 1) Spacer(modifier = Modifier.width(8.dp))
                 }
             }
+            } // End of User Info AnimatedVisibility
 
             // ── Trust Score card ──
+            AnimatedVisibility(
+                visible = contentVisible,
+                enter = fadeIn(tween(400, delayMillis = 200)) + slideInVertically(
+                    initialOffsetY = { 50 },
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                )
+            ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -271,16 +313,25 @@ fun ProfileScreen(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("${tier.name} Tier", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Gold500)
                         }
+                        }
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.LocalFireDepartment, contentDescription = null, tint = Orange500, modifier = Modifier.size(32.dp))
+                        Icon(Icons.Default.LocalFireDepartment, contentDescription = null, tint = Orange500, modifier = Modifier.size(32.dp).pulseGlow())
                         Text("$streak", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Orange500)
                         Text("day streak", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
+            }
 
             // ── NFT Evolution card (visual progress) ──
+            AnimatedVisibility(
+                visible = contentVisible,
+                enter = fadeIn(tween(400, delayMillis = 300)) + slideInVertically(
+                    initialOffsetY = { 50 },
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                )
+            ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -354,11 +405,20 @@ fun ProfileScreen(
                     }
                 }
             }
+            }
 
             val context = androidx.compose.ui.platform.LocalContext.current
             val isVerified by com.aura.app.data.AuraPreferences.identityVerified.collectAsState()
 
-            if (isVerified) {
+            AnimatedVisibility(
+                visible = contentVisible,
+                enter = fadeIn(tween(400, delayMillis = 400)) + slideInVertically(
+                    initialOffsetY = { 50 },
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                )
+            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (isVerified) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -429,6 +489,7 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Share Profile", fontWeight = FontWeight.Medium)
             }
+            } // End of bottom buttons AnimatedVisibility
 
             Spacer(modifier = Modifier.height(24.dp))
         }

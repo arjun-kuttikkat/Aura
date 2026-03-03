@@ -1,5 +1,6 @@
 package com.aura.app.ui.screen
 
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -47,6 +48,9 @@ import androidx.compose.material.icons.filled.CheckCircle
 import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.rememberLottieComposition
+import androidx.compose.ui.platform.LocalView
+import com.aura.app.ui.util.HapticEngine
+import com.aura.app.ui.util.breathe
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +64,7 @@ fun EscrowPayScreen(
     // Wallet State
     val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
+    val view = LocalView.current
     
     var status by remember { mutableStateOf<EscrowState?>(null) }
     var txSig by remember { mutableStateOf<String?>(null) }
@@ -82,7 +87,8 @@ fun EscrowPayScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
+                .padding(16.dp)
+                .then(if (isLoading) Modifier.breathe() else Modifier),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             listing?.let {
@@ -141,6 +147,7 @@ fun EscrowPayScreen(
                         com.aura.app.ui.components.AuraPrimaryButton(
                             text = if (isLoading) "Processing..." else "Confirmed: Pay %.2f SOL".format(listing?.priceLamports?.div(1_000_000_000.0) ?: 0.0),
                             onClick = {
+                                HapticEngine.triggerThud(view) // Financial gravity
                                 val amount = listing?.priceLamports ?: 0L
                                 val amountSol = amount / 1_000_000_000.0
                                 
@@ -163,6 +170,7 @@ fun EscrowPayScreen(
                                             scope = scope,
                                             base64EncodedTx = base64Tx,
                                             onSuccess = { sig ->
+                                                HapticEngine.triggerSuccess(view)
                                                 isLoading = false
                                                 txSig = sig
                                                 status = EscrowState.LOCKED

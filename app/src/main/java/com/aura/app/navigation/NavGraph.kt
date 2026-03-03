@@ -1,5 +1,8 @@
 package com.aura.app.navigation
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -58,6 +61,8 @@ fun NavGraph(
             NavHost(
                 navController = navController,
                 startDestination = startDestination,
+                enterTransition = { fadeIn(animationSpec = tween(200)) },
+                exitTransition = { fadeOut(animationSpec = tween(150)) },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)

@@ -7,6 +7,7 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -78,7 +79,9 @@ import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SuccessGreen
 import com.aura.app.ui.theme.Gold500
+import com.aura.app.ui.util.HapticEngine
 import com.aura.app.ui.util.springScale
+import androidx.compose.ui.platform.LocalView
 import kotlinx.coroutines.delay
 import androidx.compose.animation.AnimatedVisibility
 
@@ -100,34 +103,82 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
+            val view = LocalView.current
+            var fabVisible by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                delay(300)
+                fabVisible = true
+            }
             Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                ExtendedFloatingActionButton(
-                    onClick = { onNavigate(com.aura.app.navigation.Routes.DIRECTIVES) },
-                    icon = { Icon(Icons.Filled.Star, "Directives") },
-                    text = { Text("Directives", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold) },
-                    containerColor = com.aura.app.ui.theme.UltraViolet,
-                    contentColor = Color.White,
-                    shape = RoundedCornerShape(16.dp),
-                )
-                ExtendedFloatingActionButton(
-                    onClick = { onNavigate(com.aura.app.navigation.Routes.P2P_EXCHANGE) },
-                    icon = { Icon(Icons.Filled.Send, "Quick Pay") },
-                    text = { Text("Quick Pay", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold) },
-                    containerColor = com.aura.app.ui.theme.DarkVoid,
-                    contentColor = com.aura.app.ui.theme.SolanaGreen,
-                    shape = RoundedCornerShape(16.dp),
-                )
-                ExtendedFloatingActionButton(
-                    onClick = { onNavigate(com.aura.app.navigation.Routes.CREATE_LISTING) },
-                    icon = { Icon(Icons.Filled.Star, "Create Listing") },
-                    text = { Text("Create Listing", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold) },
-                    containerColor = com.aura.app.ui.theme.SolanaGreen,
-                    contentColor = com.aura.app.ui.theme.DarkVoid,
-                    shape = RoundedCornerShape(16.dp),
-                )
+                // Directives FAB — enters first
+                AnimatedVisibility(
+                    visible = fabVisible,
+                    enter = fadeIn(tween(300, delayMillis = 0)) + slideInHorizontally(
+                        initialOffsetX = { 200 },
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                    ),
+                ) {
+                    val fabInteraction1 = remember { MutableInteractionSource() }
+                    val fabPressed1 by fabInteraction1.collectIsPressedAsState()
+                    LaunchedEffect(fabPressed1) { if (fabPressed1) HapticEngine.triggerClick(view) }
+                    ExtendedFloatingActionButton(
+                        onClick = { onNavigate(com.aura.app.navigation.Routes.DIRECTIVES) },
+                        icon = { Icon(Icons.Filled.Star, "Directives") },
+                        text = { Text("Directives", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold) },
+                        containerColor = com.aura.app.ui.theme.UltraViolet,
+                        contentColor = Color.White,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.springScale(isPressed = fabPressed1),
+                        interactionSource = fabInteraction1,
+                    )
+                }
+                // Quick Pay FAB — enters second
+                AnimatedVisibility(
+                    visible = fabVisible,
+                    enter = fadeIn(tween(300, delayMillis = 150)) + slideInHorizontally(
+                        initialOffsetX = { 200 },
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                    ),
+                ) {
+                    val fabInteraction2 = remember { MutableInteractionSource() }
+                    val fabPressed2 by fabInteraction2.collectIsPressedAsState()
+                    LaunchedEffect(fabPressed2) { if (fabPressed2) HapticEngine.triggerClick(view) }
+                    ExtendedFloatingActionButton(
+                        onClick = { onNavigate(com.aura.app.navigation.Routes.P2P_EXCHANGE) },
+                        icon = { Icon(Icons.Filled.Send, "Quick Pay") },
+                        text = { Text("Quick Pay", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold) },
+                        containerColor = com.aura.app.ui.theme.DarkVoid,
+                        contentColor = com.aura.app.ui.theme.SolanaGreen,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.springScale(isPressed = fabPressed2),
+                        interactionSource = fabInteraction2,
+                    )
+                }
+                // Create Listing FAB — enters third
+                AnimatedVisibility(
+                    visible = fabVisible,
+                    enter = fadeIn(tween(300, delayMillis = 300)) + slideInHorizontally(
+                        initialOffsetX = { 200 },
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                    ),
+                ) {
+                    val fabInteraction3 = remember { MutableInteractionSource() }
+                    val fabPressed3 by fabInteraction3.collectIsPressedAsState()
+                    LaunchedEffect(fabPressed3) { if (fabPressed3) HapticEngine.triggerClick(view) }
+                    ExtendedFloatingActionButton(
+                        onClick = { onNavigate(com.aura.app.navigation.Routes.CREATE_LISTING) },
+                        icon = { Icon(Icons.Filled.Star, "Create Listing") },
+                        text = { Text("Create Listing", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold) },
+                        containerColor = com.aura.app.ui.theme.SolanaGreen,
+                        contentColor = com.aura.app.ui.theme.DarkVoid,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.springScale(isPressed = fabPressed3),
+                        interactionSource = fabInteraction3,
+                    )
+                }
             }
         },
     ) { padding ->

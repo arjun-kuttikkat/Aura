@@ -30,7 +30,7 @@ val LightOnSurface = Color(0xFF0F172A)
 val LightOnSurfaceVariant = Color(0xFF475569)
 
 // ── Glassmorphism & Borders ─────────────────────────────────────────────
-val GlassSurface = Color.White.copy(alpha = 0.05f)
+val GlassSurface = Color.White.copy(alpha = 0.08f)
 val GlassBorder = SlateLight
 
 // ── Semantic & Brand Colors ──────────────────────────────────────────────────

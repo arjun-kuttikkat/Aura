@@ -1,5 +1,17 @@
 package com.aura.app.ui.screen
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+import androidx.compose.ui.draw.scale
+import com.aura.app.ui.util.pulseGlow
+import com.aura.app.ui.util.shimmerBorder
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,6 +76,19 @@ fun ListingDetailScreen(
 ) {
     val listing = AuraRepository.getListing(listingId)
     val walletAddress by WalletConnectionState.walletAddress.collectAsState()
+    
+    // Animation states
+    var isImageLoaded by remember { mutableStateOf(false) }
+    var contentVisible by remember { mutableStateOf(false) }
+    val imageScale by animateFloatAsState(
+        targetValue = if (isImageLoaded) 1.0f else 0.95f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy)
+    )
+
+    LaunchedEffect(Unit) {
+        delay(50) // Slight delay to ensure layout pass before triggering cascade
+        contentVisible = true
+    }
 
     Scaffold(
         topBar = {
@@ -95,6 +120,7 @@ fun ListingDetailScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
+                    .scale(imageScale)
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
@@ -114,7 +140,8 @@ fun ListingDetailScreen(
                             .crossfade(true)
                             .build(),
                         contentDescription = listing.title,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().scale(imageScale),
+                        onSuccess = { isImageLoaded = true },
                         contentScale = ContentScale.Crop,
                         error = {
                             Box(
@@ -200,13 +227,24 @@ fun ListingDetailScreen(
                         )
                     }
                 }
+                        )
+                    }
+                }
             }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+            
+            AnimatedVisibility(
+                visible = contentVisible,
+                enter = fadeIn(tween(400, delayMillis = 100)) + slideInVertically(
+                    initialOffsetY = { 100 },
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                )
             ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -222,6 +260,7 @@ fun ListingDetailScreen(
                         style = MaterialTheme.typography.headlineMedium,
                         color = SolanaGreen,
                         fontWeight = FontWeight.Bold,
+                        modifier = Modifier.pulseGlow()
                     )
                 }
 
@@ -233,6 +272,7 @@ fun ListingDetailScreen(
                     Box(
                         modifier = Modifier
                             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                            .shimmerBorder()
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text(listing.condition, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)

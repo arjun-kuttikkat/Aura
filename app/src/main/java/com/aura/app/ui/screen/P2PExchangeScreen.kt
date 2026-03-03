@@ -80,6 +80,10 @@ import androidx.core.content.ContextCompat
 import java.util.concurrent.Executors
 import com.aura.app.util.FaceAnalyzer
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalView
+import com.aura.app.ui.util.HapticEngine
+import com.aura.app.ui.util.breathe
+import com.aura.app.ui.util.pulseGlow
 
 enum class ExchangeMode { SEND, RECEIVE }
 
@@ -87,6 +91,7 @@ enum class ExchangeMode { SEND, RECEIVE }
 @Composable
 fun P2PExchangeScreen(onBack: () -> Unit) {
     val context = LocalContext.current as Activity
+    val view = LocalView.current
     var mode by remember { mutableStateOf(ExchangeMode.SEND) }
     
     // Receive state
@@ -152,6 +157,7 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                             scope = scope,
                             base64EncodedTx = base64Tx,
                             onSuccess = { sig ->
+                                HapticEngine.triggerSuccess(view)
                                 txSignature = sig
                                 isProcessingTx = false
                             },
@@ -238,8 +244,14 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                                 NfcHandoverManager.enable(context)
                             }) { Text("Retry") }
                         } else if (isProcessingTx) {
-                            CircularProgressIndicator()
-                            Text("Signing transaction securely via MWA...")
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.breathe(),
+                            ) {
+                                CircularProgressIndicator()
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Signing transaction securely via MWA...")
+                            }
                         } else {
                             val infiniteTransition = rememberInfiniteTransition(label = "pulse_sender")
                             val pulseScale by infiniteTransition.animateFloat(
@@ -254,7 +266,7 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                                 Box(
                                     modifier = Modifier.size(96.dp).scale(pulseScale).alpha(pulseAlpha).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
                                 )
-                                Icon(Icons.Default.Nfc, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(96.dp))
+                                Icon(Icons.Default.Nfc, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(96.dp).pulseGlow())
                             }
                             Text("Ready to Send", style = MaterialTheme.typography.headlineMedium)
                             Text(
@@ -293,7 +305,7 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                             }
                         } else if (isLivenessVerifying) {
                             val lifecycleOwner = LocalLifecycleOwner.current
-                            Box(modifier = Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(16.dp))) {
+                            Box(modifier = Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(16.dp)).breathe()) {
                                 AndroidView(
                                     factory = { ctx ->
                                         val previewView = PreviewView(ctx).apply {
@@ -311,7 +323,7 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                                                 .also {
                                                     it.setAnalyzer(Executors.newSingleThreadExecutor(), FaceAnalyzer(
                                                         onFaceDetected = {
-                                                            // Face recognized mapping to physical presence
+                                                            HapticEngine.triggerSuccess(view)
                                                             isLivenessVerified = true
                                                             isLivenessVerifying = false
                                                         },
