@@ -13,6 +13,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -121,7 +122,7 @@ fun OnboardingScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(com.aura.app.ui.theme.DarkBase),
     ) {
         // Aurora glow orbs
         Box(
@@ -191,6 +192,7 @@ fun OnboardingScreen(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(20.dp))
                         .background(Color.White.copy(alpha = 0.06f))
+                        .border(0.5.dp, Orange500.copy(alpha = 0.2f), RoundedCornerShape(20.dp))
                         .padding(24.dp),
                 ) {
                     Icon(

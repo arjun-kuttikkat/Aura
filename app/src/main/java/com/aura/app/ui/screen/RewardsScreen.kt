@@ -1,7 +1,12 @@
 package com.aura.app.ui.screen
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,11 +15,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -23,9 +27,6 @@ import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Token
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -35,30 +36,53 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import com.aura.app.data.AuraRepository
+import com.aura.app.ui.components.GlassCard
 import com.aura.app.ui.components.MainTopBar
-import com.aura.app.ui.theme.DarkCard
-import com.aura.app.ui.theme.GlassBorder
-import com.aura.app.ui.theme.GlassSurface
+import com.aura.app.ui.theme.DarkBase
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
-import com.aura.app.ui.theme.SuccessGreen
+import com.aura.app.ui.theme.SolanaPurple
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RewardsScreen() {
     val profile by AuraRepository.currentProfile.collectAsState()
     val auraScore = profile?.auraScore ?: 50
     val streak = profile?.streakDays ?: 0
 
+    val infiniteTransition = rememberInfiniteTransition(label = "rewards")
+    val pulse by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(5000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "pulse",
+    )
+    val floatY by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "float",
+    )
+
     Scaffold(
         topBar = { MainTopBar(title = "Rewards") },
+        containerColor = DarkBase,
     ) { padding ->
         Column(
             modifier = Modifier
@@ -68,46 +92,64 @@ fun RewardsScreen() {
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // Token balance hero
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(Orange500.copy(alpha = 0.15f), Gold500.copy(alpha = 0.1f)),
-                        ),
+            GlassCard(modifier = Modifier.fillMaxWidth(), glowColor = Gold500) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(200.dp)
+                            .align(Alignment.Center)
+                            .alpha(0.15f + pulse * 0.1f)
+                            .blur(60.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.radialGradient(
+                                    listOf(Gold500, Color.Transparent),
+                                ),
+                            ),
                     )
-                    .border(1.dp, GlassBorder, RoundedCornerShape(20.dp))
-                    .padding(24.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Token, contentDescription = null, tint = Gold500, modifier = Modifier.size(40.dp))
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "0.00 \$AURA",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Gold500,
+                    Icon(
+                        Icons.Default.Token,
+                        contentDescription = null,
+                        tint = Gold500,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(48.dp)
+                            .offset(y = 8.dp * (floatY - 0.5f)),
                     )
-                    Text(
-                        "Earn tokens with every verified trade",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(top = 80.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            "0.00 \$AURA",
+                            style = MaterialTheme.typography.displayMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Gold500,
+                        )
+                        Text(
+                            "Earn tokens with every verified trade",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 
-            // Stats row
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCard(
+                StatGlassCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Star,
                     value = "$auraScore",
                     label = "Aura Score",
                     tint = Orange500,
                 )
-                StatCard(
+                StatGlassCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.LocalFireDepartment,
                     value = "$streak 🔥",
@@ -116,27 +158,26 @@ fun RewardsScreen() {
                 )
             }
 
-            // Reward cards
-            RewardCard(
+            RewardGlassCard(
                 icon = Icons.Default.EmojiEvents,
                 title = "Trade Rewards",
                 subtitle = "Earn \$AURA on trades",
-                description = "Complete NFC-verified physical trades to earn tokens and boost your Aura Score. Both buyer and seller earn rewards.",
-                gradient = listOf(Orange500.copy(alpha = 0.1f), Gold500.copy(alpha = 0.06f)),
+                description = "Complete NFC-verified physical trades to earn tokens and boost your Aura Score.",
+                leftBorderColor = Orange500,
             )
-            RewardCard(
+            RewardGlassCard(
                 icon = Icons.Default.CardGiftcard,
                 title = "Streak Multiplier",
                 subtitle = "${streak}x bonus active",
-                description = "Maintain your daily Aura Check streak to unlock multiplied token rewards. Your streak resets at midnight.",
-                gradient = listOf(Gold500.copy(alpha = 0.1f), Orange500.copy(alpha = 0.06f)),
+                description = "Maintain your daily Aura Check streak to unlock multiplied token rewards.",
+                leftBorderColor = Gold500,
             )
-            RewardCard(
+            RewardGlassCard(
                 icon = Icons.Default.Star,
                 title = "NFT Evolution",
                 subtitle = "Level up your Aura",
-                description = "Your on-chain Aura NFT evolves as your streak grows: Seed → Sprout → Tree → Aura. Higher tiers unlock exclusive features.",
-                gradient = listOf(Color(0xFF9945FF).copy(alpha = 0.1f), Color(0xFF14F195).copy(alpha = 0.06f)),
+                description = "Your on-chain Aura NFT evolves as your streak grows: Seed → Sprout → Tree → Aura.",
+                leftBorderColor = SolanaPurple,
             )
 
             Spacer(modifier = Modifier.height(80.dp))
@@ -145,88 +186,85 @@ fun RewardsScreen() {
 }
 
 @Composable
-private fun StatCard(
+private fun StatGlassCard(
     modifier: Modifier = Modifier,
     icon: ImageVector,
     value: String,
     label: String,
     tint: Color,
 ) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(GlassSurface)
-            .border(1.dp, GlassBorder, RoundedCornerShape(16.dp))
-            .padding(16.dp),
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+    GlassCard(modifier = modifier, glowColor = tint, cornerRadius = 16.dp) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
             Spacer(modifier = Modifier.height(4.dp))
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = tint)
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                value,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = tint,
+            )
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
 
 @Composable
-private fun RewardCard(
+private fun RewardGlassCard(
     icon: ImageVector,
     title: String,
     subtitle: String,
     description: String,
-    gradient: List<Color>,
+    leftBorderColor: Color,
 ) {
-    Card(
+    GlassCard(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = DarkCard),
-        shape = RoundedCornerShape(20.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        glowColor = leftBorderColor,
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Brush.linearGradient(gradient))
                 .padding(20.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Gold500,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(GlassSurface),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                        tint = Gold500,
-                    )
-                }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Gold500,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(leftBorderColor.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp), tint = Gold500)
+            }
         }
     }
 }

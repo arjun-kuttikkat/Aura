@@ -28,6 +28,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.io.File
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -251,6 +252,18 @@ object AuraRepository {
 
     fun getListing(id: String): Listing? = _listings.value.find { it.id == id }
 
+    private suspend fun uploadImageToStorage(listingId: String, localPath: String, index: Int): String? {
+        if (localPath.startsWith("http")) return localPath // Already a URL
+        val file = File(localPath)
+        if (!file.exists()) {
+            Log.w(TAG, "Image file not found: $localPath")
+            return null
+        }
+        // TODO: Re-enable Supabase Storage upload when storage-kt API is properly resolved.
+        // For now use local file path so listings can be created; Coil can load file:// URIs.
+        return "file://$localPath"
+    }
+
     suspend fun createListing(
         sellerWallet: String,
         title: String,
@@ -259,13 +272,20 @@ object AuraRepository {
         condition: String,
         textureHash: String? = null
     ): Listing {
-        val fingerprint = textureHash ?: "fp_${UUID.randomUUID().toString().take(8)}"
+        val listingId = UUID.randomUUID().toString()
+        val fingerprint = textureHash ?: "fp_${listingId.take(8)}"
+
+        // Upload local images to Supabase Storage and get public URLs
+        val imageUrls = imageRefs.mapIndexed { index, ref ->
+            uploadImageToStorage(listingId, ref, index)
+        }.filterNotNull()
+
         val row = ListingRow(
-            id = UUID.randomUUID().toString(),
+            id = listingId,
             sellerWallet = sellerWallet,
             title = title,
             priceLamports = priceLamports,
-            images = imageRefs,
+            images = imageUrls,
             condition = condition,
             mintedStatus = "PENDING",
             fingerprintHash = fingerprint,

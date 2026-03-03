@@ -2,12 +2,20 @@ package com.aura.app.ui.screen
 
 import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +23,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
@@ -33,16 +43,26 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.aura.app.data.AuraRepository
+import com.aura.app.ui.components.GlassCard
 import com.aura.app.model.TradeState
+import com.aura.app.ui.theme.DarkBase
+import com.aura.app.ui.theme.ErrorRed
+import com.aura.app.ui.theme.Orange500
+import com.aura.app.ui.theme.SuccessGreen
 import com.aura.app.util.NfcHandoverManager
 import com.aura.app.util.NfcHandshakeResult
 import com.aura.app.wallet.WalletConnectionState
@@ -61,7 +81,6 @@ fun MeetSessionScreen(
     val walletAddress by WalletConnectionState.walletAddress.collectAsState()
     val nfcState by NfcHandoverManager.state.collectAsState()
 
-    // Auto-advance when NFC confirms the chip read and backend verification succeeds
     LaunchedEffect(nfcState) {
         if (nfcState is NfcHandshakeResult.Confirmed) {
             val confirmedState = nfcState as NfcHandshakeResult.Confirmed
@@ -94,14 +113,21 @@ fun MeetSessionScreen(
     Scaffold(
         topBar = {
             androidx.compose.material3.TopAppBar(
-                title = { Text("Meet & Verify") },
+                title = { Text("Meet & Verify", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = DarkBase,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                ),
+                windowInsets = WindowInsets.statusBars,
             )
         },
+        containerColor = DarkBase,
     ) { padding ->
         Column(
             modifier = Modifier
@@ -111,10 +137,9 @@ fun MeetSessionScreen(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-
             AnimatedContent(
                 targetState = nfcState,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                transitionSpec = { fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(200)) },
                 label = "nfc_state"
             ) { state ->
                 Column(
@@ -122,114 +147,105 @@ fun MeetSessionScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     when (state) {
-
                         is NfcHandshakeResult.Waiting -> {
-                            Icon(
-                                imageVector = Icons.Default.Nfc,
-                                contentDescription = "NFC",
-                                modifier = Modifier.size(96.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                            NfcPulsingRings()
                             Text(
                                 "Tap the physical item's chip",
                                 style = MaterialTheme.typography.headlineSmall,
-                                modifier = Modifier.fillMaxWidth()
+                                textAlign = TextAlign.Center,
                             )
                             Text(
-                                "Hold your phone near the NTAG 424 DNA chip " +
-                                        "attached to the physical asset to verify authenticity.",
+                                "NTAG 424 DNA",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-
-                            // QR fallback
                             if (qrBitmap != null) {
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    "No NFC? Scan QR instead",
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                                Image(
-                                    bitmap = qrBitmap.asImageBitmap(),
-                                    contentDescription = "QR Code",
-                                    modifier = Modifier
-                                        .size(160.dp)
-                                        .background(Color.White),
-                                    contentScale = ContentScale.Fit,
-                                )
+                                Spacer(modifier = Modifier.height(20.dp))
+                                Text("No NFC? Scan QR instead", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                GlassCard(glowColor = Orange500, cornerRadius = 16.dp) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(180.dp)
+                                            .padding(12.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color.White),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Image(
+                                            bitmap = qrBitmap.asImageBitmap(),
+                                            contentDescription = "QR Code",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Fit,
+                                        )
+                                    }
+                                }
                             }
                         }
-
                         is NfcHandshakeResult.Confirmed -> {
                             Icon(
-                                imageVector = Icons.Default.CheckCircle,
+                                Icons.Default.CheckCircle,
                                 contentDescription = "Confirmed",
                                 modifier = Modifier.size(96.dp),
-                                tint = Color(0xFF4CAF50)
+                                tint = SuccessGreen,
                             )
+                            Text("Chip Verified ✓", style = MaterialTheme.typography.headlineSmall)
                             Text(
-                                "Chip Verified ✓",
-                                style = MaterialTheme.typography.headlineSmall
-                            )
-                            Text(
-                                "Cryptographic proof (CMAC) sent to Backend for settlement",
+                                "Cryptographic proof (CMAC) sent for settlement",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
                             )
                         }
-
                         is NfcHandshakeResult.Error -> {
                             Icon(
-                                imageVector = Icons.Default.Warning,
+                                Icons.Default.Warning,
                                 contentDescription = "Error",
                                 modifier = Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.error
+                                tint = ErrorRed,
                             )
-                            Text(state.reason, color = MaterialTheme.colorScheme.error)
-                            Button(onClick = { NfcHandoverManager.reset() }) {
+                            Text(state.reason, color = ErrorRed, textAlign = TextAlign.Center)
+                            Button(
+                                onClick = { NfcHandoverManager.reset() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
+                            ) {
                                 Text("Retry")
                             }
                         }
-
                         is NfcHandshakeResult.NoNfcSupport -> {
                             Icon(
-                                imageVector = Icons.Default.Warning,
+                                Icons.Default.Warning,
                                 contentDescription = "No NFC",
                                 modifier = Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.tertiary
+                                tint = MaterialTheme.colorScheme.tertiary,
                             )
-                            Text(
-                                "NFC not available on this device",
-                                style = MaterialTheme.typography.titleMedium
-                            )
+                            Text("NFC not available on this device", style = MaterialTheme.typography.titleMedium)
                             if (qrBitmap != null) {
-                                Text("Scan QR code instead", style = MaterialTheme.typography.bodyMedium)
                                 Image(
                                     bitmap = qrBitmap.asImageBitmap(),
                                     contentDescription = "QR Code",
-                                    modifier = Modifier
-                                        .size(200.dp)
-                                        .background(Color.White),
+                                    modifier = Modifier.size(200.dp).background(Color.White),
                                     contentScale = ContentScale.Fit,
                                 )
                             }
-                            Button(onClick = {
-                                AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
-                                onHandshakeComplete()
-                            }) {
+                            Button(
+                                onClick = {
+                                    AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
+                                    onHandshakeComplete()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
+                            ) {
                                 Text("Continue without NFC")
                             }
                         }
-
                         is NfcHandshakeResult.Idle -> {
-                            // Should not linger here — NfcHandoverManager.enable() sets Waiting
                             Text("Initializing NFC…", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
             }
 
-            // Debug-only simulate button — remove for production releases
             if (true) {
                 Spacer(modifier = Modifier.height(32.dp))
                 Button(
@@ -246,12 +262,70 @@ fun MeetSessionScreen(
     }
 }
 
+@Composable
+private fun NfcPulsingRings() {
+    val infiniteTransition = rememberInfiniteTransition(label = "nfc_rings")
+    val ring1 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween<Float>(durationMillis = 1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "ring1",
+    )
+    val ring2 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween<Float>(durationMillis = 1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "ring2",
+    )
+    val ring3 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween<Float>(durationMillis = 1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "ring3",
+    )
+
+    Box(
+        modifier = Modifier.size(120.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.size(120.dp)) {
+            val centerPx = size.minDimension / 2f
+            listOf(ring1, ring2, ring3).forEachIndexed { i, progress ->
+                val radius = (40 + i * 25 + progress * 20).dp.toPx()
+                val alpha = (1f - progress) * 0.6f
+                drawCircle(
+                    color = Orange500.copy(alpha = alpha),
+                    radius = radius,
+                    center = Offset(centerPx, centerPx),
+                    style = Stroke(width = 4.dp.toPx()),
+                )
+            }
+        }
+        Icon(
+            Icons.Default.Nfc,
+            contentDescription = "NFC",
+            modifier = Modifier.size(64.dp),
+            tint = Orange500,
+        )
+    }
+}
+
 private fun generateQrBitmap(content: String, size: Int): Bitmap? {
     return try {
         val hints = hashMapOf<EncodeHintType, Int>().apply { put(EncodeHintType.MARGIN, 1) }
         val bitMatrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size, hints)
         val pixels = IntArray(size * size) { i ->
-            val y = i / size; val x = i % size
+            val y = i / size
+            val x = i % size
             if (bitMatrix[x, y]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
         }
         Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).apply {

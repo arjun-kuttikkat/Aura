@@ -25,7 +25,9 @@ import com.aura.app.ui.screen.MeetSessionScreen
 import com.aura.app.ui.screen.OnboardingScreen
 import com.aura.app.ui.screen.ProfileScreen
 import com.aura.app.ui.screen.RewardsScreen
+import com.aura.app.ui.screen.SecurityScreen
 import com.aura.app.ui.screen.SettingsScreen
+import com.aura.app.ui.screen.PrivacyScreen
 import com.aura.app.ui.screen.FaceVerificationScreen
 import com.aura.app.ui.screen.TradeCompleteScreen
 import com.aura.app.ui.screen.VerifyItemScreen
@@ -56,8 +58,7 @@ fun NavGraph(
                 startDestination = startDestination,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
-                    .padding(bottom = if (showBottomBar) 100.dp else 0.dp),
+                    .padding(padding),
             ) {
             composable(Routes.ONBOARDING) {
                 OnboardingScreen(
@@ -66,7 +67,12 @@ fun NavGraph(
             }
             composable(Routes.HOME) {
                 HomeScreen(
-                    onListingClick = { id -> navController.navigate(Routes.listingDetail(id)) },
+                    onListingClick = { id ->
+                        when (id) {
+                            Routes.ZONE_REFINEMENT, Routes.P2P_EXCHANGE, Routes.AURA_CHECK -> navController.navigate(id)
+                            else -> navController.navigate(Routes.listingDetail(id))
+                        }
+                    },
                 )
             }
             composable(Routes.REWARDS) {
@@ -83,8 +89,16 @@ fun NavGraph(
                         navController.navigate(Routes.ONBOARDING) {
                             popUpTo(0) { inclusive = true }
                         }
-                    }
+                    },
+                    onSecurityClick = { navController.navigate(Routes.SECURITY) },
+                    onPrivacyClick = { navController.navigate(Routes.PRIVACY) },
                 )
+            }
+            composable(Routes.SECURITY) {
+                SecurityScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Routes.PRIVACY) {
+                PrivacyScreen(onBack = { navController.popBackStack() })
             }
             composable(Routes.CREATE_LISTING) {
                 CreateListingScreen(

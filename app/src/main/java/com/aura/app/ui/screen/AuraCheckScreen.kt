@@ -96,10 +96,13 @@ fun AuraCheckScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                    containerColor = com.aura.app.ui.theme.DarkBase,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
                 )
             )
         },
+        containerColor = com.aura.app.ui.theme.DarkBase,
     ) { padding ->
         Column(
             modifier = Modifier
@@ -129,14 +132,14 @@ fun AuraCheckScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.6f)),
+                                    .background(Color.Black.copy(alpha = 0.7f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    CircularProgressIndicator(color = Color.White)
+                                    CircularProgressIndicator(color = com.aura.app.ui.theme.Orange500)
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Text(
-                                        "AI Processing Vibe & Liveness...",
+                                        "Reading your Aura...",
                                         color = Color.White,
                                         style = MaterialTheme.typography.titleMedium
                                     )
@@ -181,10 +184,10 @@ fun AuraCheckScreen(
                     visible = true,
                     enter = fadeIn(animationSpec = tween(500)) + slideInVertically(initialOffsetY = { 100 })
                 ) {
-                    Card(
+                    com.aura.app.ui.components.GlassCard(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        shape = RoundedCornerShape(24.dp)
+                        glowColor = com.aura.app.ui.theme.Orange500,
+                        cornerRadius = 24.dp,
                     ) {
                         Column(
                             modifier = Modifier
@@ -255,6 +258,7 @@ fun AuraCheckScreen(
 
                 Button(
                     onClick = onBack,
+                    colors = ButtonDefaults.buttonColors(containerColor = com.aura.app.ui.theme.Orange500, contentColor = Color.Black),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)

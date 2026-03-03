@@ -17,6 +17,8 @@ object Routes {
     const val AURA_CHECK = "aura_check"
     const val P2P_EXCHANGE = "p2p_exchange"
     const val ZONE_REFINEMENT = "zone_refinement"
+    const val SECURITY = "security"
+    const val PRIVACY = "privacy"
 
     fun listingDetail(listingId: String) = "listing_detail/$listingId"
 }

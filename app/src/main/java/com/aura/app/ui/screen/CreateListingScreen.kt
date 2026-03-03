@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -39,8 +41,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -72,6 +72,11 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.aura.app.data.AuraRepository
+import com.aura.app.ui.components.AuraFullScreenCamera
+import com.aura.app.ui.components.GlassCard
+import com.aura.app.ui.theme.DarkBase
+import com.aura.app.ui.theme.Gold500
+import com.aura.app.ui.theme.Orange500
 import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -105,21 +110,25 @@ fun CreateListingScreen(
         if (granted) showCamera = true
     }
 
+    Box(modifier = Modifier.fillMaxSize().background(DarkBase)) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("List Item", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { if (step == 1) onBack() else step -= 1 }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
                 colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = DarkBase,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
                 ),
+                windowInsets = WindowInsets.statusBars,
             )
         },
+        containerColor = DarkBase,
     ) { padding ->
         Column(
             modifier = Modifier
@@ -138,30 +147,11 @@ fun CreateListingScreen(
                     1 -> PhotoStep(
                         capturedImagePath = capturedImagePath,
                         showCamera = showCamera,
-                        imageCapture = imageCapture,
                         hasCameraPermission = hasCameraPermission,
                         onOpenCamera = {
                             if (hasCameraPermission) showCamera = true
                             else permissionLauncher.launch(Manifest.permission.CAMERA)
                         },
-                        onCapture = {
-                            val photoFile = File(context.cacheDir, "aura_${System.currentTimeMillis()}.jpg")
-                            val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-                            imageCapture.takePicture(
-                                outputOptions,
-                                ContextCompat.getMainExecutor(context),
-                                object : ImageCapture.OnImageSavedCallback {
-                                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                                        capturedImagePath = photoFile.absolutePath
-                                        showCamera = false
-                                    }
-                                    override fun onError(exception: ImageCaptureException) {
-                                        errorMsg = exception.message ?: "Capture failed"
-                                    }
-                                },
-                            )
-                        },
-                        onCloseCamera = { showCamera = false },
                         onNext = { if (capturedImagePath != null) step = 2 },
                     )
                     2 -> MacroTextureStep(
@@ -225,6 +215,32 @@ fun CreateListingScreen(
             }
         }
     }
+
+        // Full-screen camera overlay
+        if (showCamera) {
+            AuraFullScreenCamera(
+                imageCapture = imageCapture,
+                onCapture = {
+                    val photoFile = File(context.cacheDir, "aura_${System.currentTimeMillis()}.jpg")
+                    val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+                    imageCapture.takePicture(
+                        outputOptions,
+                        ContextCompat.getMainExecutor(context),
+                        object : ImageCapture.OnImageSavedCallback {
+                            override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                                capturedImagePath = photoFile.absolutePath
+                                showCamera = false
+                            }
+                            override fun onError(exception: ImageCaptureException) {
+                                errorMsg = exception.message ?: "Capture failed"
+                            }
+                        },
+                    )
+                },
+                onClose = { showCamera = false },
+            )
+        }
+    }
 }
 
 @Composable
@@ -244,9 +260,9 @@ private fun StepIndicator(currentStep: Int, totalSteps: Int) {
                     .clip(RoundedCornerShape(2.dp))
                     .background(
                         when {
-                            isComplete -> MaterialTheme.colorScheme.primary
-                            isActive -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.surfaceVariant
+                            isComplete -> Gold500
+                            isActive -> Orange500
+                            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                         }
                     ),
             )
@@ -258,11 +274,8 @@ private fun StepIndicator(currentStep: Int, totalSteps: Int) {
 private fun PhotoStep(
     capturedImagePath: String?,
     showCamera: Boolean,
-    imageCapture: ImageCapture,
     hasCameraPermission: Boolean,
     onOpenCamera: () -> Unit,
-    onCapture: () -> Unit,
-    onCloseCamera: () -> Unit,
     onNext: () -> Unit,
 ) {
 
@@ -276,71 +289,73 @@ private fun PhotoStep(
             text = "Add a photo",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         if (showCamera) {
-            CameraPreviewSection(
-                imageCapture = imageCapture,
-                onCaptureClick = onCapture,
-                onClose = onCloseCamera,
-            )
+            // Full-screen camera shown via overlay; reserve minimal space
+            Box(modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f))
         } else if (capturedImagePath != null) {
-            Card(
+            GlassCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(16.dp)),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                    .aspectRatio(1f),
+                glowColor = Orange500,
+                cornerRadius = 16.dp,
             ) {
                 AsyncImage(
                     model = "file://$capturedImagePath",
                     contentDescription = "Captured",
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)),
                     contentScale = ContentScale.Crop,
                 )
             }
         } else {
-            Box(
+            GlassCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .border(2.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center,
+                    .border(1.dp, Orange500.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
+                glowColor = Orange500,
+                cornerRadius = 16.dp,
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(32.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Icon(
                         Icons.Default.CameraAlt,
                         contentDescription = null,
                         modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = Orange500,
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         text = "Tap to take a photo",
                         style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
             Button(
                 onClick = onOpenCamera,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
             ) {
                 Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.size(ButtonDefaults.IconSpacing))
-                Text("Take Photo")
+                Text("Take Photo", fontWeight = FontWeight.SemiBold)
             }
         }
         if (capturedImagePath != null) {
             Button(
                 onClick = onNext,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Gold500, contentColor = Color.Black),
             ) {
-                Text("Continue")
+                Text("Continue", fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -367,6 +382,7 @@ private fun DetailsStep(
             text = "Item details",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         OutlinedTextField(
             value = title,
@@ -398,17 +414,19 @@ private fun DetailsStep(
         ) {
             Button(
                 onClick = onBack,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.weight(1f).height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
             ) {
                 Text("Back")
             }
             Button(
                 onClick = onNext,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.weight(1f).height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
             ) {
-                Text("Review")
+                Text("Review", fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -436,12 +454,12 @@ private fun ReviewStep(
             text = "Review & list",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
         )
-        Card(
+        GlassCard(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            shape = RoundedCornerShape(16.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            glowColor = Gold500,
+            cornerRadius = 16.dp,
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 if (imagePath != null) {
@@ -465,13 +483,13 @@ private fun ReviewStep(
                         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Text(condition, style = MaterialTheme.typography.bodyMedium)
                         if (textureHash != null) {
-                            Text("Asset Refined \n${textureHash.take(16)}...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            Text("Asset Refined \n${textureHash.take(16)}...", style = MaterialTheme.typography.labelSmall, color = Orange500)
                         }
                     }
                     Text(
                         "%.2f SOL".format(priceSol.toDoubleOrNull() ?: 0.0),
                         style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = Gold500,
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -480,8 +498,9 @@ private fun ReviewStep(
         errorMsg?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Button(
             onClick = onEdit,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
         ) {
             Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.size(ButtonDefaults.IconSpacing))
@@ -489,61 +508,19 @@ private fun ReviewStep(
         }
         Button(
             onClick = onSubmit,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(16.dp),
             enabled = !isSubmitting,
+            colors = ButtonDefaults.buttonColors(containerColor = Gold500, contentColor = Color.Black),
         ) {
-            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(20.dp))
-            Spacer(modifier = Modifier.size(ButtonDefaults.IconSpacing))
-            Text(if (isSubmitting) "Listing…" else "List item")
-        }
-    }
-}
-
-@Composable
-private fun CameraPreviewSection(
-    imageCapture: ImageCapture,
-    onCaptureClick: () -> Unit,
-    onClose: () -> Unit,
-) {
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val context = LocalContext.current
-    Box(modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(RoundedCornerShape(16.dp))) {
-        AndroidView(
-            factory = { ctx ->
-                val previewView = PreviewView(ctx)
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                cameraProviderFuture.addListener({
-                    val provider = cameraProviderFuture.get()
-                    val preview = Preview.Builder().build().apply {
-                        setSurfaceProvider(previewView.surfaceProvider)
-                    }
-                    provider.unbindAll()
-                    provider.bindToLifecycle(
-                        lifecycleOwner,
-                        CameraSelector.DEFAULT_BACK_CAMERA,
-                        preview,
-                        imageCapture,
-                    )
-                }, ContextCompat.getMainExecutor(ctx))
-                previewView
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
-        Button(
-            onClick = onCaptureClick,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(16.dp),
-            shape = RoundedCornerShape(12.dp),
-        ) {
-            Text("Capture")
-        }
-        IconButton(
-            onClick = onClose,
-            modifier = Modifier.align(Alignment.TopEnd),
-        ) {
-            Text("✕", style = MaterialTheme.typography.titleLarge)
+            if (isSubmitting) {
+                androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.Black)
+                Spacer(modifier = Modifier.size(8.dp))
+            } else {
+                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.size(ButtonDefaults.IconSpacing))
+            }
+            Text(if (isSubmitting) "Listing…" else "List item", fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -570,6 +547,7 @@ fun MacroTextureStep(
             text = "Asset Refinement",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         Text(
             text = "Scan the item's surface texture with your macro lens. This anchors a deterministic hardware layer into the cNFT, proving authenticity over time.",
@@ -577,24 +555,30 @@ fun MacroTextureStep(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        Box(
+        GlassCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color.Black),
-            contentAlignment = Alignment.Center
+                .aspectRatio(1f),
+            glowColor = Gold500,
+            cornerRadius = 20.dp,
         ) {
             if (textureHash == null && !isScanning) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(64.dp))
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Orange500, modifier = Modifier.size(64.dp))
                     Spacer(Modifier.height(16.dp))
-                    Text("Place camera 2 inches from surface", color = Color.White)
-                    Button(onClick = { isScanning = true }, modifier = Modifier.padding(top = 16.dp)) {
-                        Text("Begin AI Texture Scan")
+                    Text("Place camera 2 inches from surface", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(20.dp))
+                    Button(
+                        onClick = { isScanning = true },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
+                    ) {
+                        Text("Begin AI Texture Scan", fontWeight = FontWeight.SemiBold)
                     }
                 }
             } else if (isScanning) {
+                Box(modifier = Modifier.fillMaxSize()) {
                 AndroidView(
                     factory = { ctx ->
                         val previewView = PreviewView(ctx).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
@@ -609,13 +593,13 @@ fun MacroTextureStep(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
-                
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha=0.5f)), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.fillMaxSize().background(DarkBase.copy(alpha=0.6f)), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(progress = { scanProgress }, color = com.aura.app.ui.theme.Gold500, modifier = Modifier.size(100.dp))
+                        CircularProgressIndicator(progress = { scanProgress }, color = Gold500, modifier = Modifier.size(100.dp))
                         Spacer(Modifier.height(16.dp))
-                        Text("Mapping micro-textures...", color = Color.White)
+                        Text("Mapping micro-textures...", color = MaterialTheme.colorScheme.onSurface)
                     }
+                }
                 }
 
                 LaunchedEffect(Unit) {
@@ -628,11 +612,11 @@ fun MacroTextureStep(
                     onScanComplete(hash)
                 }
             } else {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
-                    Icon(Icons.Default.Check, contentDescription = null, tint = com.aura.app.ui.theme.Gold500, modifier = Modifier.size(64.dp))
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                    Icon(Icons.Default.Check, contentDescription = null, tint = Gold500, modifier = Modifier.size(64.dp))
                     Spacer(Modifier.height(16.dp))
-                    Text("Hardware Texture Analyzed", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text(textureHash?.take(16) + "...", color = com.aura.app.ui.theme.Orange500, style = MaterialTheme.typography.labelSmall)
+                    Text("Hardware Texture Analyzed", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                    Text(textureHash?.take(16) + "...", color = Orange500, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -643,18 +627,20 @@ fun MacroTextureStep(
         ) {
             Button(
                 onClick = onBack,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.weight(1f).height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
             ) {
                 Text("Back")
             }
             Button(
                 onClick = onNext,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp),
-                enabled = textureHash != null
+                modifier = Modifier.weight(1f).height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                enabled = textureHash != null,
+                colors = ButtonDefaults.buttonColors(containerColor = Gold500, contentColor = Color.Black),
             ) {
-                Text("Next")
+                Text("Next", fontWeight = FontWeight.SemiBold)
             }
         }
     }
