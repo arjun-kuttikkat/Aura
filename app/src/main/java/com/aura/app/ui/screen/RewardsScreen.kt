@@ -1,5 +1,16 @@
 package com.aura.app.ui.screen
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -54,15 +65,31 @@ import com.aura.app.ui.theme.SuccessGreen
 @Composable
 fun RewardsScreen() {
     val profile by AuraRepository.currentProfile.collectAsState()
-    val auraScore = profile?.auraScore ?: 50
-    val streak = profile?.streakDays ?: 0
-    val totalAura by com.aura.app.data.AuraPreferences.totalAuraEarned.collectAsState()
-    val completedToday by com.aura.app.data.DirectivesManager.completedToday.collectAsState()
-    val animatedAura by androidx.compose.animation.core.animateIntAsState(
+    val streakRaw = profile?.streakDays ?: 0
+    val totalAura = com.aura.app.data.AuraPreferences.totalAuraEarned.collectAsState().value
+    val completedToday = com.aura.app.data.DirectivesManager.completedToday.collectAsState().value
+    
+    val animatedAura by animateIntAsState(
         targetValue = totalAura,
-        animationSpec = androidx.compose.animation.core.tween(1200),
+        animationSpec = tween(1200, easing = FastOutSlowInEasing),
         label = "aura"
     )
+    val animatedScore by animateIntAsState(
+        targetValue = auraScoreRaw,
+        animationSpec = tween(1500, easing = FastOutSlowInEasing),
+        label = "score"
+    )
+    val animatedStreak by animateIntAsState(
+        targetValue = streakRaw,
+        animationSpec = tween(900, easing = FastOutSlowInEasing),
+        label = "streak"
+    )
+    var contentVisible by androidx.compose.runtime.remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100)
+        contentVisible = true
+    }
 
     Scaffold(
         topBar = { MainTopBar(title = "Rewards") },
@@ -76,6 +103,13 @@ fun RewardsScreen() {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // Token balance hero
+            AnimatedVisibility(
+                visible = contentVisible,
+                enter = fadeIn(tween(400)) + slideInVertically(
+                    initialOffsetY = { 50 },
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                )
+            ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -104,47 +138,66 @@ fun RewardsScreen() {
                     )
                 }
             }
+            }
 
             // Stats row
+            AnimatedVisibility(
+                visible = contentVisible,
+                enter = fadeIn(tween(400, delayMillis = 150)) + slideInVertically(
+                    initialOffsetY = { 50 },
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                )
+            ) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 StatCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Star,
-                    value = "$auraScore",
+                    value = "$animatedScore",
                     label = "Aura Score",
                     tint = Orange500,
                 )
                 StatCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.LocalFireDepartment,
-                    value = "$streak 🔥",
+                    value = "$animatedStreak 🔥",
                     label = "Day Streak",
                     tint = Orange500,
                 )
             }
+            }
 
             // Reward cards
-            RewardCard(
-                icon = Icons.Default.EmojiEvents,
-                title = "Trade Rewards",
-                subtitle = "Earn \$AURA on trades",
-                description = "Complete NFC-verified physical trades to earn tokens and boost your Aura Score. Both buyer and seller earn rewards.",
-                gradient = listOf(Orange500.copy(alpha = 0.1f), Gold500.copy(alpha = 0.06f)),
-            )
-            RewardCard(
-                icon = Icons.Default.CardGiftcard,
-                title = "Streak Multiplier",
-                subtitle = "${streak}x bonus active",
-                description = "Maintain your daily Aura Check streak to unlock multiplied token rewards. Your streak resets at midnight.",
-                gradient = listOf(Gold500.copy(alpha = 0.1f), Orange500.copy(alpha = 0.06f)),
-            )
-            RewardCard(
-                icon = Icons.Default.Star,
-                title = "NFT Evolution",
-                subtitle = "Level up your Aura",
-                description = "Your on-chain Aura NFT evolves as your streak grows: Seed → Sprout → Tree → Aura. Higher tiers unlock exclusive features.",
-                gradient = listOf(Color(0xFF9945FF).copy(alpha = 0.1f), Color(0xFF14F195).copy(alpha = 0.06f)),
-            )
+            AnimatedVisibility(
+                visible = contentVisible,
+                enter = fadeIn(tween(400, delayMillis = 300)) + slideInVertically(
+                    initialOffsetY = { 50 },
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                )
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    RewardCard(
+                        icon = Icons.Default.EmojiEvents,
+                        title = "Trade Rewards",
+                        subtitle = "Earn \$AURA on trades",
+                        description = "Complete NFC-verified physical trades to earn tokens and boost your Aura Score. Both buyer and seller earn rewards.",
+                        gradient = listOf(Orange500.copy(alpha = 0.1f), Gold500.copy(alpha = 0.06f)),
+                    )
+                    RewardCard(
+                        icon = Icons.Default.CardGiftcard,
+                        title = "Streak Multiplier",
+                        subtitle = "${streakRaw}x bonus active",
+                        description = "Maintain your daily Aura Check streak to unlock multiplied token rewards. Your streak resets at midnight.",
+                        gradient = listOf(Gold500.copy(alpha = 0.1f), Orange500.copy(alpha = 0.06f)),
+                    )
+                    RewardCard(
+                        icon = Icons.Default.Star,
+                        title = "NFT Evolution",
+                        subtitle = "Level up your Aura",
+                        description = "Your on-chain Aura NFT evolves as your streak grows: Seed → Sprout → Tree → Aura. Higher tiers unlock exclusive features.",
+                        gradient = listOf(Color(0xFF9945FF).copy(alpha = 0.1f), Color(0xFF14F195).copy(alpha = 0.06f)),
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(80.dp))
         }

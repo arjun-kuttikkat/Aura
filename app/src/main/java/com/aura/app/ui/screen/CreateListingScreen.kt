@@ -16,6 +16,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -151,22 +153,10 @@ fun CreateListingScreen(
                             if (hasCameraPermission) showCamera = true
                             else permissionLauncher.launch(Manifest.permission.CAMERA)
                         },
-                        onCapture = {
-                            val photoFile = File(context.cacheDir, "aura_${System.currentTimeMillis()}.jpg")
-                            val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-                            imageCapture.takePicture(
-                                outputOptions,
-                                ContextCompat.getMainExecutor(context),
-                                object : ImageCapture.OnImageSavedCallback {
-                                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                                        capturedImagePath = photoFile.absolutePath
-                                        showCamera = false
-                                    }
-                                    override fun onError(exception: ImageCaptureException) {
-                                        errorMsg = exception.message ?: "Capture failed"
-                                    }
-                                },
-                            )
+                        onCaptureClick = {
+                            val view = (context as? android.app.Activity)?.window?.decorView ?: return@PhotoStep
+                            com.aura.app.ui.util.HapticEngine.triggerClick(view)
+                            onCapture()
                         },
                         onCloseCamera = { showCamera = false },
                         onNext = { if (capturedImagePath != null) step = 2 },
@@ -221,6 +211,8 @@ fun CreateListingScreen(
                                         textureHash = textureHash
                                     )
                                     AuraRepository.mintListing(listing.id)
+                                    val view = (context as? android.app.Activity)?.window?.decorView
+                                    if(view != null) com.aura.app.ui.util.HapticEngine.triggerSuccess(view)
                                     onListingCreated()
                                 } catch (e: Exception) {
                                     errorMsg = e.message ?: "Failed"
@@ -291,7 +283,7 @@ private fun PhotoStep(
         if (showCamera) {
             CameraPreviewSection(
                 imageCapture = imageCapture,
-                onCaptureClick = onCapture,
+                onCaptureClick = onCaptureClick,
                 onClose = onCloseCamera,
             )
         } else if (capturedImagePath != null) {
@@ -417,14 +409,31 @@ private fun DetailsStep(
                 conditions.chunked(2).forEach { rowConditions ->
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                         rowConditions.forEach { cond ->
+                            val isSelected = condition == cond
+                            val view = LocalView.current
+                            val bgAnim by animateColorAsState(
+                                targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                label = "chip_bg"
+                            )
+                            val textAnim by animateColorAsState(
+                                targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                label = "chip_fg"
+                            )
                             FilterChip(
-                                selected = condition == cond,
-                                onClick = { onConditionChange(cond) },
+                                selected = isSelected,
+                                onClick = {
+                                    com.aura.app.ui.util.HapticEngine.triggerLight(view)
+                                    onConditionChange(cond)
+                                },
                                 label = { Text(cond, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .com.aura.app.ui.util.springScale(if (isSelected) 0.96f else 1f),
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedContainerColor = bgAnim,
+                                    selectedLabelColor = textAnim,
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant
                                 ),
                             )
                         }
@@ -553,6 +562,14 @@ private fun CameraPreviewSection(
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
+    var isFlashing by remember { mutableStateOf(false) }
+    val flashAlpha by animateFloatAsState(
+        targetValue = if (isFlashing) 0.8f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(100),
+        finishedListener = { if (isFlashing) isFlashing = false },
+        label = "flash"
+    )
+
     Box(modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(RoundedCornerShape(16.dp))) {
         AndroidView(
             factory = { ctx ->
@@ -575,8 +592,19 @@ private fun CameraPreviewSection(
             },
             modifier = Modifier.fillMaxSize(),
         )
+        
+        // Flash Overlay
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White.copy(alpha = flashAlpha))
+        )
+
         Button(
-            onClick = onCaptureClick,
+            onClick = {
+                isFlashing = true
+                onCaptureClick()
+            },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(16.dp),
