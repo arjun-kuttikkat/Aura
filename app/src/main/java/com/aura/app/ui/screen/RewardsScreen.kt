@@ -1,8 +1,10 @@
 package com.aura.app.ui.screen
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -57,16 +59,26 @@ import com.aura.app.ui.theme.SolanaPurple
 @Composable
 fun RewardsScreen() {
     val profile by AuraRepository.currentProfile.collectAsState()
-    val auraScore = profile?.auraScore ?: 50
-    val streak = profile?.streakDays ?: 0
-    val totalAura by com.aura.app.data.AuraPreferences.totalAuraEarned.collectAsState()
-    val completedToday by com.aura.app.data.DirectivesManager.completedToday.collectAsState()
-    val animatedAura by androidx.compose.animation.core.animateIntAsState(
+    val auraScoreRaw = profile?.auraScore ?: 50
+    val streakRaw = profile?.streakDays ?: 0
+    val totalAura = com.aura.app.data.AuraPreferences.totalAuraEarned.collectAsState().value
+    val completedToday = com.aura.app.data.DirectivesManager.completedToday.collectAsState().value
+
+    val animatedAura by animateIntAsState(
         targetValue = totalAura,
-        animationSpec = androidx.compose.animation.core.tween(1200),
+        animationSpec = tween(1200, easing = FastOutSlowInEasing),
         label = "aura"
     )
-
+    val animatedScore by animateIntAsState(
+        targetValue = auraScoreRaw,
+        animationSpec = tween(1500, easing = FastOutSlowInEasing),
+        label = "score"
+    )
+    val animatedStreak by animateIntAsState(
+        targetValue = streakRaw,
+        animationSpec = tween(900, easing = FastOutSlowInEasing),
+        label = "streak"
+    )
     val infiniteTransition = rememberInfiniteTransition(label = "rewards")
     val pulse by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -152,14 +164,14 @@ fun RewardsScreen() {
                 StatGlassCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Star,
-                    value = "$auraScore",
+                    value = "$animatedScore",
                     label = "Aura Score",
                     tint = Orange500,
                 )
                 StatGlassCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.LocalFireDepartment,
-                    value = "$streak 🔥",
+                    value = "$animatedStreak 🔥",
                     label = "Day Streak",
                     tint = Orange500,
                 )
@@ -175,7 +187,7 @@ fun RewardsScreen() {
             RewardGlassCard(
                 icon = Icons.Default.CardGiftcard,
                 title = "Streak Multiplier",
-                subtitle = "${streak}x bonus active",
+                subtitle = "${streakRaw}x bonus active",
                 description = "Maintain your daily Aura Check streak to unlock multiplied token rewards.",
                 leftBorderColor = Gold500,
             )

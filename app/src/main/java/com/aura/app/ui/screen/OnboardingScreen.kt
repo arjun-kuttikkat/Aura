@@ -11,6 +11,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -55,11 +56,14 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.aura.app.ui.theme.UltraViolet
 import com.aura.app.ui.theme.SolanaGreen
+import com.aura.app.ui.util.HapticEngine
+import com.aura.app.ui.util.shimmerBorder
 import com.aura.app.ui.theme.DarkVoid
 import com.aura.app.ui.theme.SolanaGradientEnd
 import com.aura.app.ui.theme.SolanaGradientStart
@@ -89,6 +93,8 @@ fun OnboardingScreen(
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var connectedAddress by remember { mutableStateOf<String?>(null) }
     var currentStep by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    val walletConnectionState = remember { WalletConnectionState(context) }
 
     val scale by animateFloatAsState(
         targetValue = 1f,
@@ -107,6 +113,8 @@ fun OnboardingScreen(
     // Auto-navigate after confirming connection
     LaunchedEffect(connectedAddress) {
         if (connectedAddress != null) {
+            val view = (context as? android.app.Activity)?.window?.decorView
+            if(view != null) HapticEngine.triggerSuccess(view)
             delay(1200)
             onWalletConnected()
         }
@@ -184,7 +192,7 @@ fun OnboardingScreen(
             // Onboarding step carousel
             AnimatedVisibility(
                 visible = true,
-                enter = fadeIn(tween(500)) + slideInVertically(initialOffsetY = { 40 }),
+                enter = fadeIn(tween(500)) + slideInVertically(initialOffsetY = { 40 }) + scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)),
             ) {
                 val step = steps[currentStep]
                 Column(
@@ -260,38 +268,24 @@ fun OnboardingScreen(
             } else {
                 Button(
                     onClick = {
-                        isLoading = true
-                        errorMsg = null
-                        WalletConnectionState.connect(
-                            scope = scope,
-                            onSuccess = { address ->
-                                isLoading = false
-                                connectedAddress = address
-                            },
-                            onError = {
-                                isLoading = false
-                                errorMsg = it.message ?: "Connection failed"
-                            },
-                        )
+                        val view = (context as? android.app.Activity)?.window?.decorView
+                        if(view != null) HapticEngine.triggerThud(view)
+                        walletConnectionState.connectWallet()
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp),
-                    enabled = !isLoading,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
+                        .shimmerBorder(cornerRadius = 12.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                         containerColor = SolanaGreen,
-                        contentColor = DarkVoid,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
                     ),
                 ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            color = Color.Black,
-                        )
-                    } else {
-                        Text("Connect Wallet", fontWeight = FontWeight.Bold)
-                    }
+                    Text(
+                        "Connect Wallet",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
 
                 // Powered by Solana badge

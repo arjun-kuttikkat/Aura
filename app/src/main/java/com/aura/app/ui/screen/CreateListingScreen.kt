@@ -16,6 +16,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -71,6 +73,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -211,6 +214,8 @@ fun CreateListingScreen(
                                         textureHash = textureHash
                                     )
                                     AuraRepository.mintListing(listing.id)
+                                    val view = (context as? android.app.Activity)?.window?.decorView
+                                    if(view != null) com.aura.app.ui.util.HapticEngine.triggerSuccess(view)
                                     onListingCreated()
                                 } catch (e: Exception) {
                                     errorMsg = e.message ?: "Failed"
@@ -433,14 +438,31 @@ private fun DetailsStep(
                 conditions.chunked(2).forEach { rowConditions ->
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                         rowConditions.forEach { cond ->
+                            val isSelected = condition == cond
+                            val view = LocalView.current
+                            val bgAnim by animateColorAsState(
+                                targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                label = "chip_bg"
+                            )
+                            val textAnim by animateColorAsState(
+                                targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                label = "chip_fg"
+                            )
                             FilterChip(
-                                selected = condition == cond,
-                                onClick = { onConditionChange(cond) },
+                                selected = isSelected,
+                                onClick = {
+                                    com.aura.app.ui.util.HapticEngine.triggerLight(view)
+                                    onConditionChange(cond)
+                                },
                                 label = { Text(cond, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .com.aura.app.ui.util.springScale(if (isSelected) 0.96f else 1f),
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedContainerColor = bgAnim,
+                                    selectedLabelColor = textAnim,
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant
                                 ),
                             )
                         }
@@ -559,7 +581,7 @@ private fun ReviewStep(
             colors = ButtonDefaults.buttonColors(containerColor = Gold500, contentColor = Color.Black),
         ) {
             if (isSubmitting) {
-                androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.Black)
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.Black)
                 Spacer(modifier = Modifier.size(8.dp))
             } else {
                 Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(20.dp))
