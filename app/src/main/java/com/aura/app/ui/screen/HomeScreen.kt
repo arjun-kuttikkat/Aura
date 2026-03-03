@@ -1,11 +1,18 @@
 package com.aura.app.ui.screen
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.background
@@ -33,6 +40,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -41,8 +49,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -55,6 +67,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -67,14 +80,22 @@ import com.aura.app.ui.components.GlassCard
 import com.aura.app.ui.components.MainTopBar
 import com.aura.app.ui.theme.AuraAnimations
 import com.aura.app.ui.theme.DarkBase
+import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SuccessGreen
+import com.aura.app.ui.theme.Gold500
+import com.aura.app.ui.util.HapticEngine
+import com.aura.app.ui.util.springScale
+import androidx.compose.ui.platform.LocalView
+import kotlinx.coroutines.delay
+import androidx.compose.animation.AnimatedVisibility
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     onListingClick: (String) -> Unit,
+    onNavigate: (String) -> Unit,
 ) {
     val listings by AuraRepository.listings.collectAsState(initial = emptyList())
     val profile by AuraRepository.currentProfile.collectAsState()
@@ -170,15 +191,13 @@ fun HomeScreen(
                 modifier = Modifier.align(Alignment.TopStart),
                 title = "Aura",
                 logoSize = 44.dp,
-                onZoneResourceClick = { onListingClick(com.aura.app.navigation.Routes.ZONE_REFINEMENT) },
+                onZoneResourceClick = { onNavigate(com.aura.app.navigation.Routes.ZONE_REFINEMENT) },
             )
-
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 16.dp, bottom = 108.dp)
                     .scale(0.9f),
-                horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 ExtendedFloatingActionButton(
@@ -202,6 +221,18 @@ fun HomeScreen(
                     text = { Text("Aura Check", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge) },
                     containerColor = Orange500,
                     contentColor = Color.Black,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.heightIn(min = 44.dp),
+                )
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        AuraHaptics.lightTap(haptic)
+                        onNavigate(com.aura.app.navigation.Routes.DIRECTIVES)
+                    },
+                    icon = { Icon(Icons.Filled.Star, "Directives", modifier = Modifier.size(18.dp)) },
+                    text = { Text("Directives", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge) },
+                    containerColor = com.aura.app.ui.theme.UltraViolet,
+                    contentColor = Color.White,
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.heightIn(min = 44.dp),
                 )
@@ -322,12 +353,48 @@ private fun ListingCard(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                if (imageUrl != null) {
+                if (imageUrl != null && imageUrl.isNotBlank()) {
                     AsyncImage(
-                        model = if (imageUrl.startsWith("http")) imageUrl else "file://$imageUrl",
+                        model = if (imageUrl.startsWith("http") || imageUrl.startsWith("content://")) imageUrl else "file://${imageUrl.removePrefix("file://")}",
                         contentDescription = title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
+                        error = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.linearGradient(
+                                            colors = listOf(
+                                                Orange500.copy(alpha = 0.2f),
+                                                Gold500.copy(alpha = 0.15f),
+                                            ),
+                                        ),
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Default.BrokenImage,
+                                    contentDescription = null,
+                                    tint = Orange500.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(36.dp),
+                                )
+                            }
+                        },
+                        loading = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.linearGradient(
+                                            colors = listOf(
+                                                Orange500.copy(alpha = 0.08f),
+                                                Gold500.copy(alpha = 0.05f),
+                                            ),
+                                        ),
+                                    ),
+                            )
+                        },
                     )
                 } else {
                     Box(
@@ -356,6 +423,7 @@ private fun ListingCard(
                                 MintedStatus.VERIFIED -> SuccessGreen
                                 MintedStatus.MINTED -> Gold500
                                 MintedStatus.PENDING -> Color.Gray.copy(alpha = 0.8f)
+                                MintedStatus.SOLD -> Color(0xFF4CAF50)
                             },
                         )
                         .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -365,6 +433,7 @@ private fun ListingCard(
                             MintedStatus.PENDING -> "Pending"
                             MintedStatus.MINTED -> "Minted"
                             MintedStatus.VERIFIED -> "✓ Verified"
+                            MintedStatus.SOLD -> "Sold"
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White,

@@ -1,5 +1,16 @@
 package com.aura.app.ui.screen
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+import androidx.compose.ui.draw.scale
+import com.aura.app.ui.util.pulseGlow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -16,12 +27,17 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +49,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,7 +66,9 @@ import com.aura.app.ui.theme.DarkBase
 import com.aura.app.model.MintedStatus
 import com.aura.app.model.TradeSession
 import com.aura.app.ui.theme.Orange500
-import com.aura.app.ui.theme.Orange700
+import com.aura.app.ui.theme.SolanaGreen
+import com.aura.app.ui.theme.Gold500
+import com.aura.app.data.TradeRiskOracle
 import com.aura.app.wallet.WalletConnectionState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,6 +81,19 @@ fun ListingDetailScreen(
 ) {
     val listing = AuraRepository.getListing(listingId)
     val walletAddress by WalletConnectionState.walletAddress.collectAsState()
+    
+    // Animation states
+    var isImageLoaded by remember { mutableStateOf(false) }
+    var contentVisible by remember { mutableStateOf(false) }
+    val imageScale by animateFloatAsState(
+        targetValue = if (isImageLoaded) 1.0f else 0.95f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy)
+    )
+
+    LaunchedEffect(Unit) {
+        delay(50) // Slight delay to ensure layout pass before triggering cascade
+        contentVisible = true
+    }
 
     Scaffold(
         topBar = {
@@ -96,6 +128,7 @@ fun ListingDetailScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
+                    .scale(imageScale)
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
@@ -107,17 +140,50 @@ fun ListingDetailScreen(
                     .border(0.5.dp, Orange500.copy(alpha = 0.2f), RoundedCornerShape(0.dp, 0.dp, 24.dp, 24.dp)),
             ) {
                 val imageUrl = listing.images.firstOrNull()
-                val imageModel = when {
-                    imageUrl == null -> null
-                    imageUrl.startsWith("http") -> imageUrl
-                    else -> "file://$imageUrl"
-                }
-                if (imageModel != null) {
-                    AsyncImage(
-                        model = imageModel,
+                if (imageUrl != null && imageUrl.isNotBlank()) {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val modelData = if (imageUrl.startsWith("/")) "file://$imageUrl" else imageUrl
+                    coil.compose.SubcomposeAsyncImage(
+                        model = coil.request.ImageRequest.Builder(context)
+                            .data(modelData)
+                            .crossfade(true)
+                            .build(),
                         contentDescription = listing.title,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().scale(imageScale),
+                        onSuccess = { isImageLoaded = true },
                         contentScale = ContentScale.Crop,
+                        error = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp)
+                                    .background(
+                                        Brush.linearGradient(
+                                            colors = listOf(Orange500.copy(alpha = 0.2f), Orange500.copy(alpha = 0.1f)),
+                                        ),
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Default.BrokenImage,
+                                    contentDescription = null,
+                                    tint = Orange500.copy(alpha = 0.4f),
+                                    modifier = Modifier.size(48.dp),
+                                )
+                            }
+                        },
+                        loading = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp)
+                                    .background(
+                                        Brush.linearGradient(
+                                            colors = listOf(Orange500.copy(alpha = 0.08f), Orange500.copy(alpha = 0.04f)),
+                                        ),
+                                    ),
+                            )
+                        },
                     )
                 } else {
                     Box(
@@ -125,8 +191,8 @@ fun ListingDetailScreen(
                             .fillMaxWidth()
                             .background(
                                 Brush.linearGradient(
-                                    colors = listOf(Orange500.copy(alpha = 0.25f), Orange700.copy(alpha = 0.12f)),
-                                ),
+                            colors = listOf(Orange500.copy(alpha = 0.25f), Orange500.copy(alpha = 0.12f)),
+                        ),
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -140,8 +206,9 @@ fun ListingDetailScreen(
                         .background(
                             when (listing.mintedStatus) {
                                 MintedStatus.VERIFIED -> Orange500
-                                MintedStatus.MINTED -> com.aura.app.ui.theme.Gold500
+                                MintedStatus.MINTED -> Gold500
                                 MintedStatus.PENDING -> MaterialTheme.colorScheme.outline
+                                MintedStatus.SOLD -> Color(0xFF4CAF50)
                             },
                             RoundedCornerShape(12.dp),
                         )
@@ -152,7 +219,7 @@ fun ListingDetailScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        if (listing.mintedStatus == MintedStatus.VERIFIED) {
+                        if (listing.mintedStatus == MintedStatus.VERIFIED || listing.mintedStatus == MintedStatus.SOLD) {
                             Icon(
                                 Icons.Default.CheckCircle,
                                 contentDescription = null,
@@ -165,6 +232,7 @@ fun ListingDetailScreen(
                                 MintedStatus.PENDING -> "Pending"
                                 MintedStatus.MINTED -> "Minted"
                                 MintedStatus.VERIFIED -> "Verified"
+                                MintedStatus.SOLD -> "Sold"
                             },
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onPrimary,
@@ -172,13 +240,24 @@ fun ListingDetailScreen(
                         )
                     }
                 }
+                        )
+                    }
+                }
             }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+            
+            AnimatedVisibility(
+                visible = contentVisible,
+                enter = fadeIn(tween(400, delayMillis = 100)) + slideInVertically(
+                    initialOffsetY = { 100 },
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                )
             ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -186,7 +265,7 @@ fun ListingDetailScreen(
                 ) {
                     Text(
                         text = listing.title,
-                        style = MaterialTheme.typography.headlineSmall,
+                        style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
@@ -194,6 +273,7 @@ fun ListingDetailScreen(
                         style = MaterialTheme.typography.headlineMedium,
                         color = Orange500,
                         fontWeight = FontWeight.Bold,
+                        modifier = Modifier.pulseGlow()
                     )
                 }
                 GlassCard(
@@ -213,6 +293,68 @@ fun ListingDetailScreen(
                         )
                     }
                 }
+
+                // ── AI Trade-Risk Oracle ──────────────────────────────
+                val sellerProfile = AuraRepository.currentProfile.collectAsState().value
+                val riskAssessment = remember(sellerProfile, listing) {
+                    TradeRiskOracle.evaluate(sellerProfile, listing)
+                }
+
+                val riskColor = when (riskAssessment.level) {
+                    TradeRiskOracle.RiskLevel.LOW -> SolanaGreen
+                    TradeRiskOracle.RiskLevel.MEDIUM -> Gold500
+                    TradeRiskOracle.RiskLevel.HIGH -> Orange500
+                    TradeRiskOracle.RiskLevel.CRITICAL -> Color.Red
+                }
+                val riskIcon = when (riskAssessment.level) {
+                    TradeRiskOracle.RiskLevel.LOW -> Icons.Default.CheckCircle
+                    else -> Icons.Filled.Warning
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = riskColor.copy(alpha = 0.08f)
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                riskIcon,
+                                contentDescription = null,
+                                tint = riskColor,
+                                modifier = Modifier.size(24.dp),
+                            )
+                            Text(
+                                "AI Risk: ${riskAssessment.level.name}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = riskColor,
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            riskAssessment.recommendation,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (riskAssessment.flags.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            riskAssessment.flags.forEach { flag ->
+                                Text(
+                                    "• $flag",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = riskColor.copy(alpha = 0.8f),
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Button(
                     onClick = {
                         walletAddress?.let { wallet ->
@@ -224,7 +366,7 @@ fun ListingDetailScreen(
                             onStartMeetup()
                         }
                     },
-                    enabled = walletAddress != null,
+                    enabled = walletAddress != null && listing.mintedStatus != MintedStatus.SOLD,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(58.dp),
@@ -235,7 +377,11 @@ fun ListingDetailScreen(
                     ),
                 ) {
                     Text(
-                        if (walletAddress != null) "Start Meetup / Buy" else "Connect Wallet First",
+                        when {
+                            listing.mintedStatus == MintedStatus.SOLD -> "Sold"
+                            walletAddress != null -> "Start Meetup / Buy"
+                            else -> "Connect Wallet First"
+                        },
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium,
                     )

@@ -4,6 +4,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import com.aura.app.navigation.NavGraph
 import com.aura.app.ui.theme.AuraTheme
 import com.aura.app.util.NfcHandoverManager
@@ -13,13 +15,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.aura.app.data.AuraPreferences.init(applicationContext)
+        com.aura.app.data.SupabaseClient.appContext = applicationContext
         WalletConnectionState.init { intent ->
             startActivity(intent)
         }
         NfcHandoverManager.init(this)
+        com.aura.app.data.HotzoneManager.init(applicationContext)
+        com.aura.app.data.DirectivesManager.generateDailyDirectives()
         enableEdgeToEdge()
         setContent {
-            AuraTheme {
+            val isDark by com.aura.app.data.AuraPreferences.isDarkMode.collectAsState()
+            AuraTheme(darkTheme = isDark) {
                 NavGraph()
             }
         }

@@ -59,6 +59,13 @@ fun RewardsScreen() {
     val profile by AuraRepository.currentProfile.collectAsState()
     val auraScore = profile?.auraScore ?: 50
     val streak = profile?.streakDays ?: 0
+    val totalAura by com.aura.app.data.AuraPreferences.totalAuraEarned.collectAsState()
+    val completedToday by com.aura.app.data.DirectivesManager.completedToday.collectAsState()
+    val animatedAura by androidx.compose.animation.core.animateIntAsState(
+        targetValue = totalAura,
+        animationSpec = androidx.compose.animation.core.tween(1200),
+        label = "aura"
+    )
 
     val infiniteTransition = rememberInfiniteTransition(label = "rewards")
     val pulse by infiniteTransition.animateFloat(
@@ -127,13 +134,13 @@ fun RewardsScreen() {
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text(
-                            "0.00 \$AURA",
+                            "$animatedAura \$AURA",
                             style = MaterialTheme.typography.displayMedium,
                             fontWeight = FontWeight.Bold,
                             color = Gold500,
                         )
                         Text(
-                            "Earn tokens with every verified trade",
+                            if (totalAura == 0) "Complete directives to earn tokens" else "$completedToday directives completed today",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

@@ -48,8 +48,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aura.app.navigation.Routes
+import com.aura.app.ui.theme.GlassBorder
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
+import com.aura.app.ui.theme.SolanaGreen
+import com.aura.app.ui.theme.DarkVoid
 
 data class BottomNavItem(
     val route: String,
@@ -151,16 +154,14 @@ fun MainBottomBar(
                     ),
                 )
                 .border(2.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                .clickable {
-                    onNavigate(centerItem.route)
-                },
+                .clickable { onNavigate(centerItem.route) },
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = centerItem.icon,
                 contentDescription = centerItem.label,
                 modifier = Modifier.size(28.dp),
-                tint = Color.Black,
+                tint = DarkVoid,
             )
         }
     }
@@ -204,7 +205,7 @@ private fun RowScope.BottomNavBarItem(
                 modifier = Modifier
                     .size(4.dp)
                     .clip(CircleShape)
-                    .background(Orange500),
+                    .background(SolanaGreen),
             )
         } else {
             Spacer(modifier = Modifier.height(4.dp))

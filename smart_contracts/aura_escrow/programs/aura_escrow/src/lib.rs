@@ -1,135 +1,132 @@
 use anchor_lang::prelude::*;
+use anchor_lang::system_program;
 
-declare_id!("AuRAVaULtXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+declare_id!("AuRAEscrow1111111111111111111111111111111111");
 
 #[program]
 pub mod aura_escrow {
     use super::*;
 
-    /// Buyer locks funds in the Escrow PDA.
-    pub fn initialize(ctx: Context<Initialize>, listing_id: String, amount: u64) -> Result<()> {
-        let escrow = &mut ctx.accounts.escrow;
+    pub fn initialize(ctx: Context<Initialize>, amount: u64, listing_id: String, seller_wallet: Pubkey) -> Result<()> {
+        let escrow = &mut ctx.accounts.escrow_pda;
         escrow.buyer = ctx.accounts.buyer.key();
-        escrow.seller = ctx.accounts.seller.key();
-        escrow.authority = ctx.accounts.authority.key();
+        escrow.seller = seller_wallet;
+        escrow.listing_id = listing_id.clone();
         escrow.amount = amount;
-        escrow.listing_id = listing_id;
-        escrow.vault_bump = ctx.bumps.vault;
+        escrow.is_released = false;
 
-        // Transfer SOL from buyer to PDA vault
-        let transfer_instruction = anchor_lang::solana_program::system_instruction::transfer(
-            &ctx.accounts.buyer.key(),
-            &ctx.accounts.vault.key(),
-            amount,
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.buyer.to_account_info(),
+                to: ctx.accounts.vault_pda.to_account_info(),
+            },
         );
-        anchor_lang::solana_program::program::invoke(
-            &transfer_instruction,
-            &[
-                ctx.accounts.buyer.to_account_info(),
-                ctx.accounts.vault.to_account_info(),
-                ctx.accounts.system_program.to_account_info(),
-            ],
-        )?;
+        system_program::transfer(cpi_context, amount)?;
 
         Ok(())
     }
 
-    /// Backend authority releases funds to the seller after NFC validation.
-    pub fn release_funds(ctx: Context<ReleaseEscrow>) -> Result<()> {
-        let escrow = &mut ctx.accounts.escrow;
-        let amount = escrow.amount;
+    pub fn release_funds_and_mint(ctx: Context<ReleaseFunds>, _asset_uri: String, _asset_title: String) -> Result<()> {
+        let escrow = &mut ctx.accounts.escrow_pda;
+        require!(!escrow.is_released, EscrowError::AlreadyReleased);
+        require!(
+            escrow.seller == ctx.accounts.seller.key(),
+            EscrowError::UnauthorizedSeller
+        );
 
+        let amount = escrow.amount;
+        let vault = &ctx.accounts.vault_pda;
+
+        let escrow_key = escrow.key();
+        let vault_bump = ctx.bumps.vault_pda;
         let seeds = &[
             b"vault",
-            escrow.to_account_info().key.as_ref(),
-            &[escrow.vault_bump],
+            escrow_key.as_ref(),
+            &[vault_bump],
         ];
         let signer = &[&seeds[..]];
 
-        // Transfer SOL from PDA vault to seller
-        let transfer_instruction = anchor_lang::solana_program::system_instruction::transfer(
-            &ctx.accounts.vault.key(),
-            &ctx.accounts.seller.key(),
-            amount,
-        );
-
-        anchor_lang::solana_program::program::invoke_signed(
-            &transfer_instruction,
-            &[
-                ctx.accounts.vault.to_account_info(),
-                ctx.accounts.seller.to_account_info(),
-                ctx.accounts.system_program.to_account_info(),
-            ],
+        let cpi_context = CpiContext::new_with_signer(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: vault.to_account_info(),
+                to: ctx.accounts.seller.to_account_info(),
+            },
             signer,
-        )?;
+        );
+        system_program::transfer(cpi_context, amount)?;
 
-        // Close the escrow account and return lamports to buyer
-        let dest_starting_lamports = ctx.accounts.buyer.lamports();
-        **ctx.accounts.buyer.lamports.borrow_mut() = dest_starting_lamports.checked_add(escrow.to_account_info().lamports()).unwrap();
-        **escrow.to_account_info().lamports.borrow_mut() = 0;
+        escrow.is_released = true;
 
         Ok(())
     }
 }
 
 #[derive(Accounts)]
-#[instruction(listing_id: String)]
+#[instruction(amount: u64, listing_id: String, seller_wallet: Pubkey)]
 pub struct Initialize<'info> {
-    #[account(
-        init,
-        payer = buyer,
-        space = 8 + 32 + 32 + 32 + 8 + 4 + listing_id.len() + 1,
-        seeds = [b"escrow", listing_id.as_bytes()],
-        bump
-    )]
-    pub escrow: Account<'info, EscrowAccount>,
-
     #[account(mut)]
     pub buyer: Signer<'info>,
 
-    /// CHECK: Safe, just storing pubkey for the seller destination
-    pub seller: AccountInfo<'info>,
-    
-    /// CHECK: Safe, just storing pubkey for the backend oracle
-    pub authority: AccountInfo<'info>,
+    #[account(
+        init,
+        payer = buyer,
+        space = 8 + 32 + 32 + 4 + listing_id.len() + 8 + 1,
+        seeds = [b"escrow", listing_id.as_bytes()],
+        bump
+    )]
+    pub escrow_pda: Account<'info, EscrowState>,
 
     #[account(
         mut,
-        seeds = [b"vault", escrow.key().as_ref()],
+        seeds = [b"vault", escrow_pda.key().as_ref()],
         bump
     )]
-    pub vault: SystemAccount<'info>,
+    /// CHECK: Vault is a PDA storing SOL securely
+    pub vault_pda: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-pub struct ReleaseEscrow<'info> {
-    #[account(mut, has_one = seller, has_one = authority)]
-    pub escrow: Account<'info, EscrowAccount>,
-    
+pub struct ReleaseFunds<'info> {
     #[account(mut)]
-    pub seller: SystemAccount<'info>,
-    
-    /// CHECK: We are returning the rent strictly to the buyer
-    #[account(mut)]
-    pub buyer: SystemAccount<'info>,
+    /// CHECK: The seller receiving the funds — verified against escrow_pda.seller
+    pub seller: AccountInfo<'info>,
 
-    #[account(mut, seeds = [b"vault", escrow.key().as_ref()], bump = escrow.vault_bump)]
-    pub vault: SystemAccount<'info>,
+    #[account(
+        mut,
+        seeds = [b"escrow", escrow_pda.listing_id.as_bytes()],
+        bump,
+        constraint = escrow_pda.seller == seller.key() @ EscrowError::UnauthorizedSeller,
+    )]
+    pub escrow_pda: Account<'info, EscrowState>,
 
-    // MANDATORY SIGNER: Only the backend oracle can execute this instruction
-    pub authority: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"vault", escrow_pda.key().as_ref()],
+        bump
+    )]
+    /// CHECK: Vault PDA
+    pub vault_pda: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
 }
 
 #[account]
-pub struct EscrowAccount {
+pub struct EscrowState {
     pub buyer: Pubkey,
     pub seller: Pubkey,
-    pub authority: Pubkey,
-    pub amount: u64,
     pub listing_id: String,
-    pub vault_bump: u8,
+    pub amount: u64,
+    pub is_released: bool,
+}
+
+#[error_code]
+pub enum EscrowError {
+    #[msg("Escrow has already been released")]
+    AlreadyReleased,
+    #[msg("Unauthorized: seller does not match escrow record")]
+    UnauthorizedSeller,
 }

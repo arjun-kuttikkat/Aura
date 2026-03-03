@@ -2,6 +2,7 @@ package com.aura.app.ui.screen
 
 import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -45,8 +46,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
@@ -66,6 +71,8 @@ import com.aura.app.ui.theme.SuccessGreen
 import com.aura.app.util.NfcHandoverManager
 import com.aura.app.util.NfcHandshakeResult
 import com.aura.app.wallet.WalletConnectionState
+import com.aura.app.ui.util.HapticEngine
+import com.aura.app.ui.util.springScale
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.WriterException
@@ -81,18 +88,31 @@ fun MeetSessionScreen(
     val walletAddress by WalletConnectionState.walletAddress.collectAsState()
     val nfcState by NfcHandoverManager.state.collectAsState()
 
+    val view = LocalView.current
+
     LaunchedEffect(nfcState) {
         if (nfcState is NfcHandshakeResult.Confirmed) {
             val confirmedState = nfcState as NfcHandshakeResult.Confirmed
+            HapticEngine.triggerSuccess(view)
+            
             session?.let { s ->
                 val listing = AuraRepository.getListing(s.listingId)
+                val metadataUri = listing?.images?.firstOrNull() ?: ""
+                val assetTitle = listing?.title ?: "Aura Verified Asset"
+                
                 val success = AuraRepository.releaseEscrowWithNfc(
                     tradeId = s.id,
                     listingId = s.listingId,
                     sdmDataHex = confirmedState.sdmDataHex,
                     receivedCmacHex = confirmedState.cmacHex,
-                    escrowPdaBase58 = "AuRAVaULtXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+                    escrowPdaBase58 = try {
+                        val pda = com.aura.app.wallet.AnchorTransactionBuilder.deriveEscrowPda(s.listingId)
+                        android.util.Base64.encodeToString(pda.address, android.util.Base64.NO_WRAP)
+                    } catch (_: Exception) { "" },
                     sellerWalletBase58 = s.sellerWallet,
+                    buyerWalletBase58 = walletAddress,
+                    assetUri = metadataUri,
+                    assetTitle = assetTitle,
                     amount = listing?.priceLamports ?: 0L
                 )
                 if (success) {
@@ -100,6 +120,8 @@ fun MeetSessionScreen(
                     onHandshakeComplete()
                 }
             }
+        } else if (nfcState is NfcHandshakeResult.Error) {
+            HapticEngine.triggerThud(view)
         }
     }
 
@@ -246,18 +268,6 @@ fun MeetSessionScreen(
                 }
             }
 
-            if (true) {
-                Spacer(modifier = Modifier.height(32.dp))
-                Button(
-                    onClick = {
-                        AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
-                        onHandshakeComplete()
-                    },
-                    colors = ButtonDefaults.outlinedButtonColors()
-                ) {
-                    Text("Simulate Handshake (debug only)")
-                }
-            }
         }
     }
 }

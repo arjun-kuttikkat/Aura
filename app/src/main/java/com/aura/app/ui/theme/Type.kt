@@ -2,15 +2,35 @@ package com.aura.app.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.googlefonts.Font
+import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.sp
 import com.aura.app.R
 
-// ── Premium Google Fonts (Reverted to Built-in for Stability) ───────────
-val InterFont = FontFamily.SansSerif
-val OutfitFont = FontFamily.SansSerif
+// ── Google Fonts Provider Setup ─────────────────────────────────────────
+val provider = GoogleFont.Provider(
+    providerAuthority = "com.google.android.gms.fonts",
+    providerPackage = "com.google.android.gms",
+    certificates = R.array.com_google_android_gms_fonts_certs
+)
+
+val InterFontName = GoogleFont("Inter")
+val OutfitFontName = GoogleFont("Outfit")
+
+val InterFont = FontFamily(
+    Font(googleFont = InterFontName, fontProvider = provider),
+    Font(googleFont = InterFontName, fontProvider = provider, weight = FontWeight.Medium),
+    Font(googleFont = InterFontName, fontProvider = provider, weight = FontWeight.Bold)
+)
+
+val OutfitFont = FontFamily(
+    Font(googleFont = OutfitFontName, fontProvider = provider),
+    Font(googleFont = OutfitFontName, fontProvider = provider, weight = FontWeight.Medium),
+    Font(googleFont = OutfitFontName, fontProvider = provider, weight = FontWeight.SemiBold),
+    Font(googleFont = OutfitFontName, fontProvider = provider, weight = FontWeight.Bold)
+)
 
 // ── Typography: Outfit for display/headlines, Inter for body/labels ──
 val Typography = Typography(

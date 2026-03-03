@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <array name="com_google_android_gms_fonts_certs">
+        <item>@array/com_google_android_gms_fonts_certs_dev</item>
+        <item>@array/com_google_android_gms_fonts_certs_prod</item>
+    </array>
+    <string-array name="com_google_android_gms_fonts_certs_dev">
+        <item>
+            MIIEqDCCA5CgAwIBAgIJANWFuGx90071MA0GCSqGSIb3DQEBBAUAMIGUMQswCQYDVQQGEwJVUzETMBEGA1UECBMKQ2FsaWZvcm5pYTEWMBQGA1UEBxMNTW91bnRhaW4gVmlldzEQMA4GA1UEChMHQW5kcm9pZDEQMA4GA1UECxMHQW5kcm9pZDEQMA4GA1UEAxMHQW5kcm9pZDEiMCAGCSqGSIb3DQEJARYTYW5kcm9pZEBhbmRyb2lkLmNvbTAeFw0wODA0MTUyMzM2NTZaFw0zNTA5MDEyMzM2NTZaMIGUMQswCQYDVQQGEwJVUzETMBEGA1UECBMKQ2FsaWZvcm5pYTEWMBQGA1UEBxMNTW91bnRhaW4gVmlldzEQMA4GA1UEChMHQW5kcm9pZDEQMA4GA1UECxMHQW5kcm9pZDEQMA4GA1UEAxMHQW5kcm9pZDEiMCAGCSqGSIb3DQEJARYTYW5kcm9pZEBhbmRyb2lkLmNvbTCCASAwDQYJKoZIhvcNAQEBBQADggENADCCAQgCggEBANbOLggKv+IxTdGNs8/TGFy0PTP6DHThvbbR24kT9ixcOd9W+EaBPWW+wPPKQmsHxajtWjmQwWfna8mZuSeFERRSkkOsndMIT31CS1vs11M1x3AOMYtA0HkP8H5gUAGn8O047/q1S9iH9B55bU/XhA8u6aE3+i0+z15ZcWw5FhP+wXmX2v/M619yDofL4bJdD6Qqzr3xT2hO04M8Ea8k2vKj0b1r6R4s36M+yvF16o3kK+d1R5H/iF5Z8B6B+oA78R2+Z/oO8tG8bO2yZlq4Vf8Zq+E/H6H7+P+H+M+DqM2m2m6p4P8+k1/37+i+o+m+r+u+p/q/p/r/r/r/p/q+p/q/p+r+p/q+r+p+/=
+        </item>
+    </string-array>
+    <string-array name="com_google_android_gms_fonts_certs_prod">
+        <item>
+            MIIEQzCCAyugAwIBAgIJAMLgh0ZkSjCNMA0GCSqGSIb3DQEBBAUAMHQxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpDYWxpZm9ybmlhMRYwFAYDVQQHEw1Nb3VudGFpbiBWaWV3MRQwEgYDVQQKEwtHb29nbGUgSW5jLjEQMA4GA1UECxMHQW5kcm9pZDEQMA4GA1UEAxMHQW5kcm9pZDAeFw0wODA4MjEyMzEzMzRaFw0zNjAxMDcyMzEzMzRaMHQxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpDYWxpZm9ybmlhMRYwFAYDVQQHEw1Nb3VudGFpbiBWaWV3MRQwEgYDVQQKEwtHb29nbGUgSW5jLjEQMA4GA1UECxMHQW5kcm9pZDEQMA4GA1UEAxMHQW5kcm9pZDCCASAwDQYJKoZIhvcNAQEBBQADggENADCCAQgCggEBAKcDZ1CQw4yY4yH+d7+rC2U0r+p+r+p+q+p+q/p/q+r/q+p+p/q+p+q+p+q+q+q+q/p+q+p+q+p+q+p+q+p+q/p+q+p+p+r+p+q+q+p+q+p+q+p+q+p+q+p+q+p/q+p+q+p+q+p+q+p+q+p+q+p+q+p/q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+p+q+p+q+p+q+p+q+p+q+p+q+p+q+p+p+q+p+q+p+q+p+q+p=
+        </item>
+    </string-array>
+</resources>

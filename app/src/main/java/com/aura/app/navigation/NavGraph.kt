@@ -1,5 +1,8 @@
 package com.aura.app.navigation
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -17,18 +20,20 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.aura.app.data.AuraRepository
 import com.aura.app.ui.components.MainBottomBar
+import com.aura.app.ui.screen.AppearanceSettingsScreen
 import com.aura.app.ui.screen.CreateListingScreen
 import com.aura.app.ui.screen.EscrowPayScreen
+import com.aura.app.ui.screen.FaceVerificationScreen
 import com.aura.app.ui.screen.HomeScreen
 import com.aura.app.ui.screen.ListingDetailScreen
 import com.aura.app.ui.screen.MeetSessionScreen
+import com.aura.app.ui.screen.NotificationsSettingsScreen
 import com.aura.app.ui.screen.OnboardingScreen
+import com.aura.app.ui.screen.PrivacySettingsScreen
 import com.aura.app.ui.screen.ProfileScreen
 import com.aura.app.ui.screen.RewardsScreen
-import com.aura.app.ui.screen.SecurityScreen
+import com.aura.app.ui.screen.SecuritySettingsScreen
 import com.aura.app.ui.screen.SettingsScreen
-import com.aura.app.ui.screen.PrivacyScreen
-import com.aura.app.ui.screen.FaceVerificationScreen
 import com.aura.app.ui.screen.TradeCompleteScreen
 import com.aura.app.ui.screen.VerifyItemScreen
 import com.aura.app.wallet.WalletConnectionState
@@ -56,6 +61,8 @@ fun NavGraph(
             NavHost(
                 navController = navController,
                 startDestination = startDestination,
+                enterTransition = { fadeIn(animationSpec = tween(200)) },
+                exitTransition = { fadeOut(animationSpec = tween(150)) },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
@@ -73,6 +80,7 @@ fun NavGraph(
                             else -> navController.navigate(Routes.listingDetail(id))
                         }
                     },
+                    onNavigate = { route -> navController.navigate(route) },
                 )
             }
             composable(Routes.REWARDS) {
@@ -85,20 +93,36 @@ fun NavGraph(
             }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
+                    onNotificationsClick = { navController.navigate(Routes.SETTINGS_NOTIFICATIONS) },
+                    onAppearanceClick = { navController.navigate(Routes.SETTINGS_APPEARANCE) },
+                    onSecurityClick = { navController.navigate(Routes.SETTINGS_SECURITY) },
+                    onPrivacyClick = { navController.navigate(Routes.SETTINGS_PRIVACY) },
                     onLogout = {
                         navController.navigate(Routes.ONBOARDING) {
                             popUpTo(0) { inclusive = true }
                         }
                     },
-                    onSecurityClick = { navController.navigate(Routes.SECURITY) },
-                    onPrivacyClick = { navController.navigate(Routes.PRIVACY) },
                 )
             }
-            composable(Routes.SECURITY) {
-                SecurityScreen(onBack = { navController.popBackStack() })
+            composable(Routes.SETTINGS_NOTIFICATIONS) {
+                NotificationsSettingsScreen(
+                    onBack = { navController.popBackStack() },
+                )
             }
-            composable(Routes.PRIVACY) {
-                PrivacyScreen(onBack = { navController.popBackStack() })
+            composable(Routes.SETTINGS_APPEARANCE) {
+                AppearanceSettingsScreen(
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable(Routes.SETTINGS_SECURITY) {
+                SecuritySettingsScreen(
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable(Routes.SETTINGS_PRIVACY) {
+                PrivacySettingsScreen(
+                    onBack = { navController.popBackStack() },
+                )
             }
             composable(Routes.CREATE_LISTING) {
                 CreateListingScreen(
@@ -159,6 +183,11 @@ fun NavGraph(
         }
         composable(Routes.ZONE_REFINEMENT) {
             com.aura.app.ui.screen.ZoneRefinementScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.DIRECTIVES) {
+            com.aura.app.ui.screen.DirectivesScreen(
                 onBack = { navController.popBackStack() }
             )
         }

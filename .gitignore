@@ -69,3 +69,19 @@ google-services.json
 # Log files
 *.log
 node_modules
+
+# Build logs and scratch files
+build_*.txt
+build_*.log
+hs_err_pid*.log
+replay_pid*.log
+dependencies*.txt
+manifest_error.txt
+output_log.txt
+install*.log
+install*.txt
+web3_test.kt
+codebase_summary*.md
+
+# Kotlin caches
+.kotlin/

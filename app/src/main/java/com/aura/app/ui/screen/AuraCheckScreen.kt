@@ -64,7 +64,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.aura.app.data.AuraRepository
 import com.aura.app.model.AuraCheckResult
+import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import java.io.ByteArrayOutputStream
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -159,11 +162,27 @@ fun AuraCheckScreen(
                     onClick = {
                         isAnalyzing = true
                         scope.launch {
-                            // Dummy capture bytes for prototype
-                            val dummyBytes = ByteArray(100) { it.toByte() }
-                            // Send dummy location data for FusedLocationProvider mock
-                            result = AuraRepository.performAuraCheck(dummyBytes, 37.7749, -122.4194)
-                            isAnalyzing = false
+                            try {
+                                // Real camera capture via ImageCapture API
+                                val photoBytes = captureImageBytes(imageCapture, context)
+                                // showSuccess = true // This variable is not defined in the current scope.
+                                
+                                // Real GPS from FusedLocationProvider
+                                var lat: Double? = null
+                                var lng: Double? = null
+                                try {
+                                    val fusedClient = LocationServices.getFusedLocationProviderClient(context)
+                                    val loc = fusedClient.lastLocation.await()
+                                    lat = loc?.latitude
+                                    lng = loc?.longitude
+                                } catch (_: SecurityException) { /* permission not granted */ }
+                                
+                                result = AuraRepository.performAuraCheck(photoBytes, lat, lng)
+                            } catch (e: Exception) {
+                                result = AuraCheckResult(0, "Capture failed: ${e.message}", false, 0)
+                            } finally {
+                                isAnalyzing = false
+                            }
                         }
                     },
                     modifier = Modifier
@@ -294,4 +313,31 @@ private fun CameraPreviewBox(
             modifier = Modifier.fillMaxSize(),
         )
     }
+}
+
+/**
+ * Capture a real JPEG image from the camera and return as ByteArray.
+ */
+private suspend fun captureImageBytes(
+    imageCapture: ImageCapture,
+    context: android.content.Context,
+): ByteArray = kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+    val executor = ContextCompat.getMainExecutor(context)
+    imageCapture.takePicture(executor, object : ImageCapture.OnImageCapturedCallback() {
+        override fun onCaptureSuccess(imageProxy: androidx.camera.core.ImageProxy) {
+            try {
+                val buffer = imageProxy.planes[0].buffer
+                val bytes = ByteArray(buffer.remaining())
+                buffer.get(bytes)
+                cont.resume(bytes) {}
+            } catch (e: Exception) {
+                cont.resume(ByteArray(0)) {}
+            } finally {
+                imageProxy.close()
+            }
+        }
+        override fun onError(exception: androidx.camera.core.ImageCaptureException) {
+            cont.resume(ByteArray(0)) {}
+        }
+    })
 }

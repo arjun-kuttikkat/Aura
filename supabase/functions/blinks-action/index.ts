@@ -75,7 +75,7 @@ serve(async (req: Request) => {
         })
     }
 
-    // POST: Build the escrow funding transaction for the buyer to sign
+    // POST: Build the Anchor escrow funding transaction for the buyer to sign
     if (req.method === "POST") {
         try {
             const body = await req.json()
@@ -84,18 +84,49 @@ serve(async (req: Request) => {
 
             const connection = new Connection(SOLANA_RPC)
             const latestBlockhash = await connection.getLatestBlockhash()
+            const PROGRAM_ID = new PublicKey("BMKWLYrXtuuxp4TA4yNhrs9LbomR1fMdbrko6R7Qj5WM")
 
-            // Build a SystemProgram.transfer to escrow (seller for now, Anchor PDA in production)
+            // Derive Anchor PDAs
+            const [escrowPda] = PublicKey.findProgramAddressSync(
+                [Buffer.from("escrow"), Buffer.from(listingId)],
+                PROGRAM_ID
+            )
+            const [vaultPda] = PublicKey.findProgramAddressSync(
+                [Buffer.from("vault"), escrowPda.toBuffer()],
+                PROGRAM_ID
+            )
+
+            // Anchor discriminator for "global:initialize"
+            const crypto = await import("node:crypto")
+            const discriminator = crypto.createHash("sha256")
+                .update("global:initialize")
+                .digest()
+                .slice(0, 8)
+
+            // Borsh-serialize: [8 disc][8 amount LE][4+N listing_id string][32 seller_wallet]
+            const listingIdBytes = Buffer.from(listingId)
+            const dataLen = 8 + 8 + 4 + listingIdBytes.length + 32
+            const data = Buffer.alloc(dataLen)
+            let offset = 0
+            discriminator.copy(data, offset); offset += 8
+            data.writeBigUInt64LE(BigInt(listing.price_lamports), offset); offset += 8
+            data.writeUInt32LE(listingIdBytes.length, offset); offset += 4
+            listingIdBytes.copy(data, offset); offset += listingIdBytes.length
+            sellerPubkey.toBuffer().copy(data, offset)
+
             const tx = new Transaction({
                 recentBlockhash: latestBlockhash.blockhash,
                 feePayer: buyerPubkey,
-            }).add(
-                SystemProgram.transfer({
-                    fromPubkey: buyerPubkey,
-                    toPubkey: sellerPubkey,
-                    lamports: listing.price_lamports,
-                })
-            )
+            }).add({
+                programId: PROGRAM_ID,
+                keys: [
+                    { pubkey: buyerPubkey, isSigner: true, isWritable: true },
+                    { pubkey: escrowPda, isSigner: false, isWritable: true },
+                    { pubkey: vaultPda, isSigner: false, isWritable: true },
+                    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+                ],
+                data,
+            })
 
             // Record the trade session
             await supabase.from("trade_sessions").insert({

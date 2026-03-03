@@ -47,8 +47,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -96,6 +102,7 @@ fun CreateListingScreen(
 
     var step by remember { mutableIntStateOf(1) }
     var title by mutableStateOf("")
+    var description by mutableStateOf("")
     var priceSol by mutableStateOf("")
     var condition by mutableStateOf("Good")
     var showCamera by mutableStateOf(false)
@@ -163,6 +170,8 @@ fun CreateListingScreen(
                     3 -> DetailsStep(
                         title = title,
                         onTitleChange = { title = it },
+                        description = description,
+                        onDescriptionChange = { description = it },
                         priceSol = priceSol,
                         onPriceChange = { priceSol = it.filter { c -> c.isDigit() || c == '.' } },
                         condition = condition,
@@ -172,6 +181,7 @@ fun CreateListingScreen(
                     )
                     4 -> ReviewStep(
                         title = title,
+                        description = description,
                         priceSol = priceSol,
                         condition = condition,
                         imagePath = capturedImagePath,
@@ -194,6 +204,7 @@ fun CreateListingScreen(
                                     val listing = AuraRepository.createListing(
                                         sellerWallet = walletAddress!!,
                                         title = title.ifBlank { "Untitled" },
+                                        description = description,
                                         priceLamports = (price * 1_000_000_000).toLong(),
                                         imageRefs = capturedImagePath?.let { listOf(it) } ?: emptyList(),
                                         condition = condition,
@@ -361,10 +372,13 @@ private fun PhotoStep(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DetailsStep(
     title: String,
     onTitleChange: (String) -> Unit,
+    description: String,
+    onDescriptionChange: (String) -> Unit,
     priceSol: String,
     onPriceChange: (String) -> Unit,
     condition: String,
@@ -393,6 +407,14 @@ private fun DetailsStep(
             shape = RoundedCornerShape(12.dp),
         )
         OutlinedTextField(
+            value = description,
+            onValueChange = onDescriptionChange,
+            label = { Text("Description") },
+            modifier = Modifier.fillMaxWidth().height(120.dp),
+            singleLine = false,
+            shape = RoundedCornerShape(12.dp),
+        )
+        OutlinedTextField(
             value = priceSol,
             onValueChange = onPriceChange,
             label = { Text("Price (SOL)") },
@@ -400,14 +422,32 @@ private fun DetailsStep(
             singleLine = true,
             shape = RoundedCornerShape(12.dp),
         )
-        OutlinedTextField(
-            value = condition,
-            onValueChange = onConditionChange,
-            label = { Text("Condition") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-        )
+        
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Condition", style = MaterialTheme.typography.labelLarge)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                val conditions = listOf("New", "Like New", "Good", "Fair")
+                conditions.chunked(2).forEach { rowConditions ->
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                        rowConditions.forEach { cond ->
+                            FilterChip(
+                                selected = condition == cond,
+                                onClick = { onConditionChange(cond) },
+                                label = { Text(cond, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -435,6 +475,7 @@ private fun DetailsStep(
 @Composable
 private fun ReviewStep(
     title: String,
+    description: String,
     priceSol: String,
     condition: String,
     imagePath: String?,
@@ -481,6 +522,10 @@ private fun ReviewStep(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        if (description.isNotBlank()) {
+                            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
                         Text(condition, style = MaterialTheme.typography.bodyMedium)
                         if (textureHash != null) {
                             Text("Asset Refined \n${textureHash.take(16)}...", style = MaterialTheme.typography.labelSmall, color = Orange500)
@@ -608,7 +653,10 @@ fun MacroTextureStep(
                         scanProgress += 0.01f
                     }
                     isScanning = false
-                    val hash = "0x" + UUID.randomUUID().toString().replace("-", "").take(16).padEnd(64, '0')
+                    val hardwareId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+                    val timeSalt = System.currentTimeMillis() / 10000 // 10s deterministic window
+                    val baseHash = (hardwareId.hashCode() xor timeSalt.hashCode()).toString(16)
+                    val hash = "0x" + baseHash.padStart(16, '0') + UUID.randomUUID().toString().replace("-", "").take(48)
                     onScanComplete(hash)
                 }
             } else {
