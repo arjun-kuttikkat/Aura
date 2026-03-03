@@ -36,9 +36,9 @@ val SolanaGreenLight = Color(0xFF67F5B6)
 val SlateLight = Color(0xFF334155)
 val DarkVoidVariant = Color(0xFF0B1120)
 
-// ── Theming Surfaces ────────────────────────────────────────────────────
-val DarkSurface = DarkVoid
-val DarkSurfaceVariant = SlateElevated
+// ── Theming Surfaces (Aura orange/black) ────────────────────────────────
+val DarkSurface = DarkBase
+val DarkSurfaceVariant = DarkCard
 val DarkOnSurface = Color(0xFFF8FAFC)
 val DarkOnSurfaceVariant = Color(0xFF94A3B8)
 
@@ -48,20 +48,20 @@ val LightSurfaceVariant = Color(0xFFE2E8F0)
 val LightOnSurface = Color(0xFF0F172A)
 val LightOnSurfaceVariant = Color(0xFF475569)
 
-// ── Glassmorphism & Borders ─────────────────────────────────────────────
-val GlassSurface = Color.White.copy(alpha = 0.08f)
-val GlassBorder = SlateLight
+// ── Glassmorphism & Borders (Aura) ───────────────────────────────────────
+val GlassSurface = Color.White.copy(alpha = 0.06f)
+val GlassBorder = Orange500.copy(alpha = 0.25f)
 val GlassSurfaceLight = Color.Black.copy(alpha = 0.04f)
 val GlassBorderLight = Color.Black.copy(alpha = 0.08f)
 
-// ── Semantic Colors ─────────────────────────────────────────────────────
-val SuccessGreen = SolanaGreen
+// ── Semantic Colors (Aura) ──────────────────────────────────────────────
+val SuccessGreen = Gold500
 val ErrorRed = RadicalRed
 val SolanaGradientStart = Color(0xFF9945FF)
-val SolanaGradientEnd = SolanaGreen
+val SolanaGradientEnd = Gold500
 
-// ── Gradient Presets ────────────────────────────────────────────────────
-val AuraGradient = Brush.linearGradient(listOf(UltraViolet, SolanaGradientStart))
+// ── Gradient Presets (Aura) ─────────────────────────────────────────────
+val AuraGradient = Brush.linearGradient(listOf(Orange500, Gold500))
 val SolanaGradient = Brush.linearGradient(listOf(SolanaGradientStart, SolanaGradientEnd))
 val PremiumDarkGradient = Brush.verticalGradient(
     listOf(DarkVoidVariant, DarkVoid),

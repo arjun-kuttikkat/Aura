@@ -72,6 +72,7 @@ import android.content.Intent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aura.app.data.AuraRepository
+import com.aura.app.navigation.LocalBottomNavInset
 import com.aura.app.model.TrustTier
 import com.aura.app.ui.components.AuraHaptics
 import com.aura.app.ui.components.AuraScoreRing
@@ -81,8 +82,10 @@ import com.aura.app.ui.theme.AuraAnimations
 import com.aura.app.ui.theme.DarkBase
 import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.Gold500
+import com.aura.app.ui.theme.GlassBorder
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SuccessGreen
+import com.aura.app.ui.util.pulseGlow
 import com.aura.app.ui.util.springScale
 import com.aura.app.wallet.WalletConnectionState
 
@@ -287,6 +290,7 @@ fun ProfileScreen(
                     if (index < avatarPalette.size - 1) Spacer(modifier = Modifier.width(8.dp))
                 }
             }
+            } // End of Column
             } // End of User Info AnimatedVisibility
 
             // ── Trust Score card ──
@@ -296,15 +300,6 @@ fun ProfileScreen(
                     initialOffsetY = { 50 },
                     animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
                 )
-            ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -322,7 +317,6 @@ fun ProfileScreen(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("${tier.name} Tier", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Gold500)
                         }
-                        }
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.LocalFireDepartment, contentDescription = null, tint = Orange500, modifier = Modifier.size(32.dp).pulseGlow())
@@ -330,7 +324,6 @@ fun ProfileScreen(
                         Text("day streak", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-            }
             }
 
             // ── NFT Evolution card (visual progress) ──
@@ -498,9 +491,10 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Share Profile", fontWeight = FontWeight.Medium)
             }
+            } // End of Column
             } // End of bottom buttons AnimatedVisibility
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(LocalBottomNavInset.current))
         }
     }
 
@@ -556,7 +550,7 @@ fun ProfileScreen(
 }
 
 @Composable
-private fun RowScope.StatGlassCard(
+fun RowScope.StatGlassCard(
     title: String,
     value: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,

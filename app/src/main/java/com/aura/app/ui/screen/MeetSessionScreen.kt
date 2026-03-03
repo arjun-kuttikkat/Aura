@@ -1,6 +1,8 @@
 package com.aura.app.ui.screen
 
 import android.graphics.Bitmap
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -168,7 +170,7 @@ fun MeetSessionScreen(
                 targetState = nfcState,
                 transitionSpec = { fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(200)) },
                 label = "nfc_state"
-            ) { state ->
+            ) { state: NfcHandshakeResult ->
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)

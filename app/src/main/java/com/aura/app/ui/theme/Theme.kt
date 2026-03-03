@@ -13,37 +13,36 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = SolanaGreen,
-    onPrimary = DarkVoid,
-    primaryContainer = UltraViolet,
-    onPrimaryContainer = Color.White,
-    secondary = UltraVioletLight,
-    onSecondary = Color.White,
-    secondaryContainer = SlateElevated,
+    primary = Orange500,
+    onPrimary = Color.Black,
+    primaryContainer = Gold500,
+    onPrimaryContainer = Color.Black,
+    secondary = Gold500,
+    onSecondary = Color.Black,
+    secondaryContainer = DarkCard,
     onSecondaryContainer = DarkOnSurface,
-    tertiary = SolanaGreenLight,
-    onTertiary = DarkVoid,
-    background = DarkSurface,
+    tertiary = Orange700,
+    onTertiary = Color.Black,
+    background = DarkBase,
     onBackground = DarkOnSurface,
-    surface = DarkSurface,
+    surface = DarkBase,
     onSurface = DarkOnSurface,
-    surfaceVariant = DarkSurfaceVariant,
+    surfaceVariant = DarkCard,
     onSurfaceVariant = DarkOnSurfaceVariant,
     error = ErrorRed,
 )
 
 private val LightColorScheme = lightColorScheme(
-    // Force dark mode aesthetic even in light mode where possible
-    primary = UltraViolet,
-    onPrimary = Color.White,
-    primaryContainer = SolanaGreen,
-    onPrimaryContainer = DarkVoid,
-    secondary = SlateElevated,
-    onSecondary = Color.White,
+    primary = Orange500,
+    onPrimary = Color.Black,
+    primaryContainer = Gold500,
+    onPrimaryContainer = Color.Black,
+    secondary = DarkCard,
+    onSecondary = DarkOnSurface,
     secondaryContainer = LightSurfaceVariant,
     onSecondaryContainer = LightOnSurface,
-    tertiary = SolanaGreen,
-    onTertiary = DarkVoid,
+    tertiary = Gold500,
+    onTertiary = Color.Black,
     background = LightSurface,
     onBackground = LightOnSurface,
     surface = LightSurface,
@@ -64,8 +63,6 @@ fun AuraTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = Color.Transparent.toArgb()
-            window.navigationBarColor = colorScheme.background.toArgb()
             WindowCompat.getInsetsController(window, view).apply {
                 isAppearanceLightStatusBars = !darkTheme
                 isAppearanceLightNavigationBars = !darkTheme

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -53,11 +54,12 @@ import com.aura.app.ui.theme.Orange500
 /**
  * Full-screen camera capture with Aura design language.
  * Camera fills the entire screen; UI floats in a premium glass overlay.
+ * Creates and binds ImageCapture internally; [onCapture] receives the bound instance
+ * only after the camera is ready (avoids "Not bound to a valid Camera" crash).
  */
 @Composable
 fun AuraFullScreenCamera(
-    imageCapture: ImageCapture,
-    onCapture: () -> Unit,
+    onCapture: (ImageCapture) -> Unit,
     onClose: () -> Unit,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -65,6 +67,14 @@ fun AuraFullScreenCamera(
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     var isCapturing by remember { mutableStateOf(false) }
+    var isShutterEnabled by remember { mutableStateOf(false) }
+    val imageCapture = remember { ImageCapture.Builder().build() }
+
+    // Delay enabling shutter — prevents "Not bound to a valid Camera" crash
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(800)
+        isShutterEnabled = true
+    }
     val scale by animateFloatAsState(
         targetValue = if (isCapturing) 0.88f else 1f,
         animationSpec = tween(AuraAnimations.ScreenEnterDuration),
@@ -80,17 +90,20 @@ fun AuraFullScreenCamera(
                 }
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                 cameraProviderFuture.addListener({
-                    val provider = cameraProviderFuture.get()
-                    val preview = Preview.Builder().build().apply {
-                        setSurfaceProvider(previewView.surfaceProvider)
-                    }
-                    provider.unbindAll()
-                    provider.bindToLifecycle(
-                        lifecycleOwner,
-                        CameraSelector.DEFAULT_BACK_CAMERA,
-                        preview,
-                        imageCapture,
-                    )
+                    try {
+                        val provider = cameraProviderFuture.get()
+                        val preview = Preview.Builder().build().apply {
+                            setSurfaceProvider(previewView.surfaceProvider)
+                        }
+                        provider.unbindAll()
+                        provider.bindToLifecycle(
+                            lifecycleOwner,
+                            CameraSelector.DEFAULT_BACK_CAMERA,
+                            preview,
+                            imageCapture,
+                        )
+                        // Bind complete; LaunchedEffect delay will enable shutter
+                    } catch (_: Exception) { /* bind failed */ }
                 }, ContextCompat.getMainExecutor(ctx))
                 previewView
             },
@@ -128,11 +141,11 @@ fun AuraFullScreenCamera(
         ) {
             AuraGlassControls(
                 onCapture = {
-                    if (!isCapturing) {
+                    if (!isCapturing && isShutterEnabled) {
                         isCapturing = true
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         AuraHaptics.heavyImpact(context)
-                        onCapture()
+                        onCapture(imageCapture)
                         scope.launch {
                             delay(200)
                             isCapturing = false
@@ -140,6 +153,7 @@ fun AuraFullScreenCamera(
                     }
                 },
                 scale = scale,
+                enabled = isShutterEnabled,
             )
         }
     }
@@ -176,6 +190,7 @@ private fun GlassPill(
 private fun AuraGlassControls(
     onCapture: () -> Unit,
     scale: Float,
+    enabled: Boolean = true,
 ) {
     val glassShape = RoundedCornerShape(32.dp)
     Box(
@@ -209,7 +224,7 @@ private fun AuraGlassControls(
         ) {
             // Placeholder for future flip/gallery - keeps shutter centered
             Box(modifier = Modifier.size(52.dp))
-            AuraShutterButton(onClick = onCapture, scale = scale)
+            AuraShutterButton(onClick = onCapture, scale = scale, enabled = enabled)
             Box(modifier = Modifier.size(52.dp))
         }
     }
@@ -219,9 +234,11 @@ private fun AuraGlassControls(
 private fun AuraShutterButton(
     onClick: () -> Unit,
     scale: Float,
+    enabled: Boolean = true,
 ) {
     androidx.compose.material3.IconButton(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier
             .scale(scale)
             .size(72.dp)

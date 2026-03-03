@@ -4,11 +4,16 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -20,22 +25,19 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.aura.app.data.AuraRepository
 import com.aura.app.ui.components.MainBottomBar
-import com.aura.app.ui.screen.AppearanceSettingsScreen
 import com.aura.app.ui.screen.CreateListingScreen
 import com.aura.app.ui.screen.EscrowPayScreen
 import com.aura.app.ui.screen.FaceVerificationScreen
 import com.aura.app.ui.screen.HomeScreen
 import com.aura.app.ui.screen.ListingDetailScreen
 import com.aura.app.ui.screen.MeetSessionScreen
-import com.aura.app.ui.screen.NotificationsSettingsScreen
 import com.aura.app.ui.screen.OnboardingScreen
-import com.aura.app.ui.screen.PrivacySettingsScreen
 import com.aura.app.ui.screen.ProfileScreen
 import com.aura.app.ui.screen.RewardsScreen
-import com.aura.app.ui.screen.SecuritySettingsScreen
 import com.aura.app.ui.screen.SettingsScreen
 import com.aura.app.ui.screen.TradeCompleteScreen
 import com.aura.app.ui.screen.VerifyItemScreen
+import com.aura.app.ui.theme.DarkBase
 import com.aura.app.wallet.WalletConnectionState
 
 private val MAIN_TAB_ROUTES = setOf(
@@ -45,28 +47,40 @@ private val MAIN_TAB_ROUTES = setOf(
     Routes.SETTINGS,
 )
 
+/** MainBottomBar height: 72dp bar + 10dp vertical padding + 4dp bottom. Used for content inset. */
+private val BOTTOM_NAV_HEIGHT = 88.dp
+
+/** Single source of truth for bottom reserve when navbar is visible. Screens use as content padding. */
+internal val LocalBottomNavInset = compositionLocalOf { 0.dp }
+
 @Composable
 fun NavGraph(
     navController: NavHostController = rememberNavController(),
-    startDestination: String = if (WalletConnectionState.walletAddress.value != null) Routes.HOME else Routes.ONBOARDING,
+    startDestination: String = runCatching {
+        if (WalletConnectionState.walletAddress.value != null) Routes.HOME else Routes.ONBOARDING
+    }.getOrElse { Routes.ONBOARDING },
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route?.let { route ->
+    val actualRoute = navBackStackEntry?.destination?.route
+    val currentRoute = actualRoute?.let { route ->
         if (route.startsWith("listing_detail/")) Routes.HOME else route
     }
     val showBottomBar = currentRoute in MAIN_TAB_ROUTES
+    val navBarsBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val bottomPadding = if (showBottomBar) BOTTOM_NAV_HEIGHT + navBarsBottom else 0.dp
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
-            NavHost(
-                navController = navController,
-                startDestination = startDestination,
-                enterTransition = { fadeIn(animationSpec = tween(200)) },
-                exitTransition = { fadeOut(animationSpec = tween(150)) },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-            ) {
+            CompositionLocalProvider(LocalBottomNavInset provides bottomPadding) {
+                NavHost(
+                    navController = navController,
+                    startDestination = startDestination,
+                    enterTransition = { fadeIn(animationSpec = tween(200)) },
+                    exitTransition = { fadeOut(animationSpec = tween(150)) },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                ) {
             composable(Routes.ONBOARDING) {
                 OnboardingScreen(
                     onWalletConnected = { navController.navigate(Routes.HOME) { popUpTo(0) { inclusive = true } } },
@@ -93,35 +107,11 @@ fun NavGraph(
             }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
-                    onNotificationsClick = { navController.navigate(Routes.SETTINGS_NOTIFICATIONS) },
-                    onAppearanceClick = { navController.navigate(Routes.SETTINGS_APPEARANCE) },
-                    onSecurityClick = { navController.navigate(Routes.SETTINGS_SECURITY) },
-                    onPrivacyClick = { navController.navigate(Routes.SETTINGS_PRIVACY) },
                     onLogout = {
                         navController.navigate(Routes.ONBOARDING) {
                             popUpTo(0) { inclusive = true }
                         }
                     },
-                )
-            }
-            composable(Routes.SETTINGS_NOTIFICATIONS) {
-                NotificationsSettingsScreen(
-                    onBack = { navController.popBackStack() },
-                )
-            }
-            composable(Routes.SETTINGS_APPEARANCE) {
-                AppearanceSettingsScreen(
-                    onBack = { navController.popBackStack() },
-                )
-            }
-            composable(Routes.SETTINGS_SECURITY) {
-                SecuritySettingsScreen(
-                    onBack = { navController.popBackStack() },
-                )
-            }
-            composable(Routes.SETTINGS_PRIVACY) {
-                PrivacySettingsScreen(
-                    onBack = { navController.popBackStack() },
                 )
             }
             composable(Routes.CREATE_LISTING) {
@@ -192,6 +182,7 @@ fun NavGraph(
             )
         }
         }
+            }
         }
         if (showBottomBar) {
             MainBottomBar(

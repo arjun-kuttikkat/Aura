@@ -28,12 +28,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.aura.app.ui.theme.DarkVoid
+import com.aura.app.ui.theme.DarkBase
 import com.aura.app.ui.theme.GlassBorder
 import com.aura.app.ui.theme.GlassSurface
+import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.RadicalRed
-import com.aura.app.ui.theme.SlateElevated
-import com.aura.app.ui.theme.SolanaGreen
+import com.aura.app.ui.theme.DarkCard
 import com.aura.app.ui.theme.Typography
 import com.aura.app.ui.util.HapticEngine
 import com.aura.app.ui.util.shimmerBorder
@@ -65,9 +65,9 @@ fun AuraPrimaryButton(
             .springScale(isPressed = isPressed, scaleDown = 0.96f),
         shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = SolanaGreen,
-            contentColor = DarkVoid,
-            disabledContainerColor = SlateElevated,
+            containerColor = Orange500,
+            contentColor = DarkBase,
+            disabledContainerColor = DarkCard,
             disabledContentColor = Color.Gray
         ),
         contentPadding = PaddingValues(16.dp),
@@ -107,7 +107,7 @@ fun AuraSecondaryButton(
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(1.dp, GlassBorder),
         colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = SolanaGreen,
+            contentColor = Orange500,
             disabledContentColor = Color.Gray,
         ),
         contentPadding = PaddingValues(16.dp),
@@ -130,7 +130,7 @@ fun AuraGlassCard(
     Card(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .shimmerBorder(shimmerColor = SolanaGreen.copy(alpha = 0.08f)),
+            .shimmerBorder(shimmerColor = Orange500.copy(alpha = 0.08f)),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = GlassSurface,
@@ -151,7 +151,7 @@ fun AuraAssetCard(
         modifier = modifier.springScale(isPressed = isPressed, scaleDown = 0.98f),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = SlateElevated
+            containerColor = DarkCard
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         content = { content() }
@@ -179,9 +179,9 @@ fun AuraInputField(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = SlateElevated,
-            unfocusedContainerColor = SlateElevated,
-            focusedBorderColor = SolanaGreen,
+            focusedContainerColor = DarkCard,
+            unfocusedContainerColor = DarkCard,
+            focusedBorderColor = Orange500,
             unfocusedBorderColor = Color(0xFF334155),
             errorBorderColor = RadicalRed
         ),

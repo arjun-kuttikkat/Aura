@@ -5,8 +5,6 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -16,7 +14,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,7 +54,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -81,16 +78,17 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.aura.app.data.AuraRepository
-import com.aura.app.ui.components.AuraFullScreenCamera
+import com.aura.app.ui.components.AuraEmbeddedCamera
 import com.aura.app.ui.components.GlassCard
 import com.aura.app.ui.theme.DarkBase
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
+import com.aura.app.ui.util.HapticEngine
+import com.aura.app.ui.util.springScale
 import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.UUID
-import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,17 +106,13 @@ fun CreateListingScreen(
     var description by mutableStateOf("")
     var priceSol by mutableStateOf("")
     var condition by mutableStateOf("Good")
-    var showCamera by mutableStateOf(false)
     var capturedImagePath by mutableStateOf<String?>(null)
     var textureHash by mutableStateOf<String?>(null)
     var isSubmitting by mutableStateOf(false)
     var errorMsg by mutableStateOf<String?>(null)
 
-    val imageCapture = remember { ImageCapture.Builder().build() }
     val hasCameraPermission = context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) showCamera = true
-    }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     Box(modifier = Modifier.fillMaxSize().background(DarkBase)) {
     Scaffold(
@@ -156,12 +150,10 @@ fun CreateListingScreen(
                 when (currentStep) {
                     1 -> PhotoStep(
                         capturedImagePath = capturedImagePath,
-                        showCamera = showCamera,
                         hasCameraPermission = hasCameraPermission,
-                        onOpenCamera = {
-                            if (hasCameraPermission) showCamera = true
-                            else permissionLauncher.launch(Manifest.permission.CAMERA)
-                        },
+                        onRequestPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                        onPhotoCaptured = { capturedImagePath = it },
+                        onCaptureError = { errorMsg = it },
                         onNext = { if (capturedImagePath != null) step = 2 },
                     )
                     2 -> MacroTextureStep(
@@ -232,30 +224,6 @@ fun CreateListingScreen(
         }
     }
 
-        // Full-screen camera overlay
-        if (showCamera) {
-            AuraFullScreenCamera(
-                imageCapture = imageCapture,
-                onCapture = {
-                    val photoFile = File(context.cacheDir, "aura_${System.currentTimeMillis()}.jpg")
-                    val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-                    imageCapture.takePicture(
-                        outputOptions,
-                        ContextCompat.getMainExecutor(context),
-                        object : ImageCapture.OnImageSavedCallback {
-                            override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                                capturedImagePath = photoFile.absolutePath
-                                showCamera = false
-                            }
-                            override fun onError(exception: ImageCaptureException) {
-                                errorMsg = exception.message ?: "Capture failed"
-                            }
-                        },
-                    )
-                },
-                onClose = { showCamera = false },
-            )
-        }
     }
 }
 
@@ -289,17 +257,15 @@ private fun StepIndicator(currentStep: Int, totalSteps: Int) {
 @Composable
 private fun PhotoStep(
     capturedImagePath: String?,
-    showCamera: Boolean,
     hasCameraPermission: Boolean,
-    onOpenCamera: () -> Unit,
+    onRequestPermission: () -> Unit,
+    onPhotoCaptured: (String) -> Unit,
+    onCaptureError: (String) -> Unit,
     onNext: () -> Unit,
 ) {
-
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
             text = "Add a photo",
@@ -307,14 +273,11 @@ private fun PhotoStep(
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        if (showCamera) {
-            // Full-screen camera shown via overlay; reserve minimal space
-            Box(modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f))
-        } else if (capturedImagePath != null) {
+        if (capturedImagePath != null) {
             GlassCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f),
+                    .weight(1f),
                 glowColor = Orange500,
                 cornerRadius = 16.dp,
             ) {
@@ -325,11 +288,25 @@ private fun PhotoStep(
                     contentScale = ContentScale.Crop,
                 )
             }
+        } else if (hasCameraPermission) {
+            GlassCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                glowColor = Orange500,
+                cornerRadius = 16.dp,
+            ) {
+                AuraEmbeddedCamera(
+                    modifier = Modifier.fillMaxSize(),
+                    onPhotoCaptured = onPhotoCaptured,
+                    onCaptureError = onCaptureError,
+                )
+            }
         } else {
             GlassCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f)
+                    .weight(1f)
                     .border(1.dp, Orange500.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
                 glowColor = Orange500,
                 cornerRadius = 16.dp,
@@ -347,21 +324,19 @@ private fun PhotoStep(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Tap to take a photo",
+                        text = "Grant camera access to add a photo",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = onRequestPermission,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
+                    ) {
+                        Text("Allow camera", fontWeight = FontWeight.SemiBold)
+                    }
                 }
-            }
-            Button(
-                onClick = onOpenCamera,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
-            ) {
-                Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.size(ButtonDefaults.IconSpacing))
-                Text("Take Photo", fontWeight = FontWeight.SemiBold)
             }
         }
         if (capturedImagePath != null) {
@@ -451,13 +426,13 @@ private fun DetailsStep(
                             FilterChip(
                                 selected = isSelected,
                                 onClick = {
-                                    com.aura.app.ui.util.HapticEngine.triggerLight(view)
+                                    HapticEngine.triggerLight(view)
                                     onConditionChange(cond)
                                 },
                                 label = { Text(cond, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .com.aura.app.ui.util.springScale(if (isSelected) 0.96f else 1f),
+                                    .springScale(isPressed = isSelected, scaleDown = 0.96f),
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = bgAnim,
                                     selectedLabelColor = textAnim,
@@ -682,11 +657,19 @@ fun MacroTextureStep(
                     onScanComplete(hash)
                 }
             } else {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
-                    Icon(Icons.Default.Check, contentDescription = null, tint = Gold500, modifier = Modifier.size(64.dp))
-                    Spacer(Modifier.height(16.dp))
-                    Text("Hardware Texture Analyzed", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-                    Text(textureHash?.take(16) + "...", color = Orange500, style = MaterialTheme.typography.labelSmall)
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(24.dp),
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null, tint = Gold500, modifier = Modifier.size(64.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text("Hardware Texture Analyzed", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                        Text(textureHash?.take(16) + "...", color = Orange500, style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
         }

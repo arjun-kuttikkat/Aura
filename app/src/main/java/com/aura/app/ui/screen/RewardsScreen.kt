@@ -49,12 +49,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import com.aura.app.data.AuraRepository
+import com.aura.app.navigation.LocalBottomNavInset
 import com.aura.app.ui.components.GlassCard
 import com.aura.app.ui.components.MainTopBar
 import com.aura.app.ui.theme.DarkBase
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
-import com.aura.app.ui.theme.SolanaPurple
+import com.aura.app.ui.theme.Orange700
 
 @Composable
 fun RewardsScreen() {
@@ -196,10 +197,10 @@ fun RewardsScreen() {
                 title = "NFT Evolution",
                 subtitle = "Level up your Aura",
                 description = "Your on-chain Aura NFT evolves as your streak grows: Seed → Sprout → Tree → Aura.",
-                leftBorderColor = SolanaPurple,
+                leftBorderColor = Orange700,
             )
 
-            Spacer(modifier = Modifier.height(80.dp))
+            Spacer(modifier = Modifier.height(LocalBottomNavInset.current))
         }
     }
 }

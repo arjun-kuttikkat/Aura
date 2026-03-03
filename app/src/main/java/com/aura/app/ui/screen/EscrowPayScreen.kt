@@ -49,6 +49,7 @@ import com.aura.app.ui.components.GlassCard
 import com.aura.app.ui.theme.DarkBase
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
+import com.aura.app.ui.theme.RadicalRed
 import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.launch
 import androidx.compose.animation.togetherWith
@@ -242,8 +243,8 @@ fun EscrowPayScreen(
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .border(1.dp, com.aura.app.ui.theme.SolanaGreen.copy(alpha = bgAlpha * 2), androidx.compose.foundation.shape.RoundedCornerShape(16.dp)),
-                            colors = CardDefaults.cardColors(containerColor = com.aura.app.ui.theme.SolanaGreen.copy(alpha = bgAlpha)),
+                                .border(1.dp, com.aura.app.ui.theme.Orange500.copy(alpha = bgAlpha * 2), androidx.compose.foundation.shape.RoundedCornerShape(16.dp)),
+                            colors = CardDefaults.cardColors(containerColor = com.aura.app.ui.theme.Orange500.copy(alpha = bgAlpha)),
                             shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
                         ) {
                             Column(
@@ -252,7 +253,7 @@ fun EscrowPayScreen(
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 val composition by rememberLottieComposition(
-                                    LottieCompositionSpec.Url("https://lottie.host/80fb48c8-b5cc-4ff2-bc0d-bf5dc34ebc21/j5QvL9VdK4.json")
+                                    spec = LottieCompositionSpec.Url("https://lottie.host/80fb48c8-b5cc-4ff2-bc0d-bf5dc34ebc21/j5QvL9VdK4.json")
                                 )
                                 LottieAnimation(
                                     composition = composition,
@@ -260,15 +261,15 @@ fun EscrowPayScreen(
                                     modifier = Modifier.size(64.dp)
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text("Escrow Locked", style = MaterialTheme.typography.titleMedium, color = com.aura.app.ui.theme.SolanaGreen)
+                                Text("Escrow Locked", style = MaterialTheme.typography.titleMedium, color = com.aura.app.ui.theme.Orange500)
                                 txSig?.let { Text("Sig: ${it.take(8)}...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             }
                         }
                     }
-                )
+                }
             }
 
-            errorMsg?.let { Text(it, color = com.aura.app.ui.theme.RadicalRed) }
+            errorMsg?.let { Text(it, color = RadicalRed) }
 
             if (status == EscrowState.LOCKED || txSig != null) {
                 Spacer(modifier = Modifier.weight(1f))
