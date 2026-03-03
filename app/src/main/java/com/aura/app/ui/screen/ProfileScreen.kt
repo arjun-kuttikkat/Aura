@@ -1,10 +1,8 @@
 package com.aura.app.ui.screen
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
@@ -12,8 +10,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.AnimatedVisibility
-import com.aura.app.ui.util.pulseGlow
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -31,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -38,8 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
@@ -50,14 +46,14 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,15 +63,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.aura.app.data.AuraRepository
 import com.aura.app.model.TrustTier
+import com.aura.app.ui.components.AuraHaptics
+import com.aura.app.ui.components.AuraScoreRing
+import com.aura.app.ui.components.GlassCard
 import com.aura.app.ui.components.MainTopBar
-import com.aura.app.ui.theme.GlassBorder
+import com.aura.app.ui.theme.AuraAnimations
+import com.aura.app.ui.theme.DarkBase
 import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
@@ -83,13 +86,14 @@ import com.aura.app.ui.theme.SuccessGreen
 import com.aura.app.ui.util.springScale
 import com.aura.app.wallet.WalletConnectionState
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     onVerifyIdentity: () -> Unit,
 ) {
     val pubkey by WalletConnectionState.walletAddress.collectAsState()
-    val profile by AuraRepository.currentProfile.collectAsState()
+    val profile by AuraRepository.currentProfile.collectAsState(initial = null)
+    val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
 
     LaunchedEffect(pubkey) {
         pubkey?.let { AuraRepository.loadProfile(it) }
@@ -123,6 +127,13 @@ fun ProfileScreen(
         streakRaw >= 8 -> 1
         else -> 0
     }
+    val tierGlowColor = when (tier) {
+        TrustTier.PLATINUM -> Color(0xFFE040FB)
+        TrustTier.GOLD -> Gold500
+        TrustTier.SILVER -> Color(0xFFC0C0C0)
+        TrustTier.BRONZE -> Color(0xFFCD7F32)
+        TrustTier.NEW -> Orange500
+    }
     val nftStages = listOf("Seed 🌱", "Sprout 🌿", "Tree 🌳", "Aura ✨")
     val nftStageThresholds = listOf(0, 8, 31, 90)
     val nftStageColors = listOf(
@@ -155,6 +166,7 @@ fun ProfileScreen(
 
     Scaffold(
         topBar = { MainTopBar(title = "Profile") },
+        containerColor = DarkBase,
     ) { padding ->
         var contentVisible by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
@@ -198,18 +210,18 @@ fun ProfileScreen(
                             .background(Brush.radialGradient(listOf(SuccessGreen.copy(alpha = 0.2f), Color.Transparent)))
                     )
                     com.aura.app.ui.components.AuraCoreRenderer(
-                    streakDays = streakRaw,
-                    auraScore = trustScoreRaw,
-                    isDegraded = isDegraded,
-                    size = 160.dp,
-                )
-                Text(
-                    pubkey?.take(2)?.uppercase() ?: "?",
+                        streakDays = streakRaw,
+                        auraScore = trustScoreRaw,
+                        isDegraded = isDegraded,
+                        size = 160.dp,
+                    )
+                    Text(
+                        pubkey?.take(2)?.uppercase() ?: "?",
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Bold,
                     color = Color.White.copy(alpha = 0.9f),
                 )
-            }
+                }
             }
 
             AnimatedVisibility(
@@ -287,15 +299,12 @@ fun ProfileScreen(
             ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(Orange500.copy(alpha = 0.12f), Gold500.copy(alpha = 0.08f)),
-                        ),
-                    )
-                    .border(1.dp, GlassBorder, RoundedCornerShape(20.dp))
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
                     .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -543,5 +552,44 @@ fun ProfileScreen(
                 androidx.compose.material3.TextButton(onClick = { showBioDialog = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+@Composable
+private fun RowScope.StatGlassCard(
+    title: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+) {
+    GlassCard(
+        modifier = Modifier.weight(1f),
+        glowColor = Orange500,
+        cornerRadius = 16.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = Orange500,
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                value,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = Orange500,
+            )
+            Text(
+                title,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }

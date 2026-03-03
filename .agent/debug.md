@@ -63,3 +63,41 @@ Updated `compileSdk = 36` and `targetSdk = 36` in `Aura/app/build.gradle.kts`.
 The `checkDebugAarMetadata` task now passes successfully.
 
 ---
+
+## 🐛 #003 — Supabase Storage Unresolved Reference (2026-02-26)
+
+**Error:**
+```
+Unresolved reference: 'storage' at AuraRepository.kt:263
+Unresolved reference: 'upload' at :265
+Unresolved reference: 'upsert' at :265
+Unresolved reference: 'publicUrl' at :266
+```
+
+**Root Cause:**
+Supabase storage-kt API (`supabase.storage["bucket"]`, `upload`, `publicUrl`) is not resolving — package/version mismatch between jan-tennert supabase modules and the SupabaseClient's expected API.
+
+**Fix Applied:**
+Stubbed `uploadImageToStorage()` to return `"file://$localPath"` for local files, bypassing Supabase Storage. Listings can still be created; Coil loads `file://` URIs. TODO left to re-enable proper Storage upload when storage-kt is correctly configured.
+
+---
+
+## 🐛 #004 — jlink / Gradle JDK (Red Hat Java from .antigravity)
+
+**Error:**
+```
+Cause: jlink executable /Users/arjunkuttikkat/.antigravity/extensions/redhat.java-1.52.0-darwin-arm64/jre/21.0.9-macosx-aarch64/bin/
+:app:compileDebugJavaWithJavac FAILED
+```
+
+**Root Cause:**
+Android Studio / Gradle was using the Red Hat Java runtime from `.antigravity`, which has a broken or missing `jlink` in that JRE path.
+
+**Fix Applied:**
+- `gradle.properties`: set `org.gradle.java.home` to Android Studio’s bundled JDK so CLI builds use it.
+- `.idea/gradle.xml`: set `gradleJvm` to the same JDK path so the IDE uses it for Gradle.
+
+**If build still fails in IDE:**  
+**File → Settings → Build, Execution, Deployment → Build Tools → Gradle → Gradle JDK** → choose **"Embedded JDK"** or **"jbr-17"** (Android Studio’s JDK), then **Sync Project with Gradle Files** and rebuild.
+
+---

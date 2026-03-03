@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInHorizontally
@@ -13,6 +14,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,13 +28,13 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,11 +43,6 @@ import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -60,22 +57,31 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.aura.app.data.AuraRepository
 import com.aura.app.model.MintedStatus
+import com.aura.app.ui.components.AppLogo
+import com.aura.app.ui.components.AuraHaptics
+import com.aura.app.ui.components.AuraScoreRing
+import com.aura.app.ui.components.GlassCard
 import com.aura.app.ui.components.MainTopBar
-import com.aura.app.ui.theme.DarkVoid
-import com.aura.app.ui.theme.SlateElevated
-import com.aura.app.ui.theme.GlassBorder
+import com.aura.app.ui.theme.AuraAnimations
+import com.aura.app.ui.theme.DarkBase
 import com.aura.app.ui.theme.GlassSurface
+import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SuccessGreen
 import com.aura.app.ui.theme.Gold500
@@ -93,340 +99,143 @@ fun HomeScreen(
 ) {
     val listings by AuraRepository.listings.collectAsState(initial = emptyList())
     val profile by AuraRepository.currentProfile.collectAsState()
+    val haptic = LocalHapticFeedback.current
 
     Scaffold(
-        topBar = {
-            MainTopBar(
-                title = "Aura",
-                logoSize = 44.dp,
-                onZoneResourceClick = { onNavigate(com.aura.app.navigation.Routes.ZONE_REFINEMENT) },
-            )
-        },
-        floatingActionButton = {
-            val view = LocalView.current
-            var fabVisible by remember { mutableStateOf(false) }
-            LaunchedEffect(Unit) {
-                delay(300)
-                fabVisible = true
-            }
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                // Directives FAB — enters first
-                AnimatedVisibility(
-                    visible = fabVisible,
-                    enter = fadeIn(tween(300, delayMillis = 0)) + slideInHorizontally(
-                        initialOffsetX = { 200 },
-                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-                    ),
-                ) {
-                    val fabInteraction1 = remember { MutableInteractionSource() }
-                    val fabPressed1 by fabInteraction1.collectIsPressedAsState()
-                    LaunchedEffect(fabPressed1) { if (fabPressed1) HapticEngine.triggerClick(view) }
-                    ExtendedFloatingActionButton(
-                        onClick = { onNavigate(com.aura.app.navigation.Routes.DIRECTIVES) },
-                        icon = { Icon(Icons.Filled.Star, "Directives") },
-                        text = { Text("Directives", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold) },
-                        containerColor = com.aura.app.ui.theme.UltraViolet,
-                        contentColor = Color.White,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.springScale(isPressed = fabPressed1),
-                        interactionSource = fabInteraction1,
-                    )
-                }
-                // Quick Pay FAB — enters second
-                AnimatedVisibility(
-                    visible = fabVisible,
-                    enter = fadeIn(tween(300, delayMillis = 150)) + slideInHorizontally(
-                        initialOffsetX = { 200 },
-                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-                    ),
-                ) {
-                    val fabInteraction2 = remember { MutableInteractionSource() }
-                    val fabPressed2 by fabInteraction2.collectIsPressedAsState()
-                    LaunchedEffect(fabPressed2) { if (fabPressed2) HapticEngine.triggerClick(view) }
-                    ExtendedFloatingActionButton(
-                        onClick = { onNavigate(com.aura.app.navigation.Routes.P2P_EXCHANGE) },
-                        icon = { Icon(Icons.Filled.Send, "Quick Pay") },
-                        text = { Text("Quick Pay", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold) },
-                        containerColor = com.aura.app.ui.theme.DarkVoid,
-                        contentColor = com.aura.app.ui.theme.SolanaGreen,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.springScale(isPressed = fabPressed2),
-                        interactionSource = fabInteraction2,
-                    )
-                }
-                // Create Listing FAB — enters third
-                AnimatedVisibility(
-                    visible = fabVisible,
-                    enter = fadeIn(tween(300, delayMillis = 300)) + slideInHorizontally(
-                        initialOffsetX = { 200 },
-                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-                    ),
-                ) {
-                    val fabInteraction3 = remember { MutableInteractionSource() }
-                    val fabPressed3 by fabInteraction3.collectIsPressedAsState()
-                    LaunchedEffect(fabPressed3) { if (fabPressed3) HapticEngine.triggerClick(view) }
-                    ExtendedFloatingActionButton(
-                        onClick = { onNavigate(com.aura.app.navigation.Routes.CREATE_LISTING) },
-                        icon = { Icon(Icons.Filled.Star, "Create Listing") },
-                        text = { Text("Create Listing", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold) },
-                        containerColor = com.aura.app.ui.theme.SolanaGreen,
-                        contentColor = com.aura.app.ui.theme.DarkVoid,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.springScale(isPressed = fabPressed3),
-                        interactionSource = fabInteraction3,
-                    )
-                }
-            }
-        },
+        topBar = {},
+        containerColor = DarkBase,
     ) { padding ->
-        // ── Filter State ──
-        var selectedScope by remember { mutableStateOf("Global") }
-        val scopes = listOf("Nearby", "Explore", "Global")
-
-        var selectedCondition by remember { mutableStateOf("All") }
-        val conditions = listOf("All", "New", "Like New", "Good", "Fair")
-
-        var sortOrder by remember { mutableStateOf("Newest") }
-        val sortOptions = listOf("Newest", "Oldest", "Price ↑", "Price ↓")
-
-        // ── Derive filtered + sorted listings ──
-        val filteredListings = remember(listings, selectedScope, selectedCondition, sortOrder) {
-            var result = listings
-
-            // Distance filter
-            result = when (selectedScope) {
-                "Nearby" -> result.filter { (it.distanceMeters ?: Int.MAX_VALUE) < 5_000 }
-                "Explore" -> result.filter { (it.distanceMeters ?: Int.MAX_VALUE) < 50_000 }
-                else -> result // Global = all
-            }
-
-            // Condition filter
-            if (selectedCondition != "All") {
-                result = result.filter { it.condition.equals(selectedCondition, ignoreCase = true) }
-            }
-
-            // Sort
-            result = when (sortOrder) {
-                "Newest" -> result.sortedByDescending { it.createdAt }
-                "Oldest" -> result.sortedBy { it.createdAt }
-                "Price ↑" -> result.sortedBy { it.priceLamports }
-                "Price ↓" -> result.sortedByDescending { it.priceLamports }
-                else -> result
-            }
-
-            result
-        }
-
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            // Hero card spanning full width
-            item(span = { GridItemSpan(2) }) {
-                HeroBannerCard(
-                    auraScore = profile?.auraScore ?: 50,
-                    streakDays = profile?.streakDays ?: 0,
-                    listingsCount = listings.size,
-                )
-            }
-
-            // Marketplace scope tabs
-            item(span = { GridItemSpan(2) }) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    scopes.forEach { scope ->
-                        val isSelected = scope == selectedScope
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    if (isSelected) Orange500 else GlassSurface
-                                )
-                                .clickable { selectedScope = scope }
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                        ) {
-                            Text(
-                                scope,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                    }
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .drawWithContent {
+                        drawContent()
+                        val topFadePx = 100.dp.toPx()
+                        val bottomFadePx = 120.dp.toPx()
+                        // Top fade — content fades when scrolling under bar
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(DarkBase, Color.Transparent),
+                                startY = 0f,
+                                endY = topFadePx,
+                            ),
+                            topLeft = Offset.Zero,
+                            size = Size(size.width, topFadePx),
+                        )
+                        // Bottom fade
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, DarkBase),
+                                startY = size.height - bottomFadePx,
+                                endY = size.height,
+                            ),
+                            topLeft = Offset(0f, size.height - bottomFadePx),
+                            size = Size(size.width, bottomFadePx),
+                        )
+                    },
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 72.dp,
+                    bottom = 0.dp,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item(span = { GridItemSpan(2) }) {
+                    HeroBannerCard(
+                        auraScore = profile?.auraScore ?: 50,
+                        streakDays = profile?.streakDays ?: 0,
+                        listingsCount = listings.size,
+                    )
                 }
-            }
-
-            // Condition category chips
-            item(span = { GridItemSpan(2) }) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    conditions.forEach { cond ->
-                        val isSelected = cond == selectedCondition
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    if (isSelected) com.aura.app.ui.theme.SolanaGreen.copy(alpha = 0.9f)
-                                    else com.aura.app.ui.theme.GlassSurface
-                                )
-                                .clickable { selectedCondition = cond }
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                        ) {
-                            Text(
-                                cond,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Sort + header row
-            item(span = { GridItemSpan(2) }) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                item(span = { GridItemSpan(2) }) {
                     Text(
                         "Marketplace",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        sortOptions.forEach { opt ->
-                            val isSelected = opt == sortOrder
-                            Text(
-                                opt,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) Orange500 else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .clickable { sortOrder = opt }
-                                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Listing grid
-            itemsIndexed(
-                items = filteredListings,
-                key = { _, it -> it.id },
-            ) { index, listing ->
-                var isVisible by remember { mutableStateOf(false) }
-                LaunchedEffect(Unit) {
-                    delay(index * 40L)
-                    isVisible = true
-                }
-
-                AnimatedVisibility(
-                    visible = isVisible,
-                    enter = fadeIn() + slideInVertically(
-                        initialOffsetY = { 100 },
-                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-                    ),
-                ) {
-                    ListingCard(
-                        title = listing.title,
-                        priceSol = listing.priceLamports / 1_000_000_000.0,
-                        status = listing.mintedStatus,
-                        imageUrl = listing.images.firstOrNull(),
-                        onClick = { onListingClick(listing.id) },
+                        modifier = Modifier.padding(top = 8.dp),
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
-            }
-
-            // Empty state
-            if (filteredListings.isEmpty() && listings.isNotEmpty()) {
-                item(span = { GridItemSpan(2) }) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(40.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                itemsIndexed(
+                    items = listings,
+                    key = { _, it -> it.id },
+                ) { index, listing ->
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = fadeIn(animationSpec = AuraAnimations.AuraEaseOut) +
+                            slideInVertically(
+                                initialOffsetY = { 24 },
+                                animationSpec = spring(dampingRatio = 0.7f),
+                            ),
                     ) {
-                        Text("🔍", style = MaterialTheme.typography.displayMedium)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            "No listings match your filters",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ListingCard(
+                            title = listing.title,
+                            priceSol = listing.priceLamports / 1_000_000_000.0,
+                            status = listing.mintedStatus,
+                            imageUrl = listing.images.firstOrNull(),
+                            onClick = {
+                                AuraHaptics.lightTap(haptic)
+                                onListingClick(listing.id)
+                            },
                         )
                     }
                 }
             }
 
-            // First-run empty state with CTA
-            if (listings.isEmpty()) {
-                item(span = { GridItemSpan(2) }) {
-                    var ctaVisible by remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) {
-                        delay(600)
-                        ctaVisible = true
-                    }
-                    AnimatedVisibility(
-                        visible = ctaVisible,
-                        enter = fadeIn(tween(500)) + slideInVertically(
-                            initialOffsetY = { 60 },
-                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-                        ),
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 32.dp, horizontal = 16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Icon(
-                                Icons.Filled.Star,
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp),
-                                tint = com.aura.app.ui.theme.SolanaGreen,
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                "Your marketplace is empty",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                "List your first item and let the Aura ecosystem verify it on-chain.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                            )
-                            Spacer(modifier = Modifier.height(20.dp))
-                            Button(
-                                onClick = { onNavigate(com.aura.app.navigation.Routes.CREATE_LISTING) },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = com.aura.app.ui.theme.SolanaGreen,
-                                    contentColor = com.aura.app.ui.theme.DarkVoid,
-                                ),
-                                shape = RoundedCornerShape(14.dp),
-                            ) {
-                                Text("Create Your First Listing", fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
+            MainTopBar(
+                modifier = Modifier.align(Alignment.TopStart),
+                title = "Aura",
+                logoSize = 44.dp,
+                onZoneResourceClick = { onNavigate(com.aura.app.navigation.Routes.ZONE_REFINEMENT) },
+            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 108.dp)
+                    .scale(0.9f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        AuraHaptics.lightTap(haptic)
+                        onListingClick(com.aura.app.navigation.Routes.P2P_EXCHANGE)
+                    },
+                    icon = { Icon(Icons.Filled.Send, "Quick Pay", modifier = Modifier.size(18.dp)) },
+                    text = { Text("Quick Pay", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge) },
+                    containerColor = Gold500,
+                    contentColor = Color.Black,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.heightIn(min = 44.dp),
+                )
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        AuraHaptics.lightTap(haptic)
+                        onListingClick(com.aura.app.navigation.Routes.AURA_CHECK)
+                    },
+                    icon = { Icon(Icons.Filled.Star, "Aura Check", modifier = Modifier.size(18.dp)) },
+                    text = { Text("Aura Check", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge) },
+                    containerColor = Orange500,
+                    contentColor = Color.Black,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.heightIn(min = 44.dp),
+                )
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        AuraHaptics.lightTap(haptic)
+                        onNavigate(com.aura.app.navigation.Routes.DIRECTIVES)
+                    },
+                    icon = { Icon(Icons.Filled.Star, "Directives", modifier = Modifier.size(18.dp)) },
+                    text = { Text("Directives", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge) },
+                    containerColor = com.aura.app.ui.theme.UltraViolet,
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.heightIn(min = 44.dp),
+                )
             }
         }
     }
@@ -438,89 +247,83 @@ private fun HeroBannerCard(
     streakDays: Int,
     listingsCount: Int,
 ) {
-    val animatedScore by animateIntAsState(targetValue = auraScore, animationSpec = tween(1800, easing = FastOutSlowInEasing), label = "score")
-    val animatedStreak by animateIntAsState(targetValue = streakDays, animationSpec = tween(1200, easing = FastOutSlowInEasing), label = "streak")
-    val animatedListings by animateIntAsState(targetValue = listingsCount, animationSpec = tween(1000, easing = LinearOutSlowInEasing), label = "listings")
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        Orange500.copy(alpha = 0.15f),
-                        Gold500.copy(alpha = 0.1f),
-                        Color.Transparent,
-                    ),
-                ),
-            )
-            .border(1.dp, GlassBorder, RoundedCornerShape(20.dp))
-            .padding(20.dp),
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        glowColor = Orange500,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column {
-                Text(
-                    "Your Aura",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "$animatedScore",
-                        style = MaterialTheme.typography.displaySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Orange500,
-                    )
-                    Text(
-                        "/100",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.LocalFireDepartment,
-                        contentDescription = null,
-                        tint = Orange500,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        "$animatedStreak day streak",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(CircleShape)
-                        .background(GlassSurface)
-                        .border(2.dp, Orange500.copy(alpha = 0.5f), CircleShape),
-                    contentAlignment = Alignment.Center,
+        Box(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Icon(
-                        Icons.Default.Star,
-                        contentDescription = null,
-                        tint = Gold500,
-                        modifier = Modifier.size(28.dp),
+                    Text(
+                        "Your Aura",
+                        style = MaterialTheme.typography.labelMedium,
+                        letterSpacing = 0.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        AuraScoreRing(
+                            score = auraScore,
+                            size = 68.dp,
+                            animate = true,
+                            showNumber = true,
+                            strokeWidth = 5.dp,
+                        )
+                        Text(
+                            "/100",
+                            style = MaterialTheme.typography.titleMedium,
+                            letterSpacing = 0.3.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.LocalFireDepartment,
+                            contentDescription = null,
+                            tint = Orange500,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            "$streakDays day streak",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 0.2.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                        )
+                    }
+                }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.06f))
+                            .border(1.5.dp, Orange500.copy(alpha = 0.5f), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Default.Star, contentDescription = null, tint = Gold500, modifier = Modifier.size(24.dp))
+                    }
+                    Text(
+                        "$listingsCount items",
+                        style = MaterialTheme.typography.labelSmall,
+                        letterSpacing = 0.3.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
                     )
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    "$listingsCount items",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }
@@ -534,35 +337,25 @@ private fun ListingCard(
     imageUrl: String?,
     onClick: () -> Unit,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-
-    Card(
+    val scale by animateFloatAsState(
+        targetValue = 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "scale",
+    )
+    GlassCard(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(0.75f)
-            .shadow(12.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.25f))
-            .springScale(isPressed = isPressed, scaleDown = 0.94f)
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(interactionSource = interactionSource, indication = LocalIndication.current, onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = SlateElevated),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            .scale(scale)
+            .clickable(onClick = onClick),
+        glowColor = Orange500,
+        cornerRadius = 16.dp,
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-            ) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 if (imageUrl != null && imageUrl.isNotBlank()) {
-                    val context = androidx.compose.ui.platform.LocalContext.current
-                    val modelData = if (imageUrl.startsWith("/")) "file://$imageUrl" else imageUrl
-                    coil.compose.SubcomposeAsyncImage(
-                        model = coil.request.ImageRequest.Builder(context)
-                            .data(modelData)
-                            .crossfade(true)
-                            .build(),
+                    AsyncImage(
+                        model = if (imageUrl.startsWith("http") || imageUrl.startsWith("content://")) imageUrl else "file://${imageUrl.removePrefix("file://")}",
                         contentDescription = title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
@@ -610,22 +403,16 @@ private fun ListingCard(
                             .background(
                                 Brush.linearGradient(
                                     colors = listOf(
-                                        Orange500.copy(alpha = 0.3f),
-                                        Gold500.copy(alpha = 0.2f),
+                                        Orange500.copy(alpha = 0.2f),
+                                        Gold500.copy(alpha = 0.1f),
                                     ),
                                 ),
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(
-                            Icons.Default.Star,
-                            contentDescription = null,
-                            tint = Orange500.copy(alpha = 0.4f),
-                            modifier = Modifier.size(48.dp),
-                        )
+                        Icon(Icons.Default.Star, contentDescription = null, tint = Orange500.copy(alpha = 0.4f), modifier = Modifier.size(48.dp))
                     }
                 }
-                // Status badge
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -667,7 +454,7 @@ private fun ListingCard(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = "%.2f SOL".format(priceSol),
+                    text = "%.2f SOL ◎".format(priceSol),
                     style = MaterialTheme.typography.titleMedium,
                     color = Orange500,
                     fontWeight = FontWeight.Bold,

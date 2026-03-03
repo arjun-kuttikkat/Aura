@@ -11,8 +11,8 @@ import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.delay
 import androidx.compose.ui.draw.scale
 import com.aura.app.ui.util.pulseGlow
-import com.aura.app.ui.util.shimmerBorder
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
@@ -33,6 +35,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -58,6 +61,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.aura.app.data.AuraRepository
 import com.aura.app.model.Listing
+import com.aura.app.ui.components.GlassCard
+import com.aura.app.ui.theme.DarkBase
 import com.aura.app.model.MintedStatus
 import com.aura.app.model.TradeSession
 import com.aura.app.ui.theme.Orange500
@@ -96,15 +101,18 @@ fun ListingDetailScreen(
                 title = { Text(listing?.title ?: "Listing", fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = DarkBase,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
                 ),
+                windowInsets = WindowInsets.statusBars,
             )
         },
+        containerColor = DarkBase,
     ) { padding ->
         if (listing == null) {
             Text("Listing not found", modifier = Modifier.padding(padding))
@@ -124,11 +132,12 @@ fun ListingDetailScreen(
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                MaterialTheme.colorScheme.surfaceVariant,
-                                MaterialTheme.colorScheme.surface,
+                                Orange500.copy(alpha = 0.15f),
+                                DarkBase,
                             ),
                         ),
-                    ),
+                    )
+                    .border(0.5.dp, Orange500.copy(alpha = 0.2f), RoundedCornerShape(0.dp, 0.dp, 24.dp, 24.dp)),
             ) {
                 val imageUrl = listing.images.firstOrNull()
                 if (imageUrl != null && imageUrl.isNotBlank()) {
@@ -182,25 +191,29 @@ fun ListingDetailScreen(
                             .fillMaxWidth()
                             .background(
                                 Brush.linearGradient(
-                                    colors = listOf(Orange500.copy(alpha = 0.3f), Orange500.copy(alpha = 0.2f)),
-                                ),
+                            colors = listOf(Orange500.copy(alpha = 0.25f), Orange500.copy(alpha = 0.12f)),
+                        ),
                             ),
-                    )
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(64.dp), tint = Orange500.copy(alpha = 0.5f))
+                    }
                 }
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(16.dp)
+                        .padding(20.dp)
                         .background(
                             when (listing.mintedStatus) {
                                 MintedStatus.VERIFIED -> Orange500
-                                MintedStatus.MINTED -> MaterialTheme.colorScheme.primary
+                                MintedStatus.MINTED -> Gold500
                                 MintedStatus.PENDING -> MaterialTheme.colorScheme.outline
                                 MintedStatus.SOLD -> Color(0xFF4CAF50)
                             },
                             RoundedCornerShape(12.dp),
                         )
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .border(0.5.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -256,76 +269,28 @@ fun ListingDetailScreen(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        text = "%.2f SOL".format(listing.priceLamports / 1_000_000_000.0),
+                        text = "%.2f SOL ◎".format(listing.priceLamports / 1_000_000_000.0),
                         style = MaterialTheme.typography.headlineMedium,
-                        color = SolanaGreen,
+                        color = Orange500,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.pulseGlow()
                     )
                 }
-
-                // Marketplace detail chips (Condition, Category, etc)
-                Row(
+                GlassCard(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    glowColor = Orange500,
+                    cornerRadius = 16.dp,
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
-                            .shimmerBorder()
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(listing.condition, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Description Block
-                if (listing.description.isNotBlank()) {
-                    Text("Description", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(listing.description, style = MaterialTheme.typography.bodyLarge)
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-
-                // Seller Block (FB Marketplace style)
-                Text("Seller Information", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    shape = RoundedCornerShape(12.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = listing.sellerWallet.take(2).uppercase(),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Column {
-                            Text(
-                                "User ${listing.sellerWallet.take(6)}...${listing.sellerWallet.takeLast(4)}",
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                "Joined 2024", // Placeholder, since Listing object doesn't have seller join date
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Text("Condition", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(listing.condition, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Seller", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "${listing.sellerWallet.take(6)}...${listing.sellerWallet.takeLast(4)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
                     }
                 }
 
@@ -404,8 +369,12 @@ fun ListingDetailScreen(
                     enabled = walletAddress != null && listing.mintedStatus != MintedStatus.SOLD,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
+                        .height(58.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Orange500,
+                        contentColor = Color.Black,
+                    ),
                 ) {
                     Text(
                         when {
@@ -413,7 +382,8 @@ fun ListingDetailScreen(
                             walletAddress != null -> "Start Meetup / Buy"
                             else -> "Connect Wallet First"
                         },
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium,
                     )
                 }
             }

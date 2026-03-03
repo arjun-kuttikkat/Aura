@@ -1,0 +1,5 @@
+-- Storage bucket must be created in Supabase Dashboard:
+-- Storage → New bucket → name: "listing-images" → Public: ON
+--
+-- Or run in SQL Editor (Storage uses storage.buckets; schema may vary):
+-- INSERT INTO storage.buckets (id, name, public) VALUES ('listing-images', 'listing-images', true);

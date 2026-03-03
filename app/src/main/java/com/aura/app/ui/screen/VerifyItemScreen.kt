@@ -4,23 +4,30 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
+import androidx.camera.core.ImageCaptureException
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,14 +45,21 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.aura.app.data.AuraRepository
 import com.aura.app.model.TradeState
 import com.aura.app.model.VerificationResult
+import com.aura.app.ui.components.AuraFullScreenCamera
+import com.aura.app.ui.components.GlassCard
+import com.aura.app.ui.theme.DarkBase
+import com.aura.app.ui.theme.ErrorRed
+import com.aura.app.ui.theme.Gold500
+import com.aura.app.ui.theme.Orange500
+import com.aura.app.ui.theme.SuccessGreen
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,127 +70,208 @@ fun VerifyItemScreen(
 ) {
     val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     var result by mutableStateOf<VerificationResult?>(null)
     var isVerifying by mutableStateOf(false)
+    var showFullScreenCamera by mutableStateOf(false)
     val imageCapture = remember { ImageCapture.Builder().build() }
     val hasCameraPermission = context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) showFullScreenCamera = true
+    }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Verify Item") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(
-                text = "Take a photo of the item to verify",
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            if (result == null) {
-                if (hasCameraPermission) {
-                    CameraPreviewBox(imageCapture = imageCapture, lifecycleOwner = lifecycleOwner, context = context)
-                } else {
-                    Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Grant Camera Permission")
-                    }
-                }
-                Button(
-                    onClick = {
-                        isVerifying = true
-                        scope.launch {
-                            val listingId = session?.listingId ?: ""
-                            // Capture real photo from CameraX
-                            val photoBytes = try {
-                                val file = java.io.File.createTempFile("verify_", ".jpg", context.cacheDir)
-                                val outputOptions = ImageCapture.OutputFileOptions.Builder(file).build()
-                                kotlinx.coroutines.suspendCancellableCoroutine<ByteArray> { cont ->
-                                    imageCapture.takePicture(
-                                        outputOptions,
-                                        ContextCompat.getMainExecutor(context),
-                                        object : ImageCapture.OnImageSavedCallback {
-                                            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                                                val bytes = file.readBytes()
-                                                file.delete()
-                                                cont.resumeWith(Result.success(bytes))
-                                            }
-                                            override fun onError(exception: androidx.camera.core.ImageCaptureException) {
-                                                file.delete()
-                                                cont.resumeWith(Result.success(ByteArray(100) { it.toByte() }))
-                                            }
-                                        }
-                                    )
-                                }
-                            } catch (e: Exception) {
-                                ByteArray(100) { it.toByte() } // Fallback if capture fails
-                            }
-                            result = AuraRepository.verifyPhoto(listingId, photoBytes)
-                            if (result?.pass == true) {
-                                AuraRepository.updateTradeState(TradeState.VERIFIED_PASS)
-                            } else {
-                                AuraRepository.updateTradeState(TradeState.VERIFIED_FAIL)
-                            }
-                            isVerifying = false
+    Box(modifier = Modifier.fillMaxSize().background(DarkBase)) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Verify Item", fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isVerifying,
-                ) {
-                    Text(if (isVerifying) "Verifying…" else "Verify Photo")
-                }
-            } else {
-                Text(
-                    text = if (result!!.pass) "✓ Verified" else "✗ Failed",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = if (result!!.pass) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = DarkBase,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    ),
                 )
-                Text("Score: ${(result!!.score * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
-                if (result!!.pass) {
-                    Button(onClick = onVerified, modifier = Modifier.fillMaxWidth()) {
-                        Text("Continue to Pay")
+            },
+            containerColor = DarkBase,
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+            ) {
+                AnimatedContent(
+                    targetState = result,
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    label = "verify_result",
+                ) { res ->
+                    when {
+                        res == null && !showFullScreenCamera -> {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(24.dp),
+                            ) {
+                                Text(
+                                    text = "Take a photo of the item to verify authenticity",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                GlassCard(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(200.dp),
+                                    glowColor = Orange500,
+                                    cornerRadius = 20.dp,
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(24.dp),
+                                        verticalArrangement = Arrangement.Center,
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        Icon(
+                                            Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(64.dp),
+                                            tint = Orange500.copy(alpha = 0.6f),
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            "Point camera at the item",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                        Text(
+                                            "Ensure good lighting",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.weight(1f))
+                                Button(
+                                    onClick = {
+                                        if (hasCameraPermission) showFullScreenCamera = true
+                                        else permissionLauncher.launch(Manifest.permission.CAMERA)
+                                    },
+                                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                                    shape = RoundedCornerShape(18.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
+                                ) {
+                                    Text("Open Camera", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                        res != null -> {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(24.dp),
+                            ) {
+                                GlassCard(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    glowColor = if (res.pass) SuccessGreen else ErrorRed,
+                                    cornerRadius = 20.dp,
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(32.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        Icon(
+                                            Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(80.dp),
+                                            tint = if (res.pass) SuccessGreen else ErrorRed,
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = if (res.pass) "Verified ✓" else "Verification Failed",
+                                            style = MaterialTheme.typography.headlineSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (res.pass) SuccessGreen else ErrorRed,
+                                        )
+                                        Text(
+                                            "Score: ${(res.score * 100).toInt()}%",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                if (res.pass) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    Button(
+                                        onClick = onVerified,
+                                        modifier = Modifier.fillMaxWidth().height(58.dp),
+                                        shape = RoundedCornerShape(18.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Gold500, contentColor = Color.Black),
+                                    ) {
+                                        Text("Continue to Pay", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-    }
-}
 
-@Composable
-private fun CameraPreviewBox(
-    imageCapture: ImageCapture,
-    lifecycleOwner: androidx.lifecycle.LifecycleOwner,
-    context: android.content.Context,
-) {
-    Box(modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f)) {
-        AndroidView(
-            factory = { ctx ->
-                val previewView = PreviewView(ctx)
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                cameraProviderFuture.addListener({
-                    val provider = cameraProviderFuture.get()
-                    val preview = Preview.Builder().build().apply {
-                        setSurfaceProvider(previewView.surfaceProvider)
-                    }
-                    provider.unbindAll()
-                    provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
-                }, ContextCompat.getMainExecutor(ctx))
-                previewView
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
+        if (showFullScreenCamera && result == null) {
+            AuraFullScreenCamera(
+                imageCapture = imageCapture,
+                onCapture = {
+                    val photoFile = java.io.File(context.cacheDir, "verify_${System.currentTimeMillis()}.jpg")
+                    val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+                    imageCapture.takePicture(
+                        outputOptions,
+                        ContextCompat.getMainExecutor(context),
+                        object : ImageCapture.OnImageSavedCallback {
+                            override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                                showFullScreenCamera = false
+                                isVerifying = true
+                                scope.launch {
+                                    val bytes = photoFile.readBytes()
+                                    photoFile.delete()
+                                    val listingId = session?.listingId ?: ""
+                                    result = AuraRepository.verifyPhoto(listingId, bytes)
+                                    if (result?.pass == true) {
+                                        AuraRepository.updateTradeState(TradeState.VERIFIED_PASS)
+                                    } else {
+                                        AuraRepository.updateTradeState(TradeState.VERIFIED_FAIL)
+                                    }
+                                    isVerifying = false
+                                }
+                            }
+                            override fun onError(exception: ImageCaptureException) {
+                                showFullScreenCamera = false
+                                isVerifying = false
+                                result = VerificationResult(pass = false, score = 0f, reason = exception.message ?: "Capture failed")
+                            }
+                        },
+                    )
+                },
+                onClose = { showFullScreenCamera = false },
+            )
+        }
+
+        if (isVerifying) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.7f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = Orange500, modifier = Modifier.size(64.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Verifying...", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        }
     }
 }

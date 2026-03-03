@@ -2,10 +2,10 @@ package com.aura.app.data
 
 import com.aura.app.BuildConfig
 import io.github.jan.supabase.createSupabaseClient
-import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.auth.Auth
-import io.github.jan.supabase.storage.Storage
+import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
+import io.github.jan.supabase.storage.Storage
 import io.github.jan.supabase.functions.Functions
 import android.content.Context
 

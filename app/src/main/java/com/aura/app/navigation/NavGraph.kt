@@ -65,8 +65,7 @@ fun NavGraph(
                 exitTransition = { fadeOut(animationSpec = tween(150)) },
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
-                    .padding(bottom = if (showBottomBar) 100.dp else 0.dp),
+                    .padding(padding),
             ) {
             composable(Routes.ONBOARDING) {
                 OnboardingScreen(
@@ -75,8 +74,13 @@ fun NavGraph(
             }
             composable(Routes.HOME) {
                 HomeScreen(
-                    onListingClick = { id -> navController.navigate(Routes.listingDetail(id)) },
-                    onNavigate = { route -> navController.navigate(route) }
+                    onListingClick = { id ->
+                        when (id) {
+                            Routes.ZONE_REFINEMENT, Routes.P2P_EXCHANGE, Routes.AURA_CHECK -> navController.navigate(id)
+                            else -> navController.navigate(Routes.listingDetail(id))
+                        }
+                    },
+                    onNavigate = { route -> navController.navigate(route) },
                 )
             }
             composable(Routes.REWARDS) {
@@ -97,7 +101,7 @@ fun NavGraph(
                         navController.navigate(Routes.ONBOARDING) {
                             popUpTo(0) { inclusive = true }
                         }
-                    }
+                    },
                 )
             }
             composable(Routes.SETTINGS_NOTIFICATIONS) {

@@ -21,23 +21,26 @@ import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.aura.app.data.AuraPreferences
+import com.aura.app.ui.components.AuraHaptics
+import com.aura.app.ui.components.GlassCard
 import com.aura.app.ui.components.MainTopBar
+import com.aura.app.ui.theme.DarkBase
+import com.aura.app.ui.theme.Orange500
 import com.aura.app.wallet.WalletConnectionState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,6 +59,7 @@ fun SettingsScreen(
     val seedBackedUp by AuraPreferences.seedBackedUp.collectAsState()
     val publicProfile by AuraPreferences.publicProfile.collectAsState()
     val walletAddress by WalletConnectionState.walletAddress.collectAsState()
+    val haptic = LocalHapticFeedback.current
 
     val notificationsSubtitle = when {
         notificationsEnabled && transactionAlerts -> "Push + transaction alerts enabled"
@@ -72,6 +76,7 @@ fun SettingsScreen(
 
     Scaffold(
         topBar = { MainTopBar(title = "Settings") },
+        containerColor = DarkBase,
     ) { padding ->
         Column(
             modifier = Modifier
@@ -97,13 +102,19 @@ fun SettingsScreen(
                 icon = Icons.Default.Security,
                 title = "Security",
                 subtitle = securitySubtitle,
-                onClick = onSecurityClick,
+                onClick = {
+                    AuraHaptics.lightTap(haptic)
+                    onSecurityClick()
+                },
             )
             SettingsItem(
                 icon = Icons.Default.PrivacyTip,
                 title = "Privacy",
                 subtitle = if (publicProfile) "Profile is public" else "Profile is private",
-                onClick = onPrivacyClick,
+                onClick = {
+                    AuraHaptics.lightTap(haptic)
+                    onPrivacyClick()
+                },
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -140,16 +151,15 @@ private fun SettingsItem(
     subtitle: String? = null,
     onClick: (() -> Unit)? = null,
 ) {
-    Card(
+    GlassCard(
         modifier = Modifier
             .fillMaxWidth()
             .then(
                 if (onClick != null) Modifier.clickable(onClick = onClick)
                 else Modifier
             ),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        glowColor = Orange500,
+        cornerRadius = 16.dp,
     ) {
         Row(
             modifier = Modifier
@@ -167,7 +177,7 @@ private fun SettingsItem(
                     imageVector = icon,
                     contentDescription = null,
                     modifier = Modifier.size(24.dp),
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = Orange500,
                 )
                 Column {
                     Text(

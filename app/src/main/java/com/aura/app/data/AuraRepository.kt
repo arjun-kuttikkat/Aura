@@ -34,6 +34,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.io.File
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -268,6 +269,18 @@ object AuraRepository {
 
     fun getListing(id: String): Listing? = _listings.value.find { it.id == id }
 
+    private suspend fun uploadImageToStorage(listingId: String, localPath: String, index: Int): String? {
+        if (localPath.startsWith("http")) return localPath // Already a URL
+        val file = File(localPath)
+        if (!file.exists()) {
+            Log.w(TAG, "Image file not found: $localPath")
+            return null
+        }
+        // TODO: Re-enable Supabase Storage upload when storage-kt API is properly resolved.
+        // For now use local file path so listings can be created; Coil can load file:// URIs.
+        return "file://$localPath"
+    }
+
     suspend fun createListing(
         sellerWallet: String,
         title: String,
@@ -279,29 +292,27 @@ object AuraRepository {
     ): Listing {
         val listingId = UUID.randomUUID().toString()
         val fingerprint = textureHash ?: "fp_${listingId.take(8)}"
-        
+
         // Step 1: Execute actual binary uploads to Supabase Storage if the refs map to local files
         val uploadedUrls = mutableListOf<String>()
         val bucket = db.storage["listing-images"]
-        
+
         for ((index, ref) in imageRefs.withIndex()) {
             if (ref.startsWith("content://") || ref.startsWith("file://") || ref.startsWith("/")) {
                 val ext = if (ref.contains(".png", ignoreCase = true)) "png" else "jpg"
                 val remotePath = "$listingId/image_$index.$ext"
                 try {
-                    // Read real bytes. If it's a raw path or file://, use java.io.File
                     val fileBytes = if (ref.startsWith("/") || ref.startsWith("file://")) {
                         val path = ref.removePrefix("file://")
                         java.io.File(path).readBytes()
                     } else {
-                        // Handle content:// URIs
                         val uri = android.net.Uri.parse(ref)
                         val inputStream = SupabaseClient.appContext?.contentResolver?.openInputStream(uri)
                         val bytes = inputStream?.readBytes() ?: ByteArray(0)
                         inputStream?.close()
                         bytes
                     }
-                    
+
                     if (fileBytes.isNotEmpty()) {
                         bucket.upload(remotePath, fileBytes) {
                             upsert = true

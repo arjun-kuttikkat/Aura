@@ -1,8 +1,14 @@
 package com.aura.app.ui.components
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,17 +39,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aura.app.navigation.Routes
 import com.aura.app.ui.theme.GlassBorder
-import com.aura.app.ui.theme.GlassSurface
+import com.aura.app.ui.theme.Gold500
+import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SolanaGreen
 import com.aura.app.ui.theme.DarkVoid
 
@@ -71,19 +78,30 @@ fun MainBottomBar(
     val regularItems = navItems.filter { !it.isCenter }
     val centerItem = navItems.find { it.isCenter }!!
 
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .padding(bottom = 16.dp),
-    ) {
-        // Glassmorphism bar background
+    // Center FAB breathe + rotation
+    val infiniteTransition = rememberInfiniteTransition(label = "fab")
+    val breathe by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.03f,
+        animationSpec = infiniteRepeatable(
+            animation = tween<Float>(durationMillis = 3000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "breathe",
+    )
+    Box(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).padding(bottom = 16.dp)) {
+        // Frosted glass bar
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 72.dp)
                 .clip(RoundedCornerShape(24.dp))
-                .background(GlassSurface)
-                .border(1.dp, GlassBorder, RoundedCornerShape(24.dp)),
+                .background(Color.Black.copy(alpha = 0.4f))
+                .border(
+                    width = 0.5.dp,
+                    color = Orange500.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(24.dp),
+                ),
         ) {
             Row(
                 modifier = Modifier
@@ -98,7 +116,9 @@ fun MainBottomBar(
                         modifier = Modifier.weight(1f),
                         item = item,
                         selected = currentRoute == item.route,
-                        onClick = { onNavigate(item.route) },
+                        onClick = {
+                            onNavigate(item.route)
+                        },
                     )
                 }
                 Spacer(modifier = Modifier.weight(1f))
@@ -113,16 +133,27 @@ fun MainBottomBar(
             }
         }
 
-        // Center FAB
+        // Center FAB - gradient spinner ring + breathe
+        val fabScale by animateFloatAsState(
+            targetValue = 1f,
+            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+            label = "fabScale",
+        )
+
         Box(
             modifier = Modifier
                 .align(Alignment.Center)
                 .offset(y = (-14).dp)
-                .size(56.dp)
-                .shadow(20.dp, CircleShape, spotColor = SolanaGreen.copy(alpha = 0.4f))
+                .scale(breathe * fabScale)
+                .size(60.dp)
+                .shadow(24.dp, CircleShape, spotColor = Orange500.copy(alpha = 0.5f))
                 .clip(CircleShape)
-                .background(SolanaGreen)
-                .border(2.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                .background(
+                    brush = Brush.linearGradient(
+                        colors = listOf(Orange500, Gold500),
+                    ),
+                )
+                .border(2.dp, Color.White.copy(alpha = 0.2f), CircleShape)
                 .clickable { onNavigate(centerItem.route) },
             contentAlignment = Alignment.Center,
         ) {
@@ -144,7 +175,7 @@ private fun RowScope.BottomNavBarItem(
     onClick: () -> Unit,
 ) {
     val itemScale by animateFloatAsState(
-        targetValue = if (selected) 1.1f else 1f,
+        targetValue = if (selected) 1.2f else 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
         label = "navScale",
     )
@@ -161,15 +192,14 @@ private fun RowScope.BottomNavBarItem(
             imageVector = item.icon,
             contentDescription = item.label,
             modifier = Modifier.size(22.dp),
-            tint = if (selected) SolanaGreen else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            tint = if (selected) Orange500 else Color.White.copy(alpha = 0.6f),
         )
         Text(
             text = item.label,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = if (selected) SolanaGreen else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            color = if (selected) Orange500 else Color.White.copy(alpha = 0.6f),
         )
-        // Active indicator dot
         if (selected) {
             Box(
                 modifier = Modifier

@@ -22,6 +22,8 @@ object Routes {
     const val P2P_EXCHANGE = "p2p_exchange"
     const val ZONE_REFINEMENT = "zone_refinement"
     const val DIRECTIVES = "directives"
+    const val SECURITY = "security"
+    const val PRIVACY = "privacy"
 
     fun listingDetail(listingId: String) = "listing_detail/$listingId"
 }
