@@ -22,8 +22,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material3.Icon
@@ -62,10 +63,10 @@ fun MainBottomBar(
 ) {
     val navItems = listOf(
         BottomNavItem(Routes.HOME, Icons.Filled.Store, "Market"),
-        BottomNavItem(Routes.REWARDS, Icons.Filled.Star, "Rewards"),
+        BottomNavItem(Routes.DIRECTIVES, Icons.Filled.AutoAwesome, "Directives"),
         BottomNavItem(Routes.CREATE_LISTING, Icons.Default.Add, "Create", isCenter = true),
         BottomNavItem(Routes.PROFILE, Icons.Default.Person, "Profile"),
-        BottomNavItem(Routes.SETTINGS, Icons.Default.Settings, "Settings"),
+        BottomNavItem(Routes.CHATS, Icons.Default.Chat, "Chat"),
     )
 
     val regularItems = navItems.filter { !it.isCenter }

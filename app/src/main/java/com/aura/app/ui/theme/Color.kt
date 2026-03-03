@@ -22,6 +22,7 @@ val DarkSurface = DarkVoid
 val DarkSurfaceVariant = SlateElevated
 val DarkOnSurface = Color(0xFFF8FAFC)
 val DarkOnSurfaceVariant = Color(0xFF94A3B8)
+val DarkCard = Color(0xFF1E293B)
 
 // We maintain Light themes as dark mode defaults just in case
 val LightSurface = Color(0xFFF1F5F9)

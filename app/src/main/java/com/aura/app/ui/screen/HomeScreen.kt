@@ -38,6 +38,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
@@ -48,6 +49,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -99,39 +101,10 @@ fun HomeScreen(
                 onZoneResourceClick = { onNavigate(com.aura.app.navigation.Routes.ZONE_REFINEMENT) },
             )
         },
-        floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                ExtendedFloatingActionButton(
-                    onClick = { onNavigate(com.aura.app.navigation.Routes.DIRECTIVES) },
-                    icon = { Icon(Icons.Filled.Star, "Directives") },
-                    text = { Text("Directives", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold) },
-                    containerColor = com.aura.app.ui.theme.UltraViolet,
-                    contentColor = Color.White,
-                    shape = RoundedCornerShape(16.dp),
-                )
-                ExtendedFloatingActionButton(
-                    onClick = { onNavigate(com.aura.app.navigation.Routes.P2P_EXCHANGE) },
-                    icon = { Icon(Icons.Filled.Send, "Quick Pay") },
-                    text = { Text("Quick Pay", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold) },
-                    containerColor = com.aura.app.ui.theme.DarkVoid,
-                    contentColor = com.aura.app.ui.theme.SolanaGreen,
-                    shape = RoundedCornerShape(16.dp),
-                )
-                ExtendedFloatingActionButton(
-                    onClick = { onNavigate(com.aura.app.navigation.Routes.CREATE_LISTING) },
-                    icon = { Icon(Icons.Filled.Star, "Create Listing") },
-                    text = { Text("Create Listing", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold) },
-                    containerColor = com.aura.app.ui.theme.SolanaGreen,
-                    contentColor = com.aura.app.ui.theme.DarkVoid,
-                    shape = RoundedCornerShape(16.dp),
-                )
-            }
-        },
     ) { padding ->
+
         // ── Filter State ──
+        var searchQuery by remember { mutableStateOf("") }
         var selectedScope by remember { mutableStateOf("Global") }
         val scopes = listOf("Nearby", "Explore", "Global")
 
@@ -142,8 +115,16 @@ fun HomeScreen(
         val sortOptions = listOf("Newest", "Oldest", "Price ↑", "Price ↓")
 
         // ── Derive filtered + sorted listings ──
-        val filteredListings = remember(listings, selectedScope, selectedCondition, sortOrder) {
+        val filteredListings = remember(listings, searchQuery, selectedScope, selectedCondition, sortOrder) {
             var result = listings
+
+            // Search filter
+            if (searchQuery.isNotBlank()) {
+                result = result.filter {
+                    it.title.contains(searchQuery, ignoreCase = true) ||
+                    it.description.contains(searchQuery, ignoreCase = true)
+                }
+            }
 
             // Distance filter
             result = when (selectedScope) {
@@ -178,12 +159,16 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Hero card spanning full width
+            // Search Bar
             item(span = { GridItemSpan(2) }) {
-                HeroBannerCard(
-                    auraScore = profile?.auraScore ?: 50,
-                    streakDays = profile?.streakDays ?: 0,
-                    listingsCount = listings.size,
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search listings...") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
                 )
             }
 

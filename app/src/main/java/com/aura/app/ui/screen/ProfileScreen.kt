@@ -33,11 +33,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
@@ -82,6 +85,7 @@ import com.aura.app.wallet.WalletConnectionState
 @Composable
 fun ProfileScreen(
     onVerifyIdentity: () -> Unit,
+    onNavigate: (String) -> Unit = {},
 ) {
     val pubkey by WalletConnectionState.walletAddress.collectAsState()
     val profile by AuraRepository.currentProfile.collectAsState()
@@ -428,6 +432,90 @@ fun ProfileScreen(
                 Icon(androidx.compose.material.icons.Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Share Profile", fontWeight = FontWeight.Medium)
+            }
+
+            // ── Quick Actions Grid ──
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Quick Actions",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Directives
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(com.aura.app.ui.theme.UltraViolet.copy(alpha = 0.12f))
+                        .border(1.dp, com.aura.app.ui.theme.UltraViolet.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                        .clickable { onNavigate(com.aura.app.navigation.Routes.DIRECTIVES) }
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = com.aura.app.ui.theme.UltraViolet, modifier = Modifier.size(28.dp))
+                        Text("Directives", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = com.aura.app.ui.theme.UltraViolet)
+                    }
+                }
+                // Quick Pay
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(com.aura.app.ui.theme.SolanaGreen.copy(alpha = 0.12f))
+                        .border(1.dp, com.aura.app.ui.theme.SolanaGreen.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                        .clickable { onNavigate(com.aura.app.navigation.Routes.P2P_EXCHANGE) }
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.Send, contentDescription = null, tint = com.aura.app.ui.theme.SolanaGreen, modifier = Modifier.size(28.dp))
+                        Text("Quick Pay", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = com.aura.app.ui.theme.SolanaGreen)
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Create Listing
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Orange500.copy(alpha = 0.12f))
+                        .border(1.dp, Orange500.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                        .clickable { onNavigate(com.aura.app.navigation.Routes.CREATE_LISTING) }
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = Orange500, modifier = Modifier.size(28.dp))
+                        Text("Create Listing", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Orange500)
+                    }
+                }
+                // Settings
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .border(1.dp, GlassBorder, RoundedCornerShape(16.dp))
+                        .clickable { onNavigate(com.aura.app.navigation.Routes.SETTINGS) }
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
+                        Text("Settings", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))

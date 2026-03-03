@@ -61,6 +61,7 @@ fun ListingDetailScreen(
     tradeSession: TradeSession?,
     onStartMeetup: () -> Unit,
     onBack: () -> Unit,
+    onChatClicked: () -> Unit = {},
 ) {
     val listing = AuraRepository.getListing(listingId)
     val walletAddress by WalletConnectionState.walletAddress.collectAsState()
@@ -350,23 +351,42 @@ fun ListingDetailScreen(
                     }
                 }
 
-                Button(
-                    onClick = {
-                        walletAddress?.let { wallet ->
-                            AuraRepository.createTradeSession(
-                                listingId = listing.id,
-                                buyerWallet = wallet,
-                                sellerWallet = listing.sellerWallet,
-                            )
-                            onStartMeetup()
-                        }
-                    },
-                    enabled = walletAddress != null && listing.mintedStatus != MintedStatus.SOLD,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    Button(
+                        onClick = onChatClicked,
+                        enabled = walletAddress != null,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    ) {
+                        Text("Message Seller", fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Button(
+                        onClick = {
+                            walletAddress?.let { wallet ->
+                                AuraRepository.createTradeSession(
+                                    listingId = listing.id,
+                                    buyerWallet = wallet,
+                                    sellerWallet = listing.sellerWallet,
+                                )
+                                onStartMeetup()
+                            }
+                        },
+                        enabled = walletAddress != null && listing.mintedStatus != MintedStatus.SOLD,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
                     Text(
                         when {
                             listing.mintedStatus == MintedStatus.SOLD -> "Sold"
@@ -379,4 +399,5 @@ fun ListingDetailScreen(
             }
         }
     }
+}
 }

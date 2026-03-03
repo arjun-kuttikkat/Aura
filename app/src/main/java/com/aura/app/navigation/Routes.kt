@@ -3,6 +3,8 @@ package com.aura.app.navigation
 object Routes {
     const val ONBOARDING = "onboarding"
     const val HOME = "home"
+    const val FAVORITES = "favorites"
+    const val CHATS = "chats"
     const val REWARDS = "rewards"
     const val PROFILE = "profile"
     const val SETTINGS = "settings"
@@ -10,8 +12,12 @@ object Routes {
     const val SETTINGS_APPEARANCE = "settings_appearance"
     const val SETTINGS_SECURITY = "settings_security"
     const val SETTINGS_PRIVACY = "settings_privacy"
-    const val CREATE_LISTING = "create_listing"
+    const val CREATE_LISTING = "place_ad_category"
+    const val PLACE_AD_TYPE = "place_ad_type/{category}"
+    const val PLACE_AD_UPLOAD = "place_ad_upload"
+    const val PLACE_AD_LOCATION = "place_ad_location"
     const val LISTING_DETAIL = "listing_detail/{listingId}"
+    const val CHAT_DETAIL = "chat_detail/{listingId}"
     const val MEET_SESSION = "meet_session"
     const val VERIFY_ITEM = "verify_item"
     const val ESCROW_PAY = "escrow_pay"
@@ -24,4 +30,6 @@ object Routes {
     const val DIRECTIVES = "directives"
 
     fun listingDetail(listingId: String) = "listing_detail/$listingId"
+    fun chatDetail(listingId: String) = "chat_detail/$listingId"
+    fun placeAdType(category: String) = "place_ad_type/$category"
 }
