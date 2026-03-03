@@ -40,6 +40,8 @@ import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -63,6 +65,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.aura.app.data.AuraRepository
@@ -319,10 +322,59 @@ fun HomeScreen(
                 }
             }
 
-            // Shimmer loading skeletons when no listings yet
+            // First-run empty state with CTA
             if (listings.isEmpty()) {
-                items(4) {
-                    com.aura.app.ui.components.ShimmerListingCard()
+                item(span = { GridItemSpan(2) }) {
+                    var ctaVisible by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        delay(600)
+                        ctaVisible = true
+                    }
+                    AnimatedVisibility(
+                        visible = ctaVisible,
+                        enter = fadeIn(tween(500)) + slideInVertically(
+                            initialOffsetY = { 60 },
+                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                        ),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp, horizontal = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                Icons.Filled.Star,
+                                contentDescription = null,
+                                modifier = Modifier.size(48.dp),
+                                tint = com.aura.app.ui.theme.SolanaGreen,
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                "Your marketplace is empty",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "List your first item and let the Aura ecosystem verify it on-chain.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                            Spacer(modifier = Modifier.height(20.dp))
+                            Button(
+                                onClick = { onNavigate(com.aura.app.navigation.Routes.CREATE_LISTING) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = com.aura.app.ui.theme.SolanaGreen,
+                                    contentColor = com.aura.app.ui.theme.DarkVoid,
+                                ),
+                                shape = RoundedCornerShape(14.dp),
+                            ) {
+                                Text("Create Your First Listing", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             }
         }

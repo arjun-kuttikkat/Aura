@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS listings (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     seller_wallet TEXT NOT NULL REFERENCES profiles(wallet_address),
     title TEXT NOT NULL,
+    description TEXT DEFAULT '',
     price_lamports BIGINT NOT NULL,
     images TEXT[] DEFAULT '{}',
     condition TEXT DEFAULT 'Good',

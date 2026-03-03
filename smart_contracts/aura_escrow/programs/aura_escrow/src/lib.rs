@@ -7,9 +7,10 @@ declare_id!("AuRAEscrow1111111111111111111111111111111111");
 pub mod aura_escrow {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>, amount: u64, listing_id: String) -> Result<()> {
+    pub fn initialize(ctx: Context<Initialize>, amount: u64, listing_id: String, seller_wallet: Pubkey) -> Result<()> {
         let escrow = &mut ctx.accounts.escrow_pda;
         escrow.buyer = ctx.accounts.buyer.key();
+        escrow.seller = seller_wallet;
         escrow.listing_id = listing_id.clone();
         escrow.amount = amount;
         escrow.is_released = false;
@@ -29,6 +30,10 @@ pub mod aura_escrow {
     pub fn release_funds_and_mint(ctx: Context<ReleaseFunds>, _asset_uri: String, _asset_title: String) -> Result<()> {
         let escrow = &mut ctx.accounts.escrow_pda;
         require!(!escrow.is_released, EscrowError::AlreadyReleased);
+        require!(
+            escrow.seller == ctx.accounts.seller.key(),
+            EscrowError::UnauthorizedSeller
+        );
 
         let amount = escrow.amount;
         let vault = &ctx.accounts.vault_pda;
@@ -59,7 +64,7 @@ pub mod aura_escrow {
 }
 
 #[derive(Accounts)]
-#[instruction(amount: u64, listing_id: String)]
+#[instruction(amount: u64, listing_id: String, seller_wallet: Pubkey)]
 pub struct Initialize<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
@@ -67,7 +72,7 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = buyer,
-        space = 8 + 32 + 4 + listing_id.len() + 8 + 1,
+        space = 8 + 32 + 32 + 4 + listing_id.len() + 8 + 1,
         seeds = [b"escrow", listing_id.as_bytes()],
         bump
     )]
@@ -87,13 +92,14 @@ pub struct Initialize<'info> {
 #[derive(Accounts)]
 pub struct ReleaseFunds<'info> {
     #[account(mut)]
-    /// CHECK: The seller receiving the funds
+    /// CHECK: The seller receiving the funds — verified against escrow_pda.seller
     pub seller: AccountInfo<'info>,
 
     #[account(
         mut,
         seeds = [b"escrow", escrow_pda.listing_id.as_bytes()],
         bump,
+        constraint = escrow_pda.seller == seller.key() @ EscrowError::UnauthorizedSeller,
     )]
     pub escrow_pda: Account<'info, EscrowState>,
 
@@ -111,6 +117,7 @@ pub struct ReleaseFunds<'info> {
 #[account]
 pub struct EscrowState {
     pub buyer: Pubkey,
+    pub seller: Pubkey,
     pub listing_id: String,
     pub amount: u64,
     pub is_released: bool,
@@ -120,4 +127,6 @@ pub struct EscrowState {
 pub enum EscrowError {
     #[msg("Escrow has already been released")]
     AlreadyReleased,
+    #[msg("Unauthorized: seller does not match escrow record")]
+    UnauthorizedSeller,
 }
