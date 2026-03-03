@@ -60,14 +60,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.aura.app.ui.theme.UltraViolet
-import com.aura.app.ui.theme.SolanaGreen
+import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.util.HapticEngine
 import com.aura.app.ui.util.shimmerBorder
+import androidx.compose.runtime.collectAsState
 import com.aura.app.ui.theme.DarkVoid
-import com.aura.app.ui.theme.SolanaGradientEnd
-import com.aura.app.ui.theme.SolanaGradientStart
-import com.aura.app.ui.theme.SuccessGreen
 import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -91,10 +88,9 @@ fun OnboardingScreen(
     val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
-    var connectedAddress by remember { mutableStateOf<String?>(null) }
+    val connectedAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     var currentStep by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
-    val walletConnectionState = remember { WalletConnectionState(context) }
 
     val scale by animateFloatAsState(
         targetValue = 1f,
@@ -144,7 +140,7 @@ fun OnboardingScreen(
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
-                        listOf(UltraViolet, Color.Transparent)
+                        listOf(Orange500, Color.Transparent)
                     )
                 )
         )
@@ -158,7 +154,7 @@ fun OnboardingScreen(
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
-                        listOf(SolanaGreen, Color.Transparent)
+                        listOf(Orange500, Color.Transparent)
                     )
                 )
         )
@@ -177,7 +173,7 @@ fun OnboardingScreen(
                 text = "Aura",
                 style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
+                color = Orange500,
             )
             Text(
                 text = "The Physical-to-Digital Marketplace",
@@ -206,7 +202,7 @@ fun OnboardingScreen(
                 ) {
                     Icon(
                         step.icon, contentDescription = null,
-                        tint = SolanaGreen,
+                        tint = Orange500,
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
@@ -236,7 +232,7 @@ fun OnboardingScreen(
                             .size(if (idx == currentStep) 10.dp else 6.dp)
                             .clip(CircleShape)
                             .background(
-                                if (idx == currentStep) SolanaGreen
+                                if (idx == currentStep) Orange500
                                 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                             ),
                     )
@@ -249,7 +245,7 @@ fun OnboardingScreen(
                 Icon(
                     imageVector = Icons.Default.CheckCircle,
                     contentDescription = "Connected",
-                    tint = SuccessGreen,
+                    tint = Orange500,
                     modifier = Modifier.size(48.dp),
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -257,7 +253,7 @@ fun OnboardingScreen(
                     text = "Wallet Connected!",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = SuccessGreen,
+                    color = Orange500,
                 )
                 val addr = connectedAddress!!
                 Text(
@@ -269,20 +265,31 @@ fun OnboardingScreen(
                 Button(
                     onClick = {
                         val view = (context as? android.app.Activity)?.window?.decorView
-                        if(view != null) HapticEngine.triggerThud(view)
-                        walletConnectionState.connectWallet()
+                        if (view != null) HapticEngine.triggerThud(view)
+                        isLoading = true
+                        errorMsg = null
+                        WalletConnectionState.connect(
+                            scope = scope,
+                            onSuccess = { isLoading = false },
+                            onError = { e -> isLoading = false; errorMsg = e.message },
+                        )
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .shimmerBorder(cornerRadius = 12.dp),
+                        .shimmerBorder(),
+                    enabled = !isLoading,
                     shape = RoundedCornerShape(12.dp),
                     colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                        containerColor = SolanaGreen,
+                        containerColor = Orange500,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                     ),
                 ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
                     Text(
-                        "Connect Wallet",
+                        if (isLoading) "Connecting..." else "Connect Wallet",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
@@ -304,7 +311,7 @@ fun OnboardingScreen(
                         "Solana",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = SolanaGradientEnd,
+                        color = Orange500,
                     )
                 }
 

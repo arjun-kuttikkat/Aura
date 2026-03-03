@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -70,19 +71,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.aura.app.data.AuraRepository
 import com.aura.app.model.MintedStatus
 import com.aura.app.ui.components.AppLogo
 import com.aura.app.ui.components.AuraHaptics
 import com.aura.app.ui.components.AuraScoreRing
 import com.aura.app.ui.components.GlassCard
+import com.aura.app.navigation.LocalBottomNavInset
 import com.aura.app.ui.components.MainTopBar
 import com.aura.app.ui.theme.AuraAnimations
 import com.aura.app.ui.theme.DarkBase
-import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
+import com.aura.app.ui.theme.SolanaPurple
 import com.aura.app.ui.theme.SuccessGreen
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.util.HapticEngine
@@ -104,6 +106,7 @@ fun HomeScreen(
     Scaffold(
         topBar = {},
         containerColor = DarkBase,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyVerticalGrid(
@@ -139,8 +142,8 @@ fun HomeScreen(
                 contentPadding = PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
-                    top = 72.dp,
-                    bottom = 0.dp,
+                    top = 72.dp + 7.dp,
+                    bottom = LocalBottomNavInset.current,
                 ),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -231,7 +234,7 @@ fun HomeScreen(
                     },
                     icon = { Icon(Icons.Filled.Star, "Directives", modifier = Modifier.size(18.dp)) },
                     text = { Text("Directives", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge) },
-                    containerColor = com.aura.app.ui.theme.UltraViolet,
+                    containerColor = SolanaPurple,
                     contentColor = Color.White,
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.heightIn(min = 44.dp),
@@ -303,20 +306,11 @@ private fun HeroBannerCard(
                         )
                     }
                 }
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(52.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.06f))
-                            .border(1.5.dp, Orange500.copy(alpha = 0.5f), CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Default.Star, contentDescription = null, tint = Gold500, modifier = Modifier.size(24.dp))
-                    }
+                    Icon(Icons.Default.Star, contentDescription = null, tint = Gold500, modifier = Modifier.size(18.dp))
                     Text(
                         "$listingsCount items",
                         style = MaterialTheme.typography.labelSmall,
@@ -347,100 +341,70 @@ private fun ListingCard(
             .fillMaxWidth()
             .aspectRatio(0.75f)
             .scale(scale)
+            .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick),
         glowColor = Orange500,
         cornerRadius = 16.dp,
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                if (imageUrl != null && imageUrl.isNotBlank()) {
-                    AsyncImage(
-                        model = if (imageUrl.startsWith("http") || imageUrl.startsWith("content://")) imageUrl else "file://${imageUrl.removePrefix("file://")}",
-                        contentDescription = title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                        error = {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.linearGradient(
-                                            colors = listOf(
-                                                Orange500.copy(alpha = 0.2f),
-                                                Gold500.copy(alpha = 0.15f),
-                                            ),
-                                        ),
-                                    ),
-                                contentAlignment = Alignment.Center,
-                            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (imageUrl != null && imageUrl.isNotBlank()) {
+                        SubcomposeAsyncImage(
+                            model = if (imageUrl.startsWith("http") || imageUrl.startsWith("content://")) imageUrl else "file://${imageUrl.removePrefix("file://")}",
+                            contentDescription = title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                            error = {
                                 Icon(
                                     Icons.Default.BrokenImage,
                                     contentDescription = null,
-                                    tint = Orange500.copy(alpha = 0.5f),
+                                    tint = Orange500.copy(alpha = 0.4f),
                                     modifier = Modifier.size(36.dp),
                                 )
-                            }
-                        },
-                        loading = {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.linearGradient(
-                                            colors = listOf(
-                                                Orange500.copy(alpha = 0.08f),
-                                                Gold500.copy(alpha = 0.05f),
-                                            ),
-                                        ),
-                                    ),
-                            )
-                        },
-                    )
-                } else {
+                            },
+                            loading = {},
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.Star,
+                            contentDescription = null,
+                            tint = Orange500.copy(alpha = 0.35f),
+                            modifier = Modifier.size(40.dp),
+                        )
+                    }
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .align(Alignment.TopEnd)
+                            .padding(12.dp)
+                            .clip(RoundedCornerShape(6.dp))
                             .background(
-                                Brush.linearGradient(
-                                    colors = listOf(
-                                        Orange500.copy(alpha = 0.2f),
-                                        Gold500.copy(alpha = 0.1f),
-                                    ),
-                                ),
-                            ),
-                        contentAlignment = Alignment.Center,
+                                when (status) {
+                                    MintedStatus.VERIFIED -> SuccessGreen
+                                    MintedStatus.MINTED -> Gold500
+                                    MintedStatus.PENDING -> Color.Gray.copy(alpha = 0.7f)
+                                    MintedStatus.SOLD -> Color(0xFF4CAF50)
+                                },
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                     ) {
-                        Icon(Icons.Default.Star, contentDescription = null, tint = Orange500.copy(alpha = 0.4f), modifier = Modifier.size(48.dp))
+                        Text(
+                            text = when (status) {
+                                MintedStatus.PENDING -> "Pending"
+                                MintedStatus.MINTED -> "Minted"
+                                MintedStatus.VERIFIED -> "✓ Verified"
+                                MintedStatus.SOLD -> "Sold"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                     }
                 }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            when (status) {
-                                MintedStatus.VERIFIED -> SuccessGreen
-                                MintedStatus.MINTED -> Gold500
-                                MintedStatus.PENDING -> Color.Gray.copy(alpha = 0.8f)
-                                MintedStatus.SOLD -> Color(0xFF4CAF50)
-                            },
-                        )
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                ) {
-                    Text(
-                        text = when (status) {
-                            MintedStatus.PENDING -> "Pending"
-                            MintedStatus.MINTED -> "Minted"
-                            MintedStatus.VERIFIED -> "✓ Verified"
-                            MintedStatus.SOLD -> "Sold"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

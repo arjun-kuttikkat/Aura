@@ -165,8 +165,10 @@ fun AuraCheckScreen(
                             try {
                                 // Real camera capture via ImageCapture API
                                 val photoBytes = captureImageBytes(imageCapture, context)
-                                // showSuccess = true // This variable is not defined in the current scope.
-                                
+                                if (photoBytes.isEmpty()) {
+                                    result = AuraCheckResult(0, "Camera capture failed. Please try again.", false, 0)
+                                    return@launch
+                                }
                                 // Real GPS from FusedLocationProvider
                                 var lat: Double? = null
                                 var lng: Double? = null
@@ -198,7 +200,9 @@ fun AuraCheckScreen(
                     Text("Capture Aura", fontSize = MaterialTheme.typography.titleMedium.fontSize)
                 }
             } else {
-                // Results Screen
+                // Results Screen - result is non-null here (else of result == null)
+                val checkResult = result
+                if (checkResult != null) {
                 AnimatedVisibility(
                     visible = true,
                     enter = fadeIn(animationSpec = tween(500)) + slideInVertically(initialOffsetY = { 100 })
@@ -222,13 +226,13 @@ fun AuraCheckScreen(
                                 tint = com.aura.app.ui.theme.Gold500
                             )
                             Text(
-                                text = "Aura Rating: ${result!!.rating}/100",
+                                text = "Aura Rating: ${checkResult.rating}/100",
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = com.aura.app.ui.theme.Orange500
                             )
                             Text(
-                                text = """ "${result!!.feedback}" """,
+                                text = """ "${checkResult.feedback}" """,
                                 style = MaterialTheme.typography.bodyLarge,
                                 textAlign = TextAlign.Center,
                                 fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
@@ -252,7 +256,7 @@ fun AuraCheckScreen(
                                 ) {
                                     Icon(Icons.Filled.Star, contentDescription = null, tint = Color.White)
                                     Text(
-                                        text = "+${result!!.creditsEarned} Aura Credits Earned",
+                                        text = "+${checkResult.creditsEarned} Aura Credits Earned",
                                         color = Color.White,
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold
@@ -260,7 +264,7 @@ fun AuraCheckScreen(
                                 }
                             }
 
-                            if (result!!.streakMaintained) {
+                            if (checkResult.streakMaintained) {
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
                                     text = "🔥 Streak Maintained! 🔥",
@@ -272,6 +276,7 @@ fun AuraCheckScreen(
                         }
                     }
                 }
+                } // end if checkResult != null
 
                 Spacer(modifier = Modifier.weight(1f))
 
@@ -326,7 +331,12 @@ private suspend fun captureImageBytes(
     imageCapture.takePicture(executor, object : ImageCapture.OnImageCapturedCallback() {
         override fun onCaptureSuccess(imageProxy: androidx.camera.core.ImageProxy) {
             try {
-                val buffer = imageProxy.planes[0].buffer
+                val planes = imageProxy.planes
+                if (planes.isNullOrEmpty()) {
+                    cont.resume(ByteArray(0)) {}
+                    return
+                }
+                val buffer = planes[0].buffer
                 val bytes = ByteArray(buffer.remaining())
                 buffer.get(bytes)
                 cont.resume(bytes) {}

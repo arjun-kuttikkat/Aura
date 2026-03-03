@@ -48,7 +48,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,15 +60,16 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.aura.app.data.AuraRepository
+import com.aura.app.navigation.LocalBottomNavInset
 import com.aura.app.model.Listing
 import com.aura.app.ui.components.GlassCard
 import com.aura.app.ui.theme.DarkBase
 import com.aura.app.model.MintedStatus
 import com.aura.app.model.TradeSession
 import com.aura.app.ui.theme.Orange500
-import com.aura.app.ui.theme.SolanaGreen
+import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.data.TradeRiskOracle
 import com.aura.app.wallet.WalletConnectionState
@@ -83,8 +86,8 @@ fun ListingDetailScreen(
     val walletAddress by WalletConnectionState.walletAddress.collectAsState()
     
     // Animation states
-    var isImageLoaded by remember { mutableStateOf(false) }
-    var contentVisible by remember { mutableStateOf(false) }
+    var isImageLoaded by remember { mutableStateOf<Boolean>(false) }
+    var contentVisible by remember { mutableStateOf<Boolean>(false) }
     val imageScale by animateFloatAsState(
         targetValue = if (isImageLoaded) 1.0f else 0.95f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy)
@@ -118,6 +121,7 @@ fun ListingDetailScreen(
             Text("Listing not found", modifier = Modifier.padding(padding))
             return@Scaffold
         }
+        val l = listing
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -139,7 +143,7 @@ fun ListingDetailScreen(
                     )
                     .border(0.5.dp, Orange500.copy(alpha = 0.2f), RoundedCornerShape(0.dp, 0.dp, 24.dp, 24.dp)),
             ) {
-                val imageUrl = listing.images.firstOrNull()
+                val imageUrl = l.images.firstOrNull()
                 if (imageUrl != null && imageUrl.isNotBlank()) {
                     val context = androidx.compose.ui.platform.LocalContext.current
                     val modelData = if (imageUrl.startsWith("/")) "file://$imageUrl" else imageUrl
@@ -148,7 +152,7 @@ fun ListingDetailScreen(
                             .data(modelData)
                             .crossfade(true)
                             .build(),
-                        contentDescription = listing.title,
+                        contentDescription = l.title,
                         modifier = Modifier.fillMaxWidth().scale(imageScale),
                         onSuccess = { isImageLoaded = true },
                         contentScale = ContentScale.Crop,
@@ -182,7 +186,8 @@ fun ListingDetailScreen(
                                             colors = listOf(Orange500.copy(alpha = 0.08f), Orange500.copy(alpha = 0.04f)),
                                         ),
                                     ),
-                            )
+                                contentAlignment = Alignment.Center,
+                            ) {}
                         },
                     )
                 } else {
@@ -204,7 +209,7 @@ fun ListingDetailScreen(
                         .align(Alignment.TopEnd)
                         .padding(20.dp)
                         .background(
-                            when (listing.mintedStatus) {
+                            when (l.mintedStatus) {
                                 MintedStatus.VERIFIED -> Orange500
                                 MintedStatus.MINTED -> Gold500
                                 MintedStatus.PENDING -> MaterialTheme.colorScheme.outline
@@ -219,7 +224,7 @@ fun ListingDetailScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        if (listing.mintedStatus == MintedStatus.VERIFIED || listing.mintedStatus == MintedStatus.SOLD) {
+                        if (l.mintedStatus == MintedStatus.VERIFIED || l.mintedStatus == MintedStatus.SOLD) {
                             Icon(
                                 Icons.Default.CheckCircle,
                                 contentDescription = null,
@@ -228,7 +233,7 @@ fun ListingDetailScreen(
                             )
                         }
                         Text(
-                            text = when (listing.mintedStatus) {
+                            text = when (l.mintedStatus) {
                                 MintedStatus.PENDING -> "Pending"
                                 MintedStatus.MINTED -> "Minted"
                                 MintedStatus.VERIFIED -> "Verified"
@@ -237,9 +242,6 @@ fun ListingDetailScreen(
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onPrimary,
                             fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
                         )
                     }
                 }
@@ -258,133 +260,135 @@ fun ListingDetailScreen(
                         .padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom,
-                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
                     Text(
-                        text = listing.title,
+                        text = l.title,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        text = "%.2f SOL ◎".format(listing.priceLamports / 1_000_000_000.0),
+                        text = "%.2f SOL ◎".format(l.priceLamports / 1_000_000_000.0),
                         style = MaterialTheme.typography.headlineMedium,
                         color = Orange500,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.pulseGlow()
                     )
-                }
-                GlassCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    glowColor = Orange500,
-                    cornerRadius = 16.dp,
-                ) {
-                    Column(modifier = Modifier.padding(20.dp)) {
-                        Text("Condition", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(listing.condition, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text("Seller", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(
-                            "${listing.sellerWallet.take(6)}...${listing.sellerWallet.takeLast(4)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
                     }
-                }
-
-                // ── AI Trade-Risk Oracle ──────────────────────────────
-                val sellerProfile = AuraRepository.currentProfile.collectAsState().value
-                val riskAssessment = remember(sellerProfile, listing) {
-                    TradeRiskOracle.evaluate(sellerProfile, listing)
-                }
-
-                val riskColor = when (riskAssessment.level) {
-                    TradeRiskOracle.RiskLevel.LOW -> SolanaGreen
-                    TradeRiskOracle.RiskLevel.MEDIUM -> Gold500
-                    TradeRiskOracle.RiskLevel.HIGH -> Orange500
-                    TradeRiskOracle.RiskLevel.CRITICAL -> Color.Red
-                }
-                val riskIcon = when (riskAssessment.level) {
-                    TradeRiskOracle.RiskLevel.LOW -> Icons.Default.CheckCircle
-                    else -> Icons.Filled.Warning
-                }
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = riskColor.copy(alpha = 0.08f)
-                    ),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Icon(
-                                riskIcon,
-                                contentDescription = null,
-                                tint = riskColor,
-                                modifier = Modifier.size(24.dp),
-                            )
+                    GlassCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        glowColor = Orange500,
+                    cornerRadius = 16.dp,
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text("Condition", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(l.condition, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text("Seller", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(
-                                "AI Risk: ${riskAssessment.level.name}",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = riskColor,
+                                "${l.sellerWallet.take(6)}...${l.sellerWallet.takeLast(4)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            riskAssessment.recommendation,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        if (riskAssessment.flags.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            riskAssessment.flags.forEach { flag ->
-                                Text(
-                                    "• $flag",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = riskColor.copy(alpha = 0.8f),
+                    }
+
+                    // ── AI Trade-Risk Oracle ──────────────────────────────
+                    val sellerProfile = AuraRepository.currentProfile.collectAsState().value
+                    val riskAssessment = remember(sellerProfile, l) {
+                        TradeRiskOracle.evaluate(sellerProfile, l)
+                    }
+
+                    val riskColor = when (riskAssessment.level) {
+                        TradeRiskOracle.RiskLevel.LOW -> Orange500
+                        TradeRiskOracle.RiskLevel.MEDIUM -> Gold500
+                        TradeRiskOracle.RiskLevel.HIGH -> Orange500
+                        TradeRiskOracle.RiskLevel.CRITICAL -> Color.Red
+                    }
+                    val riskIcon = when (riskAssessment.level) {
+                        TradeRiskOracle.RiskLevel.LOW -> Icons.Default.CheckCircle
+                        else -> Icons.Filled.Warning
+                    }
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = riskColor.copy(alpha = 0.08f)
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    riskIcon,
+                                    contentDescription = null,
+                                    tint = riskColor,
+                                    modifier = Modifier.size(24.dp),
                                 )
+                                Text(
+                                    "AI Risk: ${riskAssessment.level.name}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = riskColor,
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                riskAssessment.recommendation,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (riskAssessment.flags.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                riskAssessment.flags.forEach { flag ->
+                                    Text(
+                                        "• $flag",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = riskColor.copy(alpha = 0.8f),
+                                    )
+                                }
                             }
                         }
                     }
-                }
 
-                Button(
-                    onClick = {
-                        walletAddress?.let { wallet ->
-                            AuraRepository.createTradeSession(
-                                listingId = listing.id,
-                                buyerWallet = wallet,
-                                sellerWallet = listing.sellerWallet,
-                            )
-                            onStartMeetup()
-                        }
-                    },
-                    enabled = walletAddress != null && listing.mintedStatus != MintedStatus.SOLD,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(58.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Orange500,
-                        contentColor = Color.Black,
-                    ),
-                ) {
-                    Text(
-                        when {
-                            listing.mintedStatus == MintedStatus.SOLD -> "Sold"
-                            walletAddress != null -> "Start Meetup / Buy"
-                            else -> "Connect Wallet First"
+                    Button(
+                        onClick = {
+                            walletAddress?.let { wallet ->
+                                AuraRepository.createTradeSession(
+                                    listingId = l.id,
+                                    buyerWallet = wallet,
+                                    sellerWallet = l.sellerWallet,
+                                )
+                                onStartMeetup()
+                            }
                         },
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleMedium,
-                    )
+                        enabled = walletAddress != null && l.mintedStatus != MintedStatus.SOLD,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Orange500,
+                            contentColor = Color.Black,
+                        ),
+                    ) {
+                        Text(
+                            when {
+                                l.mintedStatus == MintedStatus.SOLD -> "Sold"
+                                walletAddress != null -> "Start Meetup / Buy"
+                                else -> "Connect Wallet First"
+                            },
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(LocalBottomNavInset.current))
                 }
             }
         }

@@ -23,8 +23,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
-import com.aura.app.ui.theme.SolanaGreen
-import com.aura.app.ui.theme.UltraViolet
+import com.aura.app.ui.theme.Orange700
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -108,8 +107,8 @@ fun AuraCoreRenderer(
     )
 
     val primaryColor = hotzoneColor ?: Orange500
-    val secondaryColor = if (streakDays >= 90) SolanaGreen else Gold500
-    val tertiaryColor = UltraViolet
+    val secondaryColor = Gold500
+    val tertiaryColor = Orange700
 
     Canvas(modifier = modifier.size(size)) {
         val center = Offset(this.size.width / 2f, this.size.height / 2f)
@@ -132,7 +131,7 @@ fun AuraCoreRenderer(
                 // Outer chromatic ring
                 drawCircle(
                     brush = Brush.sweepGradient(
-                        listOf(SolanaGreen, UltraViolet, Gold500, primaryColor, SolanaGreen),
+                        listOf(Orange500, Gold500, Orange700, primaryColor, Orange500),
                         center = center,
                     ),
                     radius = maxR * 0.95f * pulse,
@@ -156,7 +155,7 @@ fun AuraCoreRenderer(
                 }
 
                 // Particle orbits — 8 particles
-                drawParticleOrbit(center, maxR * 0.75f, particleAngle, 8, SolanaGreen, 4.dp.toPx())
+                drawParticleOrbit(center, maxR * 0.75f, particleAngle, 8, Orange500, 4.dp.toPx())
                 drawParticleOrbit(center, maxR * 0.55f, -particleAngle * 1.3f, 5, Gold500.copy(alpha = 0.7f), 3.dp.toPx())
 
                 // Central core glow

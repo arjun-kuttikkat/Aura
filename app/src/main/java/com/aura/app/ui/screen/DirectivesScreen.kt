@@ -70,8 +70,6 @@ import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.GlassBorder
 import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.Orange500
-import com.aura.app.ui.theme.SolanaGreen
-import com.aura.app.ui.theme.UltraViolet
 import com.aura.app.ui.util.HapticEngine
 import com.aura.app.ui.util.springScale
 import kotlinx.coroutines.delay
@@ -189,7 +187,7 @@ fun DirectivesScreen(onBack: () -> Unit) {
                             "+${directives.filter { it.isCompleted }.sumOf { it.rewardAura }}",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = SolanaGreen,
+                            color = Orange500,
                         )
                         Text(
                             "Aura Earned",
@@ -262,7 +260,7 @@ fun DirectivesScreen(onBack: () -> Unit) {
                         Icon(
                             Icons.Default.CameraAlt,
                             contentDescription = null,
-                            tint = SolanaGreen,
+                            tint = Orange500,
                             modifier = Modifier.size(80.dp),
                         )
                         Text(
@@ -279,7 +277,7 @@ fun DirectivesScreen(onBack: () -> Unit) {
                             CircularProgressIndicator(
                                 progress = { (5 - cameraCountdown) / 5f },
                                 modifier = Modifier.size(100.dp),
-                                color = SolanaGreen,
+                                color = Orange500,
                                 strokeWidth = 6.dp,
                             )
                             Text(
@@ -313,7 +311,7 @@ fun DirectivesScreen(onBack: () -> Unit) {
                         Icon(
                             Icons.Default.Nfc,
                             contentDescription = null,
-                            tint = UltraViolet,
+                            tint = Orange500,
                             modifier = Modifier.size(80.dp),
                         )
                         Text(
@@ -328,7 +326,7 @@ fun DirectivesScreen(onBack: () -> Unit) {
                                 .fillMaxWidth(0.6f)
                                 .height(8.dp)
                                 .clip(RoundedCornerShape(4.dp)),
-                            color = UltraViolet,
+                            color = Orange500,
                         )
                         Text(
                             "Scanning for nearby trade signal...",
@@ -354,14 +352,14 @@ private fun DirectiveCard(
     }
 
     val gradient = when (directive.type) {
-        DirectiveType.SPATIAL_SWEEP -> listOf(UltraViolet.copy(alpha = 0.12f), Orange500.copy(alpha = 0.06f))
-        DirectiveType.GUARDIAN_WITNESS -> listOf(SolanaGreen.copy(alpha = 0.12f), Gold500.copy(alpha = 0.06f))
-        DirectiveType.TEXTURE_ARCHIVE -> listOf(Gold500.copy(alpha = 0.12f), UltraViolet.copy(alpha = 0.06f))
+        DirectiveType.SPATIAL_SWEEP -> listOf(Orange500.copy(alpha = 0.12f), Gold500.copy(alpha = 0.06f))
+        DirectiveType.GUARDIAN_WITNESS -> listOf(Orange500.copy(alpha = 0.12f), Gold500.copy(alpha = 0.06f))
+        DirectiveType.TEXTURE_ARCHIVE -> listOf(Gold500.copy(alpha = 0.12f), Orange500.copy(alpha = 0.06f))
     }
 
     val accentColor = when (directive.type) {
-        DirectiveType.SPATIAL_SWEEP -> UltraViolet
-        DirectiveType.GUARDIAN_WITNESS -> SolanaGreen
+        DirectiveType.SPATIAL_SWEEP -> Orange500
+        DirectiveType.GUARDIAN_WITNESS -> Gold500
         DirectiveType.TEXTURE_ARCHIVE -> Gold500
     }
 
@@ -385,7 +383,7 @@ private fun DirectiveCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = if (directive.isCompleted)
-                SolanaGreen.copy(alpha = 0.08f)
+                Orange500.copy(alpha = 0.08f)
             else
                 MaterialTheme.colorScheme.surfaceVariant,
         ),
@@ -483,13 +481,13 @@ private fun DirectiveCard(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = SolanaGreen, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Orange500, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         "Completed ✓",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = SolanaGreen,
+                        color = Orange500,
                     )
                 }
             } else {

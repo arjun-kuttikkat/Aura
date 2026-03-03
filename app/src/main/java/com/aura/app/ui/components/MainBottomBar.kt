@@ -51,8 +51,7 @@ import com.aura.app.navigation.Routes
 import com.aura.app.ui.theme.GlassBorder
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
-import com.aura.app.ui.theme.SolanaGreen
-import com.aura.app.ui.theme.DarkVoid
+import com.aura.app.ui.theme.DarkBase
 
 data class BottomNavItem(
     val route: String,
@@ -89,7 +88,7 @@ fun MainBottomBar(
         ),
         label = "breathe",
     )
-    Box(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).padding(bottom = 16.dp)) {
+    Box(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).padding(bottom = 4.dp)) {
         // Frosted glass bar
         Box(
             modifier = Modifier
@@ -161,7 +160,7 @@ fun MainBottomBar(
                 imageVector = centerItem.icon,
                 contentDescription = centerItem.label,
                 modifier = Modifier.size(28.dp),
-                tint = DarkVoid,
+                tint = DarkBase,
             )
         }
     }
@@ -205,7 +204,7 @@ private fun RowScope.BottomNavBarItem(
                 modifier = Modifier
                     .size(4.dp)
                     .clip(CircleShape)
-                    .background(SolanaGreen),
+                    .background(Orange500),
             )
         } else {
             Spacer(modifier = Modifier.height(4.dp))

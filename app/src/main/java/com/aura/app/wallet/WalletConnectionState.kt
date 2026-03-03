@@ -121,11 +121,15 @@ object WalletConnectionState {
                     ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
                 }
 
-                val pubKeyBytes = authResult.accounts[0].publicKey
+                val accounts = authResult.accounts
+                if (accounts.isEmpty()) {
+                    throw Exception("Wallet returned no accounts. Please try again.")
+                }
+                val pubKeyBytes = accounts[0].publicKey
                 val address = Base58.encodeToString(pubKeyBytes)
                 val newToken = authResult.authToken
 
-                Pair(address, newToken)
+                Pair(address, newToken ?: "")
             } finally {
                 scenario.close()
                     .get(ASSOCIATION_TIMEOUT_MS, TimeUnit.MILLISECONDS)
@@ -208,7 +212,11 @@ object WalletConnectionState {
                 
                 // For Kotlin MWA bindings, result may be wrapped in Execution or deferred
                 val resolvedResult = result.get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                val signatureBytes = resolvedResult.signatures[0]
+                val signatures = resolvedResult.signatures
+                if (signatures.isNullOrEmpty()) {
+                    throw Exception("Wallet returned no transaction signature.")
+                }
+                val signatureBytes = signatures[0]
                 return Base58.encodeToString(signatureBytes)
             } finally {
                 scenario.close()
