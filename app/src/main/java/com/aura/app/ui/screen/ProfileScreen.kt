@@ -70,6 +70,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.sp
+import com.aura.app.ui.theme.UltraViolet
 import com.aura.app.data.AuraRepository
 import com.aura.app.model.TrustTier
 import com.aura.app.ui.components.MainTopBar
@@ -80,7 +83,9 @@ import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SuccessGreen
 import com.aura.app.ui.util.springScale
 import com.aura.app.wallet.WalletConnectionState
-
+import com.aura.app.data.AvatarPreferences
+import com.aura.app.ui.avatar.AvatarCanvas
+import com.aura.app.navigation.Routes
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
@@ -139,7 +144,8 @@ fun ProfileScreen(
     // Profile customization state
     val displayName by com.aura.app.data.AuraPreferences.displayName.collectAsState()
     val userBio by com.aura.app.data.AuraPreferences.bio.collectAsState()
-    val avatarColorIndex by com.aura.app.data.AuraPreferences.avatarColorIndex.collectAsState()
+    val avatarConfig by AvatarPreferences.avatarConfigFlow(LocalContext.current).collectAsState(initial = com.aura.app.model.AvatarConfig())
+    val creditsBalance by AvatarPreferences.creditsFlow(LocalContext.current).collectAsState(initial = 0)
     var showNameDialog by remember { mutableStateOf(false) }
     var showBioDialog by remember { mutableStateOf(false) }
     var editingText by remember { mutableStateOf("") }
@@ -164,43 +170,47 @@ fun ProfileScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // ── Dynamic Aura Core ──
-            val isDegraded = remember(profile?.lastScanAt) {
-                profile?.lastScanAt?.let { lastScan ->
-                    try {
-                        val last = java.time.OffsetDateTime.parse(lastScan)
-                        val hours = java.time.temporal.ChronoUnit.HOURS.between(last, java.time.OffsetDateTime.now())
-                        hours > 48
-                    } catch (_: Exception) { false }
-                } ?: false
-            }
-
-            Box(contentAlignment = Alignment.Center) {
-                com.aura.app.ui.components.AuraCoreRenderer(
-                    streakDays = streakRaw,
-                    auraScore = trustScoreRaw,
-                    isDegraded = isDegraded,
-                    size = 160.dp,
-                )
-                Text(
-                    pubkey?.take(2)?.uppercase() ?: "?",
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White.copy(alpha = 0.9f),
+            // ── Snapcode-style Avatar Frame ──
+            Box(
+                modifier = Modifier
+                    .padding(top = 20.dp, bottom = 10.dp)
+                    .size(220.dp)
+                    .clip(RoundedCornerShape(48.dp))
+                    .background(Brush.linearGradient(
+                        listOf(Color(0xFFFFFC00), Color(0xFFFFD500)) // Snapchat Yellow
+                    ))
+                    .border(6.dp, Color.White.copy(alpha = 0.9f), RoundedCornerShape(48.dp)),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                // Avatar sticking up from the bottom of the card
+                AvatarCanvas(
+                    config = avatarConfig,
+                    animate = true,
+                    modifier = Modifier
+                        .size(190.dp)
+                        .padding(bottom = 10.dp)
                 )
             }
 
             // ── Display Name (tap to edit) ──
             Text(
                 text = displayName.ifBlank { "Tap to set name" },
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Black,
                 color = if (displayName.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.onSurface,
+                else Color.White,
                 modifier = Modifier.clickable {
                     editingText = displayName
                     showNameDialog = true
                 },
+            )
+
+            // Wallet address (username style)
+            Text(
+                pubkey?.let { "@${it.take(5)}...${it.takeLast(4)}".lowercase() } ?: "Not connected",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
             )
 
             // ── Bio (tap to edit) ──
@@ -208,41 +218,36 @@ fun ProfileScreen(
                 text = userBio.ifBlank { "Tap to add bio" },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.clickable {
-                    editingText = userBio
-                    showBioDialog = true
-                },
+                modifier = Modifier
+                    .padding(bottom = 8.dp)
+                    .clickable {
+                        editingText = userBio
+                        showBioDialog = true
+                    },
             )
 
-            // Wallet address
-            Text(
-                pubkey?.let { "${it.take(6)}...${it.takeLast(4)}" } ?: "Not connected",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            )
-
-            // ── Avatar Color Picker ──
+            // ── Edit Profile & Shop Buttons ──
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("Aura Tint: ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                avatarPalette.forEachIndexed { index, color ->
-                    val isSelected = index == avatarColorIndex
-                    Box(
-                        modifier = Modifier
-                            .size(if (isSelected) 36.dp else 28.dp)
-                            .padding(2.dp)
-                            .clip(CircleShape)
-                            .background(color)
-                            .then(
-                                if (isSelected) Modifier.border(2.dp, Color.White, CircleShape)
-                                else Modifier
-                            )
-                            .clickable { com.aura.app.data.AuraPreferences.setAvatarColorIndex(index) },
-                    )
-                    if (index < avatarPalette.size - 1) Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = { showNameDialog = true },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Text("Edit Profile", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                Button(
+                    onClick = { onNavigate(Routes.AVATAR_STORE) },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = UltraViolet)
+                ) {
+                    Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Shop", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
 

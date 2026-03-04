@@ -62,6 +62,7 @@ data class ListingRow(
     @SerialName("sold_at") val soldAt: String? = null,
     @SerialName("buyer_wallet") val buyerWallet: String? = null,
     @SerialName("seller_aura_score") val sellerAuraScore: Int = 50,
+    val emirate: String? = null,
 )
 
 @Serializable
@@ -268,17 +269,34 @@ object AuraRepository {
 
     fun refreshListings() {
         scope.launch {
+            // 1. Instantly load from cache if context is available
+            appContext?.let { ctx ->
+                val cached = ListingCache.load(ctx)
+                if (cached.isNotEmpty()) {
+                    _listings.value = cached
+                }
+            }
+
+            // 2. Fetch fresh from network
             try {
                 val rows = db.from("listings").select().decodeList<ListingRow>()
-                _listings.value = rows.map { it.toDomain() }
+                val domainListings = rows.map { it.toDomain() }
+                _listings.value = domainListings
                 Log.d(TAG, "Loaded ${rows.size} listings from Supabase")
+                // Cache to disk for offline use
+                appContext?.let { ctx ->
+                    ListingCache.save(ctx, domainListings)
+                }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to load listings", e)
+                Log.e(TAG, "Failed to load listings from network", e)
             }
         }
     }
 
     fun getListing(id: String): Listing? = _listings.value.find { it.id == id }
+
+    // ── Context for offline cache (set from Application or MainActivity) ──
+    var appContext: android.content.Context? = null
 
     suspend fun createListing(
         sellerWallet: String,
@@ -287,7 +305,8 @@ object AuraRepository {
         priceLamports: Long,
         imageRefs: List<String>,
         condition: String,
-        textureHash: String? = null
+        textureHash: String? = null,
+        emirate: String? = null
     ): Listing {
         val listingId = UUID.randomUUID().toString()
         val fingerprint = textureHash ?: "fp_${listingId.take(8)}"
@@ -347,6 +366,7 @@ object AuraRepository {
             condition = condition,
             mintedStatus = "PENDING",
             fingerprintHash = fingerprint,
+            emirate = emirate,
         )
         // Step 2: Establish the synchronized row in PostgreSQL
         try {
@@ -571,5 +591,6 @@ object AuraRepository {
         soldAt = soldAt?.let { try { java.time.OffsetDateTime.parse(it).toEpochSecond() * 1000 } catch (_: Exception) { null } },
         buyerWallet = buyerWallet,
         sellerAuraScore = sellerAuraScore,
+        emirate = emirate,
     )
 }

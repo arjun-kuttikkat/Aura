@@ -34,6 +34,7 @@ import com.aura.app.ui.screen.SettingsScreen
 import com.aura.app.ui.screen.TradeCompleteScreen
 import com.aura.app.ui.screen.VerifyItemScreen
 import com.aura.app.wallet.WalletConnectionState
+import com.aura.app.ui.screen.EmiratePickerScreen
 
 private val MAIN_TAB_ROUTES = setOf(
     Routes.HOME,
@@ -66,7 +67,16 @@ fun NavGraph(
             ) {
             composable(Routes.ONBOARDING) {
                 OnboardingScreen(
-                    onWalletConnected = { navController.navigate(Routes.HOME) { popUpTo(0) { inclusive = true } } },
+                    onWalletConnected = {
+                        navController.navigate(Routes.EMIRATE_PICKER) { popUpTo(0) { inclusive = true } }
+                    },
+                )
+            }
+            composable(Routes.EMIRATE_PICKER) {
+                EmiratePickerScreen(
+                    onEmirateSelected = { emirate ->
+                        navController.navigate(Routes.HOME) { popUpTo(0) { inclusive = true } }
+                    }
                 )
             }
             composable(Routes.HOME) {
@@ -79,7 +89,9 @@ fun NavGraph(
                 com.aura.app.ui.screen.FavoritesScreen()
             }
             composable(Routes.CHATS) {
-                com.aura.app.ui.screen.ChatsScreen()
+                com.aura.app.ui.screen.ChatsScreen(
+                    onNavigateToChat = { listingId -> navController.navigate(Routes.chatDetail(listingId)) }
+                )
             }
             composable(Routes.REWARDS) {
                 RewardsScreen()
@@ -220,6 +232,18 @@ fun NavGraph(
         }
         composable(Routes.DIRECTIVES) {
             com.aura.app.ui.screen.DirectivesScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.AVATAR_CREATOR) {
+            com.aura.app.ui.screen.AvatarCreatorScreen(
+                onDone = {
+                    navController.navigate(Routes.HOME) { popUpTo(0) { inclusive = true } }
+                }
+            )
+        }
+        composable(Routes.AVATAR_STORE) {
+            com.aura.app.ui.screen.AvatarStoreScreen(
                 onBack = { navController.popBackStack() }
             )
         }

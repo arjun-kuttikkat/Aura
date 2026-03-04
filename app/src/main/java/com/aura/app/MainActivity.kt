@@ -10,6 +10,9 @@ import com.aura.app.navigation.NavGraph
 import com.aura.app.ui.theme.AuraTheme
 import com.aura.app.util.NfcHandoverManager
 import com.aura.app.wallet.WalletConnectionState
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import com.aura.app.data.OfficialListingSeeder
 
 class MainActivity : ComponentActivity() {
 
@@ -23,6 +26,13 @@ class MainActivity : ComponentActivity() {
         NfcHandoverManager.init(this)
         com.aura.app.data.HotzoneManager.init(applicationContext)
         com.aura.app.data.DirectivesManager.generateDailyDirectives()
+        
+        lifecycleScope.launch {
+            // Force re-seed by clearing the flag
+            com.aura.app.data.OfficialListingSeeder.clearSeededFlag(applicationContext)
+            OfficialListingSeeder.seedIfNeeded(applicationContext)
+        }
+        
         enableEdgeToEdge()
         setContent {
             val isDark by com.aura.app.data.AuraPreferences.isDarkMode.collectAsState()

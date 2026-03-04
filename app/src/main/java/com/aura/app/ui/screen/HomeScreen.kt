@@ -52,12 +52,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,6 +84,7 @@ import com.aura.app.ui.theme.SuccessGreen
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.util.springScale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedVisibility
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -92,6 +95,8 @@ fun HomeScreen(
 ) {
     val listings by AuraRepository.listings.collectAsState(initial = emptyList())
     val profile by AuraRepository.currentProfile.collectAsState()
+    val scope = rememberCoroutineScope()
+    var isRefreshing by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -102,7 +107,17 @@ fun HomeScreen(
             )
         },
     ) { padding ->
-
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                scope.launch {
+                    isRefreshing = true
+                    AuraRepository.refreshListings()
+                    isRefreshing = false
+                }
+            },
+            modifier = Modifier.fillMaxSize().padding(padding)
+        ) {
         // ── Filter State ──
         var searchQuery by remember { mutableStateOf("") }
         var selectedScope by remember { mutableStateOf("Global") }
@@ -152,9 +167,7 @@ fun HomeScreen(
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -362,7 +375,8 @@ fun HomeScreen(
                     }
                 }
             }
-        }
+        } // end LazyVerticalGrid
+        } // end PullToRefreshBox
     }
 }
 

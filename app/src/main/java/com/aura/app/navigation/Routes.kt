@@ -28,6 +28,10 @@ object Routes {
     const val P2P_EXCHANGE = "p2p_exchange"
     const val ZONE_REFINEMENT = "zone_refinement"
     const val DIRECTIVES = "directives"
+    // Phase 2: Avatar + Store
+    const val AVATAR_CREATOR = "avatar_creator"
+    const val AVATAR_STORE   = "avatar_store"
+    const val EMIRATE_PICKER = "emirate_picker"
 
     fun listingDetail(listingId: String) = "listing_detail/$listingId"
     fun chatDetail(listingId: String) = "chat_detail/$listingId"

@@ -47,6 +47,15 @@ object GroqAIService {
         val content: String
     )
 
+    data class AIMission(
+        val title: String,
+        val description: String,
+        val steps: List<String>,
+        val locationHint: String,
+        val auraReward: Int,
+        val emoji: String
+    )
+
     /**
      * Analyzes a product image to determine if it's a valid physical item
      * suitable for the Aura marketplace, and generates tags/labels.
@@ -156,33 +165,36 @@ Respond in JSON only with this exact format:
     }
 
     /**
-     * Chat with the Directive AI assistant for personalized mission generation.
-     *
-     * @param conversationHistory List of previous messages in the conversation
-     * @param userMessage The latest user message
-     * @return The AI's response message
+     * Chat with the Directive AI assistant. After 1-2 exchanges, generates a personalized mission.
+     * When a mission is ready to be proposed, the response MUST end with the marker: [MISSION_READY]
      */
     suspend fun chatWithDirectiveAI(
         conversationHistory: List<ChatMessage>,
         userMessage: String
     ): String = withContext(Dispatchers.IO) {
         try {
-            val systemPrompt = """You are Aura's personal wellness and productivity guide. 
-Your role is to help users earn Aura points through real-world actions that benefit their mental and physical wellbeing.
+            val systemPrompt = """You are Aura's personal wellness guide — warm, encouraging, and human.
+Your goal: understand how the user is feeling, then suggest a real-world mission they can do TODAY.
 
-When a user tells you how they are feeling or what they're up to today:
-1. Acknowledge their situation with empathy (1-2 sentences)
-2. Gently suggest 1-2 personalized missions they can do RIGHT NOW to improve their Aura score
-3. Make missions specific, actionable, and location-based when possible
+Conversation flow:
+- First message: greet them warmly and ask how they're doing
+- If they share their mood/situation: empathize briefly (1 sentence), then propose ONE specific mission
+- A mission should be a real-world physical action they can do nearby RIGHT NOW
 
-Mission examples (adapt to user's context):
-- "Go for a 15-minute walk outside and take a photo of something beautiful you find"
-- "Visit a nearby cafe or park and take a photo of your environment"
-- "Clean up one area of your home and photograph it before and after"
-- "Do 10 minutes of stretching and capture a moment of calm"
+Good mission examples:
+- "Head to the nearest park and take a photo of something that made you smile"
+- "Step outside for a 10-minute walk and capture your surroundings"
+- "Find a quiet spot, sit for 5 minutes, and take a peaceful photo"
+- "Visit the nearest cafe and capture your drink or the vibe"
+- "Do a clean-up of one small area and photo the before or after"
 
-Always end by asking if they'd like to accept a mission. Keep responses short, warm, and encouraging.
-Format missions as: 🎯 **Mission:** [description] (+[X] Aura points)"""
+When proposing a mission, ALWAYS:
+1. Write 1-2 empathetic sentences
+2. Then write: "Here's your mission for today:"
+3. Write the mission description clearly (one paragraph, human and warm)
+4. End your message with literally: [MISSION_READY]
+
+Keep responses SHORT and warm. Never be clinical or robotic."""
 
             val messages = buildJsonArray {
                 add(buildJsonObject {
@@ -203,8 +215,8 @@ Format missions as: 🎯 **Mission:** [description] (+[X] Aura points)"""
 
             val requestBody = buildJsonObject {
                 put("model", MODEL)
-                put("temperature", 0.8)
-                put("max_tokens", 400)
+                put("temperature", 0.85)
+                put("max_tokens", 450)
                 put("messages", messages)
             }
 
@@ -218,38 +230,129 @@ Format missions as: 🎯 **Mission:** [description] (+[X] Aura points)"""
 
         } catch (e: Exception) {
             Log.e(TAG, "Chat with directive AI failed", e)
-            "I'm here to help you build your Aura! Tell me how you're feeling today and I'll suggest a mission for you. 🌟"
+            "Error: ${e.message ?: "Unknown API Error"} — Please try again."
         }
     }
 
     /**
+     * Generates a structured mission from conversation context.
+     * Called when the AI response contains [MISSION_READY] to create the Accept card.
+     */
+    suspend fun generateMission(
+        conversationHistory: List<ChatMessage>
+    ): AIMission = withContext(Dispatchers.IO) {
+        try {
+            val lastAiMessage = conversationHistory.lastOrNull { it.role == "assistant" }?.content ?: ""
+            val systemPrompt = """Based on this conversation and the mission the AI just proposed, generate a structured JSON mission.
+Respond ONLY in this exact JSON format:
+{
+  "title": "Short mission title (3-5 words)",
+  "description": "Full mission description, 1-2 sentences, warm and specific",
+  "steps": [
+    "Step 1: Go to [a nearby location]",
+    "Step 2: [Do the action]",
+    "Step 3: Take a photo as proof",
+    "Step 4: Submit your photo for Aura verification"
+  ],
+  "locationHint": "nearby park / local cafe / your street / etc.",
+  "auraReward": 25,
+  "emoji": "🌿"
+}
+Make steps specific to what the AI proposed. The location should be realistic and walkable."""
+
+            val requestBody = buildJsonObject {
+                put("model", MODEL)
+                put("temperature", 0.4)
+                put("max_tokens", 400)
+                putJsonArray("messages") {
+                    add(buildJsonObject {
+                        put("role", "system")
+                        put("content", systemPrompt)
+                    })
+                    add(buildJsonObject {
+                        put("role", "user")
+                        put("content", "The AI just proposed this mission:\n\n$lastAiMessage\n\nGenerate the structured JSON for it.")
+                    })
+                }
+            }
+
+            val responseText = makeApiCall(requestBody.toString())
+            val jsonElement = Json.parseToJsonElement(responseText)
+            val content = jsonElement.jsonObject["choices"]
+                ?.jsonArray?.get(0)
+                ?.jsonObject?.get("message")
+                ?.jsonObject?.get("content")
+                ?.jsonPrimitive?.content ?: return@withContext defaultMission()
+
+            val clean = content.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            val parsed = Json.parseToJsonElement(clean).jsonObject
+
+            AIMission(
+                title = parsed["title"]?.jsonPrimitive?.content ?: "Explore Nearby",
+                description = parsed["description"]?.jsonPrimitive?.content ?: "Go outside and take in the world.",
+                steps = parsed["steps"]?.jsonArray?.map { it.jsonPrimitive.content } ?: listOf("Go outside", "Take a photo", "Submit"),
+                locationHint = parsed["locationHint"]?.jsonPrimitive?.content ?: "nearby",
+                auraReward = parsed["auraReward"]?.jsonPrimitive?.content?.toIntOrNull() ?: 25,
+                emoji = parsed["emoji"]?.jsonPrimitive?.content ?: "🌿"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "generateMission failed", e)
+            defaultMission()
+        }
+    }
+
+    private fun defaultMission() = AIMission(
+        title = "Mindful Walk Outside",
+        description = "Step outside and take a short walk. Find something beautiful and capture it.",
+        steps = listOf(
+            "Step 1: Head to a nearby park or your street",
+            "Step 2: Walk for at least 5-10 minutes",
+            "Step 3: Find something that catches your eye",
+            "Step 4: Take a photo as your proof — then submit!"
+        ),
+        locationHint = "nearby park or street",
+        auraReward = 20,
+        emoji = "🚶"
+    )
+
+
+    /**
      * Verifies a mission completion photo using AI vision.
-     * 
+     *
      * @param missionDescription What the mission required
      * @param imageBytes The proof photo bytes
-     * @return A pair of (passed: Boolean, feedback: String)
+     * @return Triple of (passed: Boolean, feedback: String, score: Int 0-100)
      */
     suspend fun verifyMissionCompletion(
         missionDescription: String,
         imageBytes: ByteArray
-    ): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+    ): Triple<Boolean, String, Int> = withContext(Dispatchers.IO) {
         try {
             val base64Image = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
             val requestBody = buildJsonObject {
                 put("model", MODEL)
                 put("temperature", 0.2)
-                put("max_tokens", 200)
+                put("max_tokens", 300)
                 putJsonArray("messages") {
                     add(buildJsonObject {
                         put("role", "system")
-                        put("content", "You are verifying if a user completed an Aura mission. Be generous but honest. Respond ONLY in JSON: {\"passed\": true/false, \"feedback\": \"1-2 sentences\"}")
+                        put("content", """You are an Aura score judge verifying mission completion photos.
+Be honest but encouraging. A passed photo must clearly relate to the mission.
+Respond ONLY in JSON:
+{"passed": true/false, "feedback": "1-2 warm encouraging sentences", "score": 0-100}
+
+Scoring rubric:
+80-100: Photo clearly and creatively shows mission completion
+60-79: Photo shows mission completion but could be clearer
+40-59: Partially relevant, edge case
+0-39: Does not show mission completion (set passed=false)""")
                     })
                     add(buildJsonObject {
                         put("role", "user")
                         putJsonArray("content") {
                             add(buildJsonObject {
                                 put("type", "text")
-                                put("text", "Mission: $missionDescription\n\nDoes this photo show the mission was completed?")
+                                put("text", "Mission: $missionDescription\n\nDoes this photo prove the mission was completed? Give an Aura score.")
                             })
                             add(buildJsonObject {
                                 put("type", "image_url")
@@ -268,16 +371,17 @@ Format missions as: 🎯 **Mission:** [description] (+[X] Aura points)"""
                 ?.jsonArray?.get(0)
                 ?.jsonObject?.get("message")
                 ?.jsonObject?.get("content")
-                ?.jsonPrimitive?.content ?: return@withContext Pair(false, "Verification failed")
+                ?.jsonPrimitive?.content ?: return@withContext Triple(false, "Verification failed", 0)
 
             val cleanContent = content.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
             val parsed = Json.parseToJsonElement(cleanContent).jsonObject
-            val passed = parsed["passed"]?.jsonPrimitive?.content?.toBoolean() ?: false
+            val passed   = parsed["passed"]?.jsonPrimitive?.content?.toBoolean() ?: false
             val feedback = parsed["feedback"]?.jsonPrimitive?.content ?: "Verification complete."
-            Pair(passed, feedback)
+            val score    = parsed["score"]?.jsonPrimitive?.content?.toIntOrNull() ?: if (passed) 70 else 20
+            Triple(passed, feedback, score)
         } catch (e: Exception) {
             Log.e(TAG, "Mission verification failed", e)
-            Pair(false, "Could not verify at this time. Please try again.")
+            Triple(false, "Could not verify at this time. Please try again.", 0)
         }
     }
 
