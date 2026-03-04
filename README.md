@@ -178,7 +178,9 @@ cd Aura
 
 ## 👥 Team
 
-- **Arjun Kuttikkat** — Architecture, Solana Integration, Smart Contracts
+- **Arjun Kuttikkat** 
+- **Wasif Waseem**
+- **Huaicheng Su** 
 
 ---
 
