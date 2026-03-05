@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.aura.app.ui.theme.DarkVoid
 import com.aura.app.ui.theme.RadicalRed
 import com.aura.app.ui.theme.SlateElevated
+import com.aura.app.ui.theme.SlateLight
 import com.aura.app.ui.theme.SolanaGreen
 import com.aura.app.ui.theme.Typography
 import com.aura.app.ui.util.HapticEngine
@@ -115,7 +116,7 @@ fun AuraInputField(
             focusedContainerColor = SlateElevated,
             unfocusedContainerColor = SlateElevated,
             focusedBorderColor = SolanaGreen,
-            unfocusedBorderColor = Color(0xFF334155), // SlateLight
+            unfocusedBorderColor = SlateLight,
             errorBorderColor = RadicalRed
         ),
         textStyle = Typography.bodyLarge

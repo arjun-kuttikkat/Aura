@@ -66,6 +66,7 @@ import com.aura.app.data.AuraRepository
 import com.aura.app.data.SupabaseClient
 import com.aura.app.wallet.WalletConnectionState
 import io.github.jan.supabase.storage.storage
+import io.ktor.http.ContentType
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -176,16 +177,21 @@ fun PlaceAdLocationScreen(
                                     if (bytes != null) {
                                         val fileName = "listing_${System.currentTimeMillis()}.jpg"
                                         val bucket = SupabaseClient.client.storage["listing-images"]
-                                        bucket.upload(fileName, bytes)
+                                        bucket.upload(fileName, bytes) {
+                                            upsert = true
+                                            contentType = ContentType.Image.JPEG
+                                        }
                                         val publicUrl = bucket.publicUrl(fileName)
                                         
                                         AuraRepository.createListing(
                                             sellerWallet = wallet,
                                             title = "$category - AI Crafted ($emirate)",
+                                            description = "",
                                             priceLamports = 50_000_000_000L,
                                             imageRefs = listOf(publicUrl),
                                             condition = "Pristine",
-                                            textureHash = "ai_hash_${System.currentTimeMillis()}"
+                                            textureHash = "ai_hash_${System.currentTimeMillis()}",
+                                            emirate = emirate
                                         )
                                     }
                                 } catch (e: Exception) {

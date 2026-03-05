@@ -124,8 +124,8 @@ fun AvatarCanvas(
 private fun DrawScope.drawBody(cx: Float, bodyTop: Float, w: Float, h: Float,
                                 skin: Color, topStyle: Int, bottomStyle: Int, outfitColorIdx: Int) {
     val outfitColors = listOf(
-        Color(0xFF2D3436), Color(0xFF6C5CE7), Color(0xFFE17055),
-        Color(0xFF00B894), Color(0xFF0984E3), Color(0xFFFFFFFF),
+        Color(0xFF2D3436), Color(0xFFE65100), Color(0xFFE17055),
+        Color(0xFFFF9800), Color(0xFFFFD700), Color(0xFFFFFFFF),
         Color(0xFFFF7675), Color(0xFFD63031)
     )
     val outfitColor = outfitColors.getOrElse(outfitColorIdx) { outfitColors[0] }
@@ -149,10 +149,10 @@ private fun DrawScope.drawBody(cx: Float, bodyTop: Float, w: Float, h: Float,
 
     // Simple bottom (pants/skirt)
     val bottomColor = when (bottomStyle) {
-        0 -> Color(0xFF2C3E50)
-        1 -> Color(0xFF8E44AD)
+        0 -> Color(0xFF1A1A1A)
+        1 -> Color(0xFF2D2D2D)
         2 -> Color(0xFF27AE60)
-        else -> Color(0xFF34495E)
+        else -> Color(0xFF262626)
     }
     val bottomH = h * 0.22f
     val bottom = bodyTop + bodyH
@@ -349,8 +349,8 @@ private fun DrawScope.drawHairFront(cx: Float, headTop: Float, headR: Float, hai
 private fun DrawScope.drawHat(cx: Float, headTop: Float, headR: Float, hairColor: Color, hatStyle: Int) {
     when (hatStyle) {
         0 -> { // bucket hat
-            drawOval(Color(0xFF78909C), topLeft = Offset(cx - headR * 1.2f, headTop + headR * 0.1f), size = Size(headR * 2.4f, headR * 0.3f))
-            drawRoundRect(Color(0xFF607D8B), topLeft = Offset(cx - headR * 0.9f, headTop - headR * 0.5f), size = Size(headR * 1.8f, headR * 0.65f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(headR * 0.15f))
+            drawOval(Color(0xFF555555), topLeft = Offset(cx - headR * 1.2f, headTop + headR * 0.1f), size = Size(headR * 2.4f, headR * 0.3f))
+            drawRoundRect(Color(0xFF4A4A4A), topLeft = Offset(cx - headR * 0.9f, headTop - headR * 0.5f), size = Size(headR * 1.8f, headR * 0.65f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(headR * 0.15f))
         }
         1 -> { // snapback cap
             drawOval(Color(0xFF212121), topLeft = Offset(cx - headR * 1.15f, headTop + headR * 0.1f), size = Size(headR * 2.3f, headR * 0.28f))
@@ -361,13 +361,13 @@ private fun DrawScope.drawHat(cx: Float, headTop: Float, headR: Float, hairColor
             for (i in -2..2) {
                 val fx = cx + i * headR * 0.3f
                 val fy = headTop - headR * 0.1f
-                val petalColor = listOf(Color(0xFFF48FB1), Color(0xFFCE93D8), Color(0xFF80DEEA), Color(0xFFA5D6A7), Color(0xFFFFF176))[kotlin.math.abs(i + 2) % 5]
+                val petalColor = listOf(Color(0xFFF48FB1), Color(0xFFFF9800), Color(0xFFFFD700), Color(0xFFE65100), Color(0xFFFFF176))[kotlin.math.abs(i + 2) % 5]
                 drawCircle(petalColor, radius = headR * 0.14f, center = Offset(fx, fy))
             }
         }
         3 -> { // beanie
-            drawOval(Color(0xFF3D5AFE), topLeft = Offset(cx - headR * 1.02f, headTop - headR * 0.45f), size = Size(headR * 2.04f, headR * 1.0f))
-            drawOval(Color(0xFF536DFE), topLeft = Offset(cx - headR * 1.0f, headTop + headR * 0.35f), size = Size(headR * 2.0f, headR * 0.2f))
+            drawOval(Color(0xFFE65100), topLeft = Offset(cx - headR * 1.02f, headTop - headR * 0.45f), size = Size(headR * 2.04f, headR * 1.0f))
+            drawOval(Color(0xFFFF9800), topLeft = Offset(cx - headR * 1.0f, headTop + headR * 0.35f), size = Size(headR * 2.0f, headR * 0.2f))
             drawCircle(Color.White.copy(alpha = 0.9f), radius = headR * 0.14f, center = Offset(cx, headTop - headR * 0.38f))
         }
         4 -> { // halo
@@ -382,9 +382,9 @@ private fun DrawScope.drawGlasses(cx: Float, headTop: Float, headR: Float, glass
     val frameR = headR * 0.28f
     val frameColor = when (glassesStyle) {
         0 -> Color(0xFF795548)
-        1 -> Color(0xFF455A64)
+        1 -> Color(0xFF3D3D3D)
         2 -> Color(0xFFC62828)
-        3 -> Color(0xFF00E5FF)
+        3 -> Color(0xFFFF9800)
         else -> Color.Black
     }
     listOf(-eyeOffX, eyeOffX).forEach { offX ->

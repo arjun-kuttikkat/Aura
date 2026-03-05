@@ -30,7 +30,6 @@ object GroqAIService {
 
     private const val TAG = "GroqAIService"
     private const val BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
-    private const val MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
     data class ListingAnalysis(
         val isRelevant: Boolean,
@@ -94,7 +93,7 @@ Respond in JSON only with this exact format:
 }"""
 
             val requestBody = buildJsonObject {
-                put("model", MODEL)
+                put("model", BuildConfig.GROQ_MODEL)
                 put("temperature", 0.3)
                 put("max_tokens", 512)
                 putJsonArray("messages") {
@@ -214,7 +213,7 @@ Keep responses SHORT and warm. Never be clinical or robotic."""
             }
 
             val requestBody = buildJsonObject {
-                put("model", MODEL)
+                put("model", BuildConfig.GROQ_MODEL)
                 put("temperature", 0.85)
                 put("max_tokens", 450)
                 put("messages", messages)
@@ -261,7 +260,7 @@ Respond ONLY in this exact JSON format:
 Make steps specific to what the AI proposed. The location should be realistic and walkable."""
 
             val requestBody = buildJsonObject {
-                put("model", MODEL)
+                put("model", BuildConfig.GROQ_MODEL)
                 put("temperature", 0.4)
                 put("max_tokens", 400)
                 putJsonArray("messages") {
@@ -330,7 +329,7 @@ Make steps specific to what the AI proposed. The location should be realistic an
         try {
             val base64Image = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
             val requestBody = buildJsonObject {
-                put("model", MODEL)
+                put("model", BuildConfig.GROQ_MODEL)
                 put("temperature", 0.2)
                 put("max_tokens", 300)
                 putJsonArray("messages") {

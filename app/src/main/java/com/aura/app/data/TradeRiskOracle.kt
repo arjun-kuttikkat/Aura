@@ -99,7 +99,7 @@ object TradeRiskOracle {
         val priceSOL = listing.priceLamports / 1_000_000_000.0
         if (priceSOL > 5.0 && trades < 3) {
             riskScore += 25
-            flags.add("⚠️ High-value item (${String.format("%.2f", priceSOL)} SOL) from low-history seller")
+            flags.add("⚠️ High-value item (${com.aura.app.util.CryptoPriceFormatter.formatSolShort(priceSOL)} SOL) from low-history seller")
         }
         if (priceSOL > 10.0 && aura < 50) {
             riskScore += 15

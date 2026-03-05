@@ -1,14 +1,19 @@
 package com.aura.app.ui.screen
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -19,14 +24,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.BrokenImage
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -43,24 +48,27 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import com.aura.app.data.AuraRepository
-import com.aura.app.model.Listing
-import com.aura.app.model.MintedStatus
-import com.aura.app.model.TradeSession
-import com.aura.app.ui.theme.Orange500
-import com.aura.app.ui.theme.SolanaGreen
-import com.aura.app.ui.theme.Gold500
-import com.aura.app.data.TradeRiskOracle
-import com.aura.app.model.ProfileDto
-import com.aura.app.wallet.WalletConnectionState
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
+import com.aura.app.data.AuraRepository
+import com.aura.app.data.TradeRiskOracle
+import com.aura.app.model.Listing
+import com.aura.app.model.MintedStatus
+import com.aura.app.model.ProfileDto
+import com.aura.app.model.TradeSession
+import com.aura.app.ui.theme.DarkVoid
+import com.aura.app.ui.theme.GlassBorder
+import com.aura.app.ui.theme.GlassSurface
+import com.aura.app.ui.theme.Gold500
+import com.aura.app.ui.theme.Orange500
+import com.aura.app.ui.theme.SlateElevated
+import com.aura.app.ui.theme.SlateLight
+import com.aura.app.util.CryptoPriceFormatter
+import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,56 +86,62 @@ fun ListingDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(listing?.title ?: "Listing", fontWeight = FontWeight.SemiBold) },
+                title = { },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
                 ),
             )
         },
+        containerColor = DarkVoid,
     ) { padding ->
         if (listing == null) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                verticalArrangement = Arrangement.Center,
             ) {
-                Icon(Icons.Default.BrokenImage, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(
+                    Icons.Default.BrokenImage,
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("Listing not found", style = MaterialTheme.typography.titleMedium)
-                Text("It may have been removed.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(24.dp))
                 Button(onClick = onBack) { Text("Go Back") }
             }
             return@Scaffold
         }
+
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
+                .background(SlateElevated)
                 .padding(padding)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 120.dp),
         ) {
+            // ── Hero Image ─────────────────────────────────────────────────
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.surfaceVariant,
-                                MaterialTheme.colorScheme.surface,
-                            ),
-                        ),
-                    ),
+                    .clip(RoundedCornerShape(0.dp)),
             ) {
-                val imageUrl = listing.images.firstOrNull()
-                if (imageUrl != null && imageUrl.isNotBlank()) {
-                    val context = androidx.compose.ui.platform.LocalContext.current
+                val imageUrl = listing.images.firstOrNull()?.takeIf { it.isNotBlank() }
+                val context = androidx.compose.ui.platform.LocalContext.current
+                if (imageUrl != null) {
                     val modelData = if (imageUrl.startsWith("/")) "file://$imageUrl" else imageUrl
                     coil.compose.SubcomposeAsyncImage(
                         model = coil.request.ImageRequest.Builder(context)
@@ -135,239 +149,122 @@ fun ListingDetailScreen(
                             .crossfade(true)
                             .build(),
                         contentDescription = listing.title,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
                         error = {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(200.dp)
+                                    .fillMaxSize()
                                     .background(
                                         Brush.linearGradient(
-                                            colors = listOf(Orange500.copy(alpha = 0.2f), Orange500.copy(alpha = 0.1f)),
+                                            listOf(Orange500.copy(alpha = 0.15f), Gold500.copy(alpha = 0.08f)),
                                         ),
                                     ),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(
-                                    Icons.Default.BrokenImage,
-                                    contentDescription = null,
-                                    tint = Orange500.copy(alpha = 0.4f),
-                                    modifier = Modifier.size(48.dp),
-                                )
+                                Icon(Icons.Default.BrokenImage, null, modifier = Modifier.size(48.dp), tint = Orange500.copy(alpha = 0.5f))
                             }
                         },
                         loading = {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(200.dp)
-                                    .background(
-                                        Brush.linearGradient(
-                                            colors = listOf(Orange500.copy(alpha = 0.08f), Orange500.copy(alpha = 0.04f)),
-                                        ),
-                                    ),
+                                    .fillMaxSize()
+                                    .background(SlateElevated),
                             )
                         },
                     )
                 } else {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .fillMaxSize()
                             .background(
                                 Brush.linearGradient(
-                                    colors = listOf(Orange500.copy(alpha = 0.3f), Orange500.copy(alpha = 0.2f)),
+                                    listOf(Orange500.copy(alpha = 0.2f), Gold500.copy(alpha = 0.1f)),
                                 ),
                             ),
-                    )
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Default.BrokenImage, null, modifier = Modifier.size(48.dp), tint = Orange500.copy(alpha = 0.5f))
+                    }
                 }
+                // Status badge
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(16.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .background(
                             when (listing.mintedStatus) {
                                 MintedStatus.VERIFIED -> Orange500
-                                MintedStatus.MINTED -> MaterialTheme.colorScheme.primary
-                                MintedStatus.PENDING -> MaterialTheme.colorScheme.outline
-                                MintedStatus.SOLD -> Color(0xFF4CAF50)
+                                MintedStatus.MINTED -> Gold500
+                                MintedStatus.PENDING -> SlateLight.copy(alpha = 0.9f)
+                                MintedStatus.SOLD -> SlateLight.copy(alpha = 0.9f)
                             },
-                            RoundedCornerShape(12.dp),
                         )
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        if (listing.mintedStatus == MintedStatus.VERIFIED || listing.mintedStatus == MintedStatus.SOLD) {
-                            Icon(
-                                Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                                tint = Color.White,
-                            )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (listing.mintedStatus == MintedStatus.VERIFIED) {
+                            Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(14.dp), tint = Color.White)
                         }
                         Text(
-                            text = when (listing.mintedStatus) {
+                            when (listing.mintedStatus) {
                                 MintedStatus.PENDING -> "Pending"
                                 MintedStatus.MINTED -> "Minted"
                                 MintedStatus.VERIFIED -> "Verified"
                                 MintedStatus.SOLD -> "Sold"
                             },
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onPrimary,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }
             }
+
+            // ── Premium content card (overlaps image slightly) ──────────────
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                    .offset(0.dp, (-24).dp)
+                    .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                    .background(SlateElevated)
+                    .border(0.5.dp, GlassBorder, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom,
-                ) {
+                // Title + Price
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = listing.title,
+                        listing.title,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Text(
-                        text = "%.2f SOL".format(listing.priceLamports / 1_000_000_000.0),
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = SolanaGreen,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-
-                // Marketplace detail chips (Condition, Category, etc)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(listing.condition, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Description Block
-                if (listing.description.isNotBlank()) {
-                    Text("Description", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(listing.description, style = MaterialTheme.typography.bodyLarge)
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-
-                // Seller Block (FB Marketplace style)
-                Text("Seller Information", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    shape = RoundedCornerShape(12.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                ) {
                     Row(
-                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
+                        Text(
+                            CryptoPriceFormatter.formatLamports(listing.priceLamports),
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = Orange500,
+                            fontWeight = FontWeight.Bold,
+                        )
                         Box(
                             modifier = Modifier
-                                .size(48.dp)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f), CircleShape),
-                            contentAlignment = Alignment.Center
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(GlassSurface)
+                                .border(0.5.dp, GlassBorder, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
                         ) {
                             Text(
-                                text = listing.sellerWallet.take(2).uppercase(),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
+                                listing.condition,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Medium,
                             )
-                        }
-                        Column {
-                            Text(
-                                "User ${listing.sellerWallet.take(6)}...${listing.sellerWallet.takeLast(4)}",
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Bold
-                            )
-                            // Note: To display true seller join date, we would need to fetch the seller's profile
-                            // For now, removing the hardcoded 2024 string to prevent false information.
-                        }
-                    }
-                }
-
-                // ── AI Trade-Risk Oracle ──────────────────────────────
-                // Use the listing's cached seller data, NOT the current user's profile
-                val riskAssessment = remember(listing) {
-                    val sellerProxy = ProfileDto(
-                        walletAddress = listing.sellerWallet,
-                        auraScore = listing.sellerAuraScore,
-                    )
-                    TradeRiskOracle.evaluate(sellerProxy, listing)
-                }
-
-                val riskColor = when (riskAssessment.level) {
-                    TradeRiskOracle.RiskLevel.LOW -> SolanaGreen
-                    TradeRiskOracle.RiskLevel.MEDIUM -> Gold500
-                    TradeRiskOracle.RiskLevel.HIGH -> Orange500
-                    TradeRiskOracle.RiskLevel.CRITICAL -> Color.Red
-                }
-                val riskIcon = when (riskAssessment.level) {
-                    TradeRiskOracle.RiskLevel.LOW -> Icons.Default.CheckCircle
-                    else -> Icons.Filled.Warning
-                }
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = riskColor.copy(alpha = 0.08f)
-                    ),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Icon(
-                                riskIcon,
-                                contentDescription = null,
-                                tint = riskColor,
-                                modifier = Modifier.size(24.dp),
-                            )
-                            Text(
-                                "AI Risk: ${riskAssessment.level.name}",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = riskColor,
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            riskAssessment.recommendation,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        if (riskAssessment.flags.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            riskAssessment.flags.forEach { flag ->
-                                Text(
-                                    "• $flag",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = riskColor.copy(alpha = 0.8f),
-                                )
-                            }
                         }
                     }
                 }
@@ -378,54 +275,67 @@ fun ListingDetailScreen(
                 var showBuyConfirm by remember { mutableStateOf(false) }
                 val isSeller = walletAddress == listing.sellerWallet
 
+                // ── Action buttons (high up, prominent) ────────────────────
                 if (!isSeller) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Button(
-                            onClick = onChatClicked,
-                            enabled = walletAddress != null,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(56.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        ) {
-                            Text("Message Seller", fontWeight = FontWeight.SemiBold)
-                        }
-
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(
                             onClick = { showBuyConfirm = true },
                             enabled = walletAddress != null && listing.mintedStatus != MintedStatus.SOLD && !isStartingTrade,
                             modifier = Modifier
-                                .weight(1f)
+                                .fillMaxWidth()
                                 .height(56.dp),
                             shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.Transparent,
+                                disabledContainerColor = SlateLight.copy(alpha = 0.5f),
+                            ),
+                            contentPadding = PaddingValues(),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
                         ) {
-                            if (isStartingTrade) {
-                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
-                            } else {
-                                Text(
-                                    when {
-                                        listing.mintedStatus == MintedStatus.SOLD -> "Sold"
-                                        walletAddress != null -> "Start Meetup / Buy"
-                                        else -> "Connect Wallet First"
-                                    },
-                                    fontWeight = FontWeight.SemiBold
-                                )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(
+                                        Brush.linearGradient(listOf(Orange500, Gold500)),
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (isStartingTrade) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = DarkVoid)
+                                } else {
+                                    Text(
+                                        when {
+                                            listing.mintedStatus == MintedStatus.SOLD -> "Sold"
+                                            walletAddress != null -> "Buy Now"
+                                            else -> "Connect Wallet"
+                                        },
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = DarkVoid,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
                             }
+                        }
+                        OutlinedButton(
+                            onClick = onChatClicked,
+                            enabled = walletAddress != null,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Orange500),
+                            border = BorderStroke(1.dp, Orange500.copy(alpha = 0.6f)),
+                        ) {
+                            Text("Message Seller", fontWeight = FontWeight.SemiBold)
                         }
                     }
 
                     if (showBuyConfirm) {
                         AlertDialog(
                             onDismissRequest = { showBuyConfirm = false },
-                            title = { Text("Start Trade?") },
-                            text = { Text("You'll be guided to meet the seller and verify the item before any payment.") },
+                            title = { Text("Start trade", fontWeight = FontWeight.Bold) },
+                            text = { Text("Meet the seller and verify the item before payment.", style = MaterialTheme.typography.bodyMedium) },
                             confirmButton = {
                                 TextButton(onClick = {
                                     showBuyConfirm = false
@@ -440,34 +350,126 @@ fun ListingDetailScreen(
                                                 )
                                                 onStartMeetup()
                                             } catch (e: Exception) {
-                                                tradeError = e.message ?: "Failed to start trade"
+                                                tradeError = e.message ?: "Failed"
                                             } finally {
                                                 isStartingTrade = false
                                             }
                                         }
                                     }
-                                }) { Text("Start Meetup", color = SolanaGreen) }
+                                }) { Text("Start Meetup", color = Orange500, fontWeight = FontWeight.Bold) }
                             },
                             dismissButton = {
-                                TextButton(onClick = { showBuyConfirm = false }) { Text("Cancel") }
-                            }
+                                TextButton(onClick = { showBuyConfirm = false }) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            },
                         )
                     }
-
                     tradeError?.let {
-                        Spacer(modifier = Modifier.height(8.dp))
                         Text(it, color = Color.Red, style = MaterialTheme.typography.bodySmall)
                     }
                 } else {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.5f))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(GlassSurface)
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
+                        Text("Your listing", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                // ── Description (minimal) ───────────────────────────────────
+                if (listing.description.isNotBlank()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
-                            "This is your listing.",
-                            modifier = Modifier.padding(16.dp).align(Alignment.CenterHorizontally),
+                            "Details",
+                            style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            listing.description,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 1.4f,
+                        )
+                    }
+                }
+
+                // ── AI Risk Assessment (why risk is high) ───────────────────
+                val riskAssessment = remember(listing) {
+                    TradeRiskOracle.evaluate(
+                        ProfileDto(walletAddress = listing.sellerWallet, auraScore = listing.sellerAuraScore),
+                        listing,
+                    )
+                }
+                val riskColor = when (riskAssessment.level) {
+                    TradeRiskOracle.RiskLevel.LOW -> Orange500
+                    TradeRiskOracle.RiskLevel.MEDIUM -> Gold500
+                    TradeRiskOracle.RiskLevel.HIGH -> Orange500
+                    TradeRiskOracle.RiskLevel.CRITICAL -> Color.Red
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(riskColor.copy(alpha = 0.08f))
+                        .border(0.5.dp, riskColor.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                        .padding(16.dp),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(Icons.Default.Shield, null, modifier = Modifier.size(20.dp), tint = riskColor)
+                            Text(
+                                "AI Risk: ${riskAssessment.level.name}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = riskColor,
+                            )
+                        }
+                        Text(
+                            riskAssessment.recommendation,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = MaterialTheme.typography.bodySmall.lineHeight * 1.3f,
+                        )
+                        if (riskAssessment.flags.isNotEmpty()) {
+                            riskAssessment.flags.forEach { flag ->
+                                Text(
+                                    "• $flag",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = riskColor.copy(alpha = 0.9f),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ── Seller footer ────────────────────────────────────────────
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Seller ${listing.sellerWallet.take(6)}…${listing.sellerWallet.takeLast(4)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(Icons.Default.Shield, null, modifier = Modifier.size(14.dp), tint = riskColor)
+                        Text(
+                            riskAssessment.level.name,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = riskColor,
+                            fontWeight = FontWeight.Medium,
                         )
                     }
                 }

@@ -232,7 +232,7 @@ fun MeetSessionScreen(
                                 imageVector = Icons.Default.CheckCircle,
                                 contentDescription = "Confirmed",
                                 modifier = Modifier.size(96.dp),
-                                tint = Color(0xFF4CAF50)
+                                tint = com.aura.app.ui.theme.Orange500
                             )
                             Text(
                                 "Chip Verified ✓",

@@ -130,10 +130,10 @@ fun ProfileScreen(
     val nftStages = listOf("Seed 🌱", "Sprout 🌿", "Tree 🌳", "Aura ✨")
     val nftStageThresholds = listOf(0, 8, 31, 90)
     val nftStageColors = listOf(
-        Color(0xFF4CAF50), // Seed - green
-        Color(0xFF00BCD4), // Sprout - cyan
-        Color(0xFFFF9800), // Tree - orange
-        Color(0xFF9C27B0), // Aura - purple
+        Color(0xFF141414), // Seed
+        Color(0xFFE65100), // Sprout - orange700
+        Color(0xFFFF9800), // Tree - orange500
+        Color(0xFFFFD700), // Aura - gold
     )
     val nextThreshold = if (nftStageIndex < 3) nftStageThresholds[nftStageIndex + 1] else 90
     val currentThreshold = nftStageThresholds[nftStageIndex]
@@ -152,9 +152,9 @@ fun ProfileScreen(
 
     val avatarPalette = listOf(
         Color(0xFFFF6B35), // Ember
-        Color(0xFF9945FF), // Solana Purple
-        Color(0xFF14F195), // Solana Green
-        Color(0xFF00BCD4), // Cyan
+        Color(0xFFFF9800), // Orange
+        Color(0xFFFFD700), // Gold
+        Color(0xFFE65100), // Dark Orange
         Color(0xFFE91E63), // Rose
     )
 
@@ -177,7 +177,7 @@ fun ProfileScreen(
                     .size(220.dp)
                     .clip(RoundedCornerShape(48.dp))
                     .background(Brush.linearGradient(
-                        listOf(Color(0xFFFFFC00), Color(0xFFFFD500)) // Snapchat Yellow
+                        listOf(Orange500, Gold500)
                     ))
                     .border(6.dp, Color.White.copy(alpha = 0.9f), RoundedCornerShape(48.dp)),
                 contentAlignment = Alignment.BottomCenter

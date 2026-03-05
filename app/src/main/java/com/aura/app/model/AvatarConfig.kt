@@ -59,8 +59,8 @@ object AvatarCatalog {
         Color(0xFFE8D5A3), // light blonde
         Color(0xFFBE2C2C), // red
         Color(0xFF9C27B0), // purple
-        Color(0xFF1565C0), // blue
-        Color(0xFF00897B), // teal
+        Color(0xFF1A1A1A), // charcoal
+        Color(0xFF262626), // charcoal
         Color(0xFFE0E0E0), // silver/grey
     )
 
@@ -68,16 +68,16 @@ object AvatarCatalog {
         Color(0xFF3E2723), // dark brown
         Color(0xFF795548), // brown
         Color(0xFF388E3C), // green
-        Color(0xFF1565C0), // blue
-        Color(0xFF607D8B), // grey
+        Color(0xFF1A1A1A), // charcoal
+        Color(0xFF4A4A4A), // neutral grey
         Color(0xFF8D6E63), // hazel
     )
 
     val BACKGROUNDS = listOf(
-        Color(0xFF1A1A2E), // deep space
-        Color(0xFF16213E), // midnight
-        Color(0xFF0F3460), // ocean
-        Color(0xFF533483), // purple
+        Color(0xFF121212), // deep void
+        Color(0xFF0F0F0F), // midnight black
+        Color(0xFF0A0A0A), // pure black
+        Color(0xFF1F1F1F), // dark grey
         Color(0xFF1B4332), // forest
         Color(0xFF5C4033), // warm earth
         Color(0xFF2D3436), // dark grey

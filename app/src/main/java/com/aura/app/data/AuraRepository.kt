@@ -39,6 +39,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlin.math.pow
 import kotlinx.serialization.Serializable
@@ -58,11 +59,11 @@ data class ListingRow(
     val id: String = "",
     @SerialName("seller_wallet") val sellerWallet: String = "",
     val title: String = "",
-    val description: String = "",
+    @EncodeDefault val description: String = "",
     @SerialName("price_lamports") val priceLamports: Long = 0,
-    val images: List<String> = emptyList(),
-    val condition: String = "Good",
-    @SerialName("minted_status") val mintedStatus: String = "PENDING",
+    @EncodeDefault val images: List<String> = emptyList(),
+    @EncodeDefault val condition: String = "Good",
+    @EncodeDefault @SerialName("minted_status") val mintedStatus: String = "PENDING",
     @SerialName("mint_address") val mintAddress: String? = null,
     @SerialName("fingerprint_hash") val fingerprintHash: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
@@ -117,7 +118,9 @@ object AuraRepository {
             while (true) {
                 kotlinx.coroutines.delay(60_000)
                 try {
-                    val rows = db.from("listings").select().decodeList<ListingRow>()
+                    val rows = db.from("listings").select {
+                        limit(count = 1000)
+                    }.decodeList<ListingRow>()
                     _listings.value = rows.map { it.toDomain() }
                 } catch (e: Exception) {
                     Log.w(TAG, "Background refresh failed: ${e.message}")
@@ -278,41 +281,45 @@ object AuraRepository {
     // ── Listings ──────────────────────────────────────────────────────────────
 
     fun refreshListings() {
-        scope.launch {
-            // 1. Instantly load from cache if context is available
+        scope.launch { refreshListingsAwait() }
+    }
+
+    suspend fun refreshListingsAwait() {
+        // 1. Instantly load from cache if context is available
+        appContext?.let { ctx ->
+            val cached = ListingCache.load(ctx)
+            if (cached.isNotEmpty()) {
+                _listings.value = cached
+            }
+        }
+
+        // 2. Get user location once for Nearby / Explore distance stamps (best-effort)
+        var userLat: Double? = null
+        var userLng: Double? = null
+        try {
             appContext?.let { ctx ->
-                val cached = ListingCache.load(ctx)
-                if (cached.isNotEmpty()) {
-                    _listings.value = cached
-                }
+                @SuppressLint("MissingPermission")
+                val loc = LocationServices.getFusedLocationProviderClient(ctx)
+                    .lastLocation.await()
+                userLat = loc?.latitude
+                userLng = loc?.longitude
             }
+        } catch (_: Exception) {}
 
-            // 2. Get user location once for Nearby / Explore distance stamps (best-effort)
-            var userLat: Double? = null
-            var userLng: Double? = null
-            try {
-                appContext?.let { ctx ->
-                    @SuppressLint("MissingPermission")
-                    val loc = LocationServices.getFusedLocationProviderClient(ctx)
-                        .lastLocation.await()
-                    userLat = loc?.latitude
-                    userLng = loc?.longitude
-                }
-            } catch (_: Exception) {}
-
-            // 3. Fetch fresh from network
-            try {
-                val rows = db.from("listings").select().decodeList<ListingRow>()
-                val domainListings = rows.map { it.toDomain(userLat, userLng) }
-                _listings.value = domainListings
-                Log.d(TAG, "Loaded ${rows.size} listings from Supabase")
-                // Cache to disk for offline use
-                appContext?.let { ctx ->
-                    ListingCache.save(ctx, domainListings)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to load listings from network", e)
+        // 3. Fetch fresh from network (same table "listings" as insert)
+        try {
+            val rows = db.from("listings").select {
+                limit(count = 1000)
+            }.decodeList<ListingRow>()
+            val domainListings = rows.map { it.toDomain(userLat, userLng) }
+            _listings.value = domainListings
+            Log.d(TAG, "Loaded ${rows.size} listings from Supabase (table: listings)")
+            // Cache to disk for offline use
+            appContext?.let { ctx ->
+                ListingCache.save(ctx, domainListings)
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load listings from network", e)
         }
     }
 
@@ -331,6 +338,8 @@ object AuraRepository {
         textureHash: String? = null,
         emirate: String? = null
     ): Listing {
+        // Ensure seller profile exists (required by FK: seller_wallet REFERENCES profiles)
+        loadProfile(sellerWallet)
         val listingId = UUID.randomUUID().toString()
         val fingerprint = textureHash ?: "fp_${listingId.take(8)}"
         
@@ -365,14 +374,17 @@ object AuraRepository {
                     if (fileBytes.isNotEmpty()) {
                         bucket.upload(remotePath, fileBytes) {
                             upsert = true
+                            contentType = if (ext == "png") ContentType.Image.PNG else ContentType.Image.JPEG
                         }
-                        uploadedUrls.add(bucket.publicUrl(remotePath))
+                        val publicUrl = bucket.publicUrl(remotePath)
+                        uploadedUrls.add(publicUrl)
+                        Log.d(TAG, "Uploaded image $index -> $publicUrl")
                     } else {
-                        uploadedUrls.add(ref)
+                        Log.w(TAG, "Image $index empty bytes, skipping")
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to upload image $index to Supabase Storage — skipping bad ref", e)
-                    // Do NOT add local file path: it becomes unloadable after app restart
+                    Log.e(TAG, "Failed to upload image $index to Supabase Storage: ${e.message}", e)
+                    throw e  // Surface error so user knows upload failed; don't create listing with no images
                 }
             } else {
                 uploadedUrls.add(ref)
@@ -391,14 +403,24 @@ object AuraRepository {
             fingerprintHash = fingerprint,
             emirate = emirate,
         )
-        // Step 2: Establish the synchronized row in PostgreSQL
         try {
             db.from("listings").insert(row)
-        } catch (e: Exception) { 
-            Log.e(TAG, "Failed to create PostgreSQL listing row", e) 
+            Log.d(TAG, "Inserted listing $listingId (table: listings) into Supabase")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create PostgreSQL listing row", e)
+            throw e
         }
         val listing = row.toDomain()
         _listings.value = _listings.value + listing
+        // Persist to cache so it survives app restart before next network fetch
+        appContext?.let { ctx -> ListingCache.save(ctx, _listings.value) }
+        // Re-fetch from DB to confirm round-trip (insert + select both hit public.listings)
+        try {
+            refreshListingsAwait()
+            Log.d(TAG, "Re-fetched listings from Supabase after create; count=${_listings.value.size}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Re-fetch after create failed (listing still in local state): ${e.message}")
+        }
         return listing
     }
 

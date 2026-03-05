@@ -216,6 +216,17 @@ cd Aura
 3. Deploy edge functions: `supabase functions deploy`
 4. Set env vars: `NFC_MASTER_AES_KEY`, `SOLANA_AUTHORITY_KEY`, `HELIUS_API_KEY`
 
+### Groq AI Setup
+
+Add to `local.properties` (copy from `local.properties.example`):
+
+```properties
+GROQ_API_KEY=your-groq-api-key
+GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
+```
+
+Get an API key at [console.groq.com](https://console.groq.com). The model is optional — it defaults to `meta-llama/llama-4-scout-17b-16e-instruct`.
+
 ---
 
 ## 👥 Team

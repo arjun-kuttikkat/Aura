@@ -1,14 +1,23 @@
 package com.aura.app.navigation
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -62,8 +71,7 @@ fun NavGraph(
                 startDestination = startDestination,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
-                    .padding(bottom = if (showBottomBar) 100.dp else 0.dp),
+                    .padding(padding),
             ) {
             composable(Routes.ONBOARDING) {
                 OnboardingScreen(
@@ -253,19 +261,41 @@ fun NavGraph(
         }
         }
         if (showBottomBar) {
-            MainBottomBar(
+            Box(
                 modifier = Modifier.align(Alignment.BottomCenter),
-                currentRoute = currentRoute ?: Routes.HOME,
-                onNavigate = { route ->
-                    if (route != currentRoute) {
-                        navController.navigate(route) {
-                            popUpTo(Routes.HOME) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
+            ) {
+                // Fade behind navbar — content extends to bottom, fades under bar
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(140.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    MaterialTheme.colorScheme.background.copy(alpha = 0.7f),
+                                    MaterialTheme.colorScheme.background,
+                                    MaterialTheme.colorScheme.background,
+                                ),
+                            ),
+                        )
+                        .blur(32.dp),
+                )
+                MainBottomBar(
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    currentRoute = currentRoute ?: Routes.HOME,
+                    onNavigate = { route ->
+                        if (route != currentRoute) {
+                            navController.navigate(route) {
+                                popUpTo(Routes.HOME) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
+            }
         }
     }
 }

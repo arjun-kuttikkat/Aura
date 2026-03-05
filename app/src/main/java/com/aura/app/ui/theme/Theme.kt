@@ -13,15 +13,15 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = SolanaGreen,
-    onPrimary = DarkVoid,
-    primaryContainer = UltraViolet,
+    primary = Orange500,
+    onPrimary = Color.Black,
+    primaryContainer = Orange700,
     onPrimaryContainer = Color.White,
-    secondary = UltraVioletLight,
-    onSecondary = Color.White,
+    secondary = Gold500,
+    onSecondary = Color.Black,
     secondaryContainer = SlateElevated,
     onSecondaryContainer = DarkOnSurface,
-    tertiary = SolanaGreenLight,
+    tertiary = Gold500,
     onTertiary = DarkVoid,
     background = DarkSurface,
     onBackground = DarkOnSurface,
@@ -33,16 +33,15 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 private val LightColorScheme = lightColorScheme(
-    // Force dark mode aesthetic even in light mode where possible
-    primary = UltraViolet,
-    onPrimary = Color.White,
-    primaryContainer = SolanaGreen,
-    onPrimaryContainer = DarkVoid,
+    primary = Orange500,
+    onPrimary = Color.Black,
+    primaryContainer = Gold500,
+    onPrimaryContainer = Color.Black,
     secondary = SlateElevated,
     onSecondary = Color.White,
     secondaryContainer = LightSurfaceVariant,
     onSecondaryContainer = LightOnSurface,
-    tertiary = SolanaGreen,
+    tertiary = Gold500,
     onTertiary = DarkVoid,
     background = LightSurface,
     onBackground = LightOnSurface,

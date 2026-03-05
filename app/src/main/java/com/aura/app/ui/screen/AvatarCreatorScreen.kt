@@ -87,7 +87,7 @@ fun AvatarCreatorScreen(onDone: () -> Unit) {
                     .weight(0.45f)
                     .background(
                         Brush.verticalGradient(listOf(
-                            AvatarCatalog.BACKGROUNDS.getOrElse(config.background) { Color(0xFF1A1A2E) }.copy(alpha = 0.6f),
+                            AvatarCatalog.BACKGROUNDS.getOrElse(config.background) { Color(0xFF121212) }.copy(alpha = 0.6f),
                             MaterialTheme.colorScheme.surface
                         ))
                     ),
@@ -226,7 +226,7 @@ fun AvatarCreatorScreen(onDone: () -> Unit) {
                             }
                         }
                         SectionLabel("Outfit Color")
-                        val outfitColors = listOf(Color(0xFF2D3436),Color(0xFF6C5CE7),Color(0xFFE17055),Color(0xFF00B894),Color(0xFF0984E3),Color(0xFFFFFFFF),Color(0xFFFF7675),Color(0xFFD63031))
+                        val outfitColors = listOf(Color(0xFF1A1A1A),Color(0xFF2D2D2D),Color(0xFFE17055),Color(0xFFE65100),Color(0xFFFF9800),Color(0xFFFFFFFF),Color(0xFFFF7675),Color(0xFFD63031))
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             itemsIndexed(outfitColors) { i, color ->
                                 Box(

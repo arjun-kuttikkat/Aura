@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aura.app.data.AuraRepository
 import com.aura.app.model.EscrowState
+import com.aura.app.util.CryptoPriceFormatter
 import com.aura.app.model.TradeState
 import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.launch
@@ -106,7 +107,7 @@ fun EscrowPayScreen(
                     style = MaterialTheme.typography.titleLarge,
                 )
                 Text(
-                    text = "%.2f SOL".format(it.priceLamports / 1_000_000_000.0),
+                    text = CryptoPriceFormatter.formatLamports(it.priceLamports),
                     style = MaterialTheme.typography.headlineSmall,
                 )
             }
@@ -154,7 +155,7 @@ fun EscrowPayScreen(
                 ) { success ->
                     if (!success) {
                         com.aura.app.ui.components.AuraPrimaryButton(
-                            text = if (isLoading) "Processing..." else "Confirmed: Pay %.2f SOL".format(listing?.priceLamports?.div(1_000_000_000.0) ?: 0.0),
+                            text = if (isLoading) "Processing..." else "Confirmed: Pay ${CryptoPriceFormatter.formatLamports(listing?.priceLamports ?: 0L)}",
                             onClick = {
                                 val amount = listing?.priceLamports ?: 0L
                                 val amountSol = amount / 1_000_000_000.0

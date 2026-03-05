@@ -379,8 +379,8 @@ fun CreateListingScreen(
                         .background(
                             Brush.linearGradient(
                                 listOf(
-                                    Color(0xFF6C3BE8).copy(alpha = 0.1f),
-                                    Color(0xFF3B82F6).copy(alpha = 0.05f)
+                                    Orange500.copy(alpha = 0.1f),
+                                    DarkVoid.copy(alpha = 0.3f)
                                 )
                             )
                         )
@@ -420,12 +420,12 @@ fun CreateListingScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         if (isAnalyzing) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color(0xFF6C3BE8))
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Orange500)
                         } else {
                             Icon(
                                 Icons.Default.AutoAwesome,
                                 contentDescription = null,
-                                tint = Color(0xFF6C3BE8),
+                                tint = Orange500,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -433,7 +433,7 @@ fun CreateListingScreen(
                             Text(
                                 if (isAnalyzing) "AI is analyzing your product..." else "✨ AI Analyze & Auto-fill",
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF6C3BE8)
+                                color = Orange500
                             )
                             Text(
                                 "Let Aura AI identify your item and fill in details",
@@ -442,7 +442,7 @@ fun CreateListingScreen(
                             )
                         }
                         Spacer(modifier = Modifier.weight(1f))
-                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color(0xFF6C3BE8))
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Orange500)
                     }
                 }
             }
@@ -464,22 +464,22 @@ fun CreateListingScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF6C3BE8).copy(alpha = 0.05f))
+                        .background(Orange500.copy(alpha = 0.05f))
                         .padding(12.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color(0xFF6C3BE8), modifier = Modifier.size(16.dp))
-                        Text("AI Detected Tags", style = MaterialTheme.typography.labelMedium, color = Color(0xFF6C3BE8), fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Orange500, modifier = Modifier.size(16.dp))
+                        Text("AI Detected Tags", style = MaterialTheme.typography.labelMedium, color = Orange500, fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(aiTags) { tag ->
                             Box(
                                 modifier = Modifier
-                                    .background(Color(0xFF6C3BE8).copy(alpha = 0.15f), RoundedCornerShape(20.dp))
+                                    .background(Orange500.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text(tag, style = MaterialTheme.typography.labelSmall, color = Color(0xFF6C3BE8))
+                                Text(tag, style = MaterialTheme.typography.labelSmall, color = Orange500)
                             }
                         }
                     }

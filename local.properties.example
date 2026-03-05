@@ -1,0 +1,15 @@
+# Copy this file to local.properties and fill in your values.
+# local.properties is git-ignored — never commit real keys.
+
+# Supabase
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-anon-key
+
+# Groq AI (Vision + Chat) — meta-llama/llama-4-scout-17b-16e-instruct
+GROQ_API_KEY=your-groq-api-key
+GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
+
+# Optional
+HELIUS_API_KEY=
+CEREBRAS_API_KEY=
+MAPS_API_KEY=

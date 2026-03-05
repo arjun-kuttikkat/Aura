@@ -37,7 +37,7 @@ You are responding in the context of the Aura marketplace. The user is browsing:
 Listing: "${listing.title}"
 Description: "${listing.description}"
 Location: ${listing.emirate ?: "UAE"}
-Price: ${listing.priceLamports / 1_000_000_000.0} SOL
+Price: ${com.aura.app.util.CryptoPriceFormatter.formatLamportsShort(listing.priceLamports)} SOL
 
 Your PRIMARY role is NOT to sell the item — it's to connect with the user emotionally.
 

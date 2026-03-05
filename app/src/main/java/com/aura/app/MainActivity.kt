@@ -30,6 +30,8 @@ class MainActivity : ComponentActivity() {
         
         lifecycleScope.launch {
             OfficialListingSeeder.seedIfNeeded(applicationContext)
+            // Load listings after seed completes so marketplace shows products on first try
+            com.aura.app.data.AuraRepository.refreshListingsAwait()
         }
         
         enableEdgeToEdge()

@@ -7,6 +7,7 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -15,10 +16,12 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -31,6 +34,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -38,6 +42,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Star
@@ -50,6 +56,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -57,6 +65,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,10 +89,12 @@ import com.aura.app.ui.theme.DarkVoid
 import com.aura.app.ui.theme.SlateElevated
 import com.aura.app.ui.theme.GlassBorder
 import com.aura.app.ui.theme.GlassSurface
+import com.aura.app.ui.theme.SlateLight
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SuccessGreen
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.util.springScale
+import com.aura.app.util.CryptoPriceFormatter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedVisibility
@@ -96,8 +107,14 @@ fun HomeScreen(
 ) {
     val listings by AuraRepository.listings.collectAsState(initial = emptyList())
     val profile by AuraRepository.currentProfile.collectAsState()
+    val walletAddress by com.aura.app.wallet.WalletConnectionState.walletAddress.collectAsState()
     val scope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(false) }
+
+    // Load profile when wallet is connected — fixes Aura card not showing on first visit
+    LaunchedEffect(walletAddress) {
+        walletAddress?.let { AuraRepository.loadProfile(it) }
+    }
 
     Scaffold(
         topBar = {
@@ -108,16 +125,23 @@ fun HomeScreen(
             )
         },
     ) { padding ->
+        val listState = rememberLazyGridState()
+        val showTopFade by remember {
+            derivedStateOf {
+                listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0
+            }
+        }
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
                 scope.launch {
                     isRefreshing = true
-                    AuraRepository.refreshListings()
+                    AuraRepository.refreshListingsAwait()
                     isRefreshing = false
                 }
             },
-            modifier = Modifier.fillMaxSize().padding(padding)
+            modifier = Modifier.fillMaxSize()
         ) {
         // ── Filter State ──
         var searchQuery by remember { mutableStateOf("") }
@@ -167,90 +191,201 @@ fun HomeScreen(
         }
 
         LazyVerticalGrid(
+            state = listState,
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Hero Banner Card
+            // Hero Banner Card — show loading state when profile not yet loaded
             item(span = { GridItemSpan(2) }) {
-                profile?.let {
+                val p = profile
+                if (p != null) {
                     HeroBannerCard(
-                        auraScore = it.auraScore,
-                        streakDays = it.streakDays,
+                        auraScore = p.auraScore,
+                        streakDays = p.streakDays,
                         listingsCount = listings.size,
                     )
+                } else if (walletAddress != null) {
+                    HeroBannerCardSkeleton()
                 }
             }
 
-            // Search Bar
+            // Premium search bar
             item(span = { GridItemSpan(2) }) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search listings...") },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                )
-            }
-
-            // Marketplace scope tabs
-            item(span = { GridItemSpan(2) }) {
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(SlateElevated)
+                        .border(0.5.dp, SlateLight.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
                 ) {
-                    scopes.forEach { scope ->
-                        val isSelected = scope == selectedScope
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    if (isSelected) Orange500 else GlassSurface
-                                )
-                                .clickable { selectedScope = scope }
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                        ) {
-                            Text(
-                                scope,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Search,
+                            contentDescription = null,
+                            tint = Orange500.copy(alpha = 0.9f),
+                            modifier = Modifier.size(20.dp),
+                        )
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                color = MaterialTheme.colorScheme.onSurface,
+                            ),
+                            decorationBox = { inner ->
+                                Box {
+                                    if (searchQuery.isEmpty()) {
+                                        Text(
+                                            "Search listings...",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        )
+                                    }
+                                    inner()
+                                }
+                            },
+                        )
                     }
                 }
             }
 
-            // Condition category chips
+            // Location scope + Filters row
             item(span = { GridItemSpan(2) }) {
+                var showFilterSheet by remember { mutableStateOf(false) }
+                val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    conditions.forEach { cond ->
-                        val isSelected = cond == selectedCondition
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    if (isSelected) com.aura.app.ui.theme.SolanaGreen.copy(alpha = 0.9f)
-                                    else com.aura.app.ui.theme.GlassSurface
+                    // Location tabs
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        scopes.forEach { scope ->
+                            val isSelected = scope == selectedScope
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        if (isSelected) Brush.linearGradient(listOf(Orange500, Gold500.copy(alpha = 0.9f)))
+                                        else Brush.linearGradient(listOf(GlassSurface, GlassSurface))
+                                    )
+                                    .border(
+                                        0.5.dp,
+                                        if (isSelected) Color.Transparent else SlateLight.copy(alpha = 0.4f),
+                                        RoundedCornerShape(12.dp),
+                                    )
+                                    .clickable { selectedScope = scope }
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                            ) {
+                                Text(
+                                    scope,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface,
                                 )
-                                .clickable { selectedCondition = cond }
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            }
+                        }
+                    }
+                    // Filters button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(GlassSurface)
+                            .border(0.5.dp, SlateLight.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                            .clickable { showFilterSheet = true }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.FilterList,
+                                contentDescription = null,
+                                tint = Orange500,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                "Filters",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            if (selectedCondition != "All") {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Orange500),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (showFilterSheet) {
+                    ModalBottomSheet(
+                        onDismissRequest = { showFilterSheet = false },
+                        sheetState = sheetState,
+                        containerColor = SlateElevated,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp)
+                                .padding(bottom = 32.dp),
                         ) {
                             Text(
-                                cond,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface,
+                                "Condition",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            conditions.forEach { cond ->
+                                val isSelected = cond == selectedCondition
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            if (isSelected) Orange500.copy(alpha = 0.2f)
+                                            else Color.Transparent
+                                        )
+                                        .clickable { selectedCondition = cond; showFilterSheet = false }
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        cond,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    if (isSelected) {
+                                        Icon(
+                                            Icons.Filled.Check,
+                                            contentDescription = null,
+                                            tint = Orange500,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -286,14 +421,14 @@ fun HomeScreen(
                 }
             }
 
-            // Listing grid
+            // Listing grid — batch 8 cards at a time for snappy loading
             itemsIndexed(
                 items = filteredListings,
                 key = { _, it -> it.id },
             ) { index, listing ->
                 var isVisible by remember { mutableStateOf(false) }
                 LaunchedEffect(Unit) {
-                    delay(index * 40L)
+                    delay((index / 8) * 30L)
                     isVisible = true
                 }
 
@@ -308,7 +443,7 @@ fun HomeScreen(
                         title = listing.title,
                         priceSol = listing.priceLamports / 1_000_000_000.0,
                         status = listing.mintedStatus,
-                        imageUrl = listing.images.firstOrNull(),
+                        imageUrl = listing.images.firstOrNull()?.takeIf { it.isNotBlank() },
                         onClick = { onListingClick(listing.id) },
                     )
                 }
@@ -321,7 +456,12 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxWidth().padding(40.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Text("🔍", style = MaterialTheme.typography.displayMedium)
+                        Icon(
+                            Icons.Filled.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = Orange500.copy(alpha = 0.7f),
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             "No listings match your filters",
@@ -397,6 +537,93 @@ fun HomeScreen(
             }
         } // end LazyVerticalGrid
         } // end PullToRefreshBox
+        // Fade below Aura top bar — only when scrolled
+        AnimatedVisibility(
+            visible = showTopFade,
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(72.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.background,
+                            MaterialTheme.colorScheme.background.copy(alpha = 0.5f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+        }
+        }
+    }
+}
+
+@Composable
+private fun HeroBannerCardSkeleton() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Orange500.copy(alpha = 0.08f),
+                        Gold500.copy(alpha = 0.05f),
+                    ),
+                ),
+            )
+            .border(1.dp, GlassBorder, RoundedCornerShape(20.dp))
+            .padding(20.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column {
+                Box(
+                    modifier = Modifier
+                        .width(80.dp)
+                        .height(12.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(GlassSurface)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .width(100.dp)
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Orange500.copy(alpha = 0.3f))
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .width(120.dp)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(GlassSurface)
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(GlassSurface),
+            )
+        }
+        CircularProgressIndicator(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(24.dp),
+            color = Orange500,
+            strokeWidth = 2.dp,
+        )
     }
 }
 
@@ -604,7 +831,7 @@ private fun ListingCard(
                                 MintedStatus.VERIFIED -> SuccessGreen
                                 MintedStatus.MINTED -> Gold500
                                 MintedStatus.PENDING -> Color.Gray.copy(alpha = 0.8f)
-                                MintedStatus.SOLD -> Color(0xFF4CAF50)
+                                MintedStatus.SOLD -> com.aura.app.ui.theme.Orange500
                             },
                         )
                         .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -635,7 +862,7 @@ private fun ListingCard(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = "%.2f SOL".format(priceSol),
+                    text = CryptoPriceFormatter.formatSol(priceSol),
                     style = MaterialTheme.typography.titleMedium,
                     color = Orange500,
                     fontWeight = FontWeight.Bold,

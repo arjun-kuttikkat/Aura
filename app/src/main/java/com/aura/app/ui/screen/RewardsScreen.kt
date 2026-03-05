@@ -143,7 +143,7 @@ fun RewardsScreen() {
                 title = "NFT Evolution",
                 subtitle = "Level up your Aura",
                 description = "Your on-chain Aura NFT evolves as your streak grows: Seed → Sprout → Tree → Aura. Higher tiers unlock exclusive features.",
-                gradient = listOf(Color(0xFF9945FF).copy(alpha = 0.1f), Color(0xFF14F195).copy(alpha = 0.06f)),
+                gradient = listOf(Orange500.copy(alpha = 0.1f), Gold500.copy(alpha = 0.06f)),
             )
 
             Spacer(modifier = Modifier.height(80.dp))

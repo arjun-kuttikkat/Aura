@@ -38,14 +38,15 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aura.app.navigation.Routes
-import com.aura.app.ui.theme.GlassBorder
 import com.aura.app.ui.theme.GlassSurface
-import com.aura.app.ui.theme.SolanaGreen
+import com.aura.app.ui.theme.Gold500
+import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.DarkVoid
 
 data class BottomNavItem(
@@ -75,8 +76,8 @@ fun MainBottomBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .padding(bottom = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(bottom = 8.dp),
     ) {
         // Glassmorphism bar background
         Box(
@@ -84,7 +85,7 @@ fun MainBottomBar(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(24.dp))
                 .background(GlassSurface)
-                .border(1.dp, GlassBorder, RoundedCornerShape(24.dp)),
+                .border(0.5.dp, Orange500.copy(alpha = 0.2f), RoundedCornerShape(24.dp)),
         ) {
             Row(
                 modifier = Modifier
@@ -120,9 +121,9 @@ fun MainBottomBar(
                 .align(Alignment.Center)
                 .offset(y = (-14).dp)
                 .size(56.dp)
-                .shadow(20.dp, CircleShape, spotColor = SolanaGreen.copy(alpha = 0.4f))
+                .shadow(20.dp, CircleShape, spotColor = Orange500.copy(alpha = 0.5f))
                 .clip(CircleShape)
-                .background(SolanaGreen)
+                .background(brush = Brush.linearGradient(listOf(Orange500, Gold500)))
                 .border(2.dp, Color.White.copy(alpha = 0.15f), CircleShape)
                 .clickable { onNavigate(centerItem.route) },
             contentAlignment = Alignment.Center,
@@ -162,13 +163,13 @@ private fun RowScope.BottomNavBarItem(
             imageVector = item.icon,
             contentDescription = item.label,
             modifier = Modifier.size(22.dp),
-            tint = if (selected) SolanaGreen else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            tint = if (selected) Orange500 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
         )
         Text(
             text = item.label,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = if (selected) SolanaGreen else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            color = if (selected) Orange500 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
         )
         // Active indicator dot
         if (selected) {
@@ -176,7 +177,7 @@ private fun RowScope.BottomNavBarItem(
                 modifier = Modifier
                     .size(4.dp)
                     .clip(CircleShape)
-                    .background(SolanaGreen),
+                    .background(Orange500),
             )
         } else {
             Spacer(modifier = Modifier.height(4.dp))

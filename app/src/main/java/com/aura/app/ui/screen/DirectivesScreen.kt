@@ -184,7 +184,7 @@ fun DirectivesScreen(onBack: () -> Unit) {
                             .padding(horizontal = 16.dp)
                             .padding(top = 16.dp)
                             .clip(RoundedCornerShape(24.dp))
-                            .background(Brush.linearGradient(listOf(UltraViolet.copy(alpha = 0.1f), Color(0xFF3B82F6).copy(alpha = 0.05f))))
+                            .background(Brush.linearGradient(listOf(UltraViolet.copy(alpha = 0.1f), DarkVoid.copy(alpha = 0.3f))))
                             .border(1.dp, UltraViolet.copy(alpha = 0.25f), RoundedCornerShape(24.dp))
                             .padding(16.dp)
                     ) {
@@ -193,7 +193,7 @@ fun DirectivesScreen(onBack: () -> Unit) {
                             Box(
                                 modifier = Modifier
                                     .size(36.dp)
-                                    .background(Brush.linearGradient(listOf(UltraViolet, Color(0xFF3B82F6))), CircleShape),
+                                    .background(Brush.linearGradient(listOf(UltraViolet, Gold500)), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
