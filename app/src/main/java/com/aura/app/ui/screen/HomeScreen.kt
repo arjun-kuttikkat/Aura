@@ -45,6 +45,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -172,6 +173,17 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // Hero Banner Card
+            item(span = { GridItemSpan(2) }) {
+                profile?.let {
+                    HeroBannerCard(
+                        auraScore = it.auraScore,
+                        streakDays = it.streakDays,
+                        listingsCount = listings.size,
+                    )
+                }
+            }
+
             // Search Bar
             item(span = { GridItemSpan(2) }) {
                 OutlinedTextField(
@@ -325,8 +337,16 @@ fun HomeScreen(
                 item(span = { GridItemSpan(2) }) {
                     var ctaVisible by remember { mutableStateOf(false) }
                     LaunchedEffect(Unit) {
-                        delay(600)
+                        delay(2000)
                         ctaVisible = true
+                    }
+                    if (!ctaVisible) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(60.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = Orange500)
+                        }
                     }
                     AnimatedVisibility(
                         visible = ctaVisible,

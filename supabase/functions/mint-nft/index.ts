@@ -19,7 +19,8 @@ serve(async (req) => {
         const { listingId, title, sellerWalletBase58, metadataUrl } = await req.json();
 
         // 1. Umi Setup for Solana Mainnet via Helius
-        const rpcUrl = Deno.env.get("HELIUS_RPC_URL") || "https://api.mainnet-beta.solana.com";
+        const rpcUrl = Deno.env.get("HELIUS_RPC_URL");
+        if (!rpcUrl) throw new Error("HELIUS_RPC_URL is required — set in Supabase Edge Function secrets");
         const umi = createUmi(rpcUrl).use(mplCore());
 
         // 2. Identity Setup (Aura's Oracle Payer Wallet)

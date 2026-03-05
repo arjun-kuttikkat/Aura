@@ -52,7 +52,16 @@ import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SolanaGreen
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.data.TradeRiskOracle
+import com.aura.app.model.ProfileDto
 import com.aura.app.wallet.WalletConnectionState
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,7 +92,18 @@ fun ListingDetailScreen(
         },
     ) { padding ->
         if (listing == null) {
-            Text("Listing not found", modifier = Modifier.padding(padding))
+            Column(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(Icons.Default.BrokenImage, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Listing not found", style = MaterialTheme.typography.titleMedium)
+                Text("It may have been removed.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(onClick = onBack) { Text("Go Back") }
+            }
             return@Scaffold
         }
         Column(
@@ -281,19 +301,20 @@ fun ListingDetailScreen(
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Bold
                             )
-                            Text(
-                                "Joined 2024", // Placeholder, since Listing object doesn't have seller join date
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            // Note: To display true seller join date, we would need to fetch the seller's profile
+                            // For now, removing the hardcoded 2024 string to prevent false information.
                         }
                     }
                 }
 
                 // ── AI Trade-Risk Oracle ──────────────────────────────
-                val sellerProfile = AuraRepository.currentProfile.collectAsState().value
-                val riskAssessment = remember(sellerProfile, listing) {
-                    TradeRiskOracle.evaluate(sellerProfile, listing)
+                // Use the listing's cached seller data, NOT the current user's profile
+                val riskAssessment = remember(listing) {
+                    val sellerProxy = ProfileDto(
+                        walletAddress = listing.sellerWallet,
+                        auraScore = listing.sellerAuraScore,
+                    )
+                    TradeRiskOracle.evaluate(sellerProxy, listing)
                 }
 
                 val riskColor = when (riskAssessment.level) {
@@ -351,53 +372,106 @@ fun ListingDetailScreen(
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Button(
-                        onClick = onChatClicked,
-                        enabled = walletAddress != null,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                val scope = rememberCoroutineScope()
+                var isStartingTrade by remember { mutableStateOf(false) }
+                var tradeError by remember { mutableStateOf<String?>(null) }
+                var showBuyConfirm by remember { mutableStateOf(false) }
+                val isSeller = walletAddress == listing.sellerWallet
+
+                if (!isSeller) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Text("Message Seller", fontWeight = FontWeight.SemiBold)
+                        Button(
+                            onClick = onChatClicked,
+                            enabled = walletAddress != null,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(56.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        ) {
+                            Text("Message Seller", fontWeight = FontWeight.SemiBold)
+                        }
+
+                        Button(
+                            onClick = { showBuyConfirm = true },
+                            enabled = walletAddress != null && listing.mintedStatus != MintedStatus.SOLD && !isStartingTrade,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(56.dp),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            if (isStartingTrade) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
+                            } else {
+                                Text(
+                                    when {
+                                        listing.mintedStatus == MintedStatus.SOLD -> "Sold"
+                                        walletAddress != null -> "Start Meetup / Buy"
+                                        else -> "Connect Wallet First"
+                                    },
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
                     }
 
-                    Button(
-                        onClick = {
-                            walletAddress?.let { wallet ->
-                                AuraRepository.createTradeSession(
-                                    listingId = listing.id,
-                                    buyerWallet = wallet,
-                                    sellerWallet = listing.sellerWallet,
-                                )
-                                onStartMeetup()
+                    if (showBuyConfirm) {
+                        AlertDialog(
+                            onDismissRequest = { showBuyConfirm = false },
+                            title = { Text("Start Trade?") },
+                            text = { Text("You'll be guided to meet the seller and verify the item before any payment.") },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    showBuyConfirm = false
+                                    walletAddress?.let { wallet ->
+                                        isStartingTrade = true
+                                        scope.launch {
+                                            try {
+                                                AuraRepository.createTradeSession(
+                                                    listingId = listing.id,
+                                                    buyerWallet = wallet,
+                                                    sellerWallet = listing.sellerWallet,
+                                                )
+                                                onStartMeetup()
+                                            } catch (e: Exception) {
+                                                tradeError = e.message ?: "Failed to start trade"
+                                            } finally {
+                                                isStartingTrade = false
+                                            }
+                                        }
+                                    }
+                                }) { Text("Start Meetup", color = SolanaGreen) }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showBuyConfirm = false }) { Text("Cancel") }
                             }
-                        },
-                        enabled = walletAddress != null && listing.mintedStatus != MintedStatus.SOLD,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp),
-                        shape = RoundedCornerShape(16.dp),
+                        )
+                    }
+
+                    tradeError?.let {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(it, color = Color.Red, style = MaterialTheme.typography.bodySmall)
+                    }
+                } else {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.5f))
                     ) {
-                    Text(
-                        when {
-                            listing.mintedStatus == MintedStatus.SOLD -> "Sold"
-                            walletAddress != null -> "Start Meetup / Buy"
-                            else -> "Connect Wallet First"
-                        },
-                        fontWeight = FontWeight.SemiBold
-                    )
+                        Text(
+                            "This is your listing.",
+                            modifier = Modifier.padding(16.dp).align(Alignment.CenterHorizontally),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
         }
     }
-}
 }

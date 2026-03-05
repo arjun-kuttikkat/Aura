@@ -59,6 +59,7 @@ import com.aura.app.util.NfcHandshakeResult
 import com.aura.app.wallet.WalletConnectionState
 import com.aura.app.ui.util.HapticEngine
 import com.aura.app.ui.util.springScale
+import com.funkatronics.encoders.Base58
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.WriterException
@@ -73,6 +74,8 @@ fun MeetSessionScreen(
     val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
     val walletAddress by WalletConnectionState.walletAddress.collectAsState()
     val nfcState by NfcHandoverManager.state.collectAsState()
+    var nfcError by remember { mutableStateOf<String?>(null) }
+    var isVerifying by remember { mutableStateOf(false) }
 
     // Auto-advance when NFC confirms the chip read and backend verification succeeds
     val view = LocalView.current
@@ -80,6 +83,8 @@ fun MeetSessionScreen(
         if (nfcState is NfcHandshakeResult.Confirmed) {
             val confirmedState = nfcState as NfcHandshakeResult.Confirmed
             HapticEngine.triggerSuccess(view)
+            nfcError = null
+            isVerifying = true
             
             session?.let { s ->
                 val listing = AuraRepository.getListing(s.listingId)
@@ -93,7 +98,7 @@ fun MeetSessionScreen(
                     receivedCmacHex = confirmedState.cmacHex,
                     escrowPdaBase58 = try {
                         val pda = com.aura.app.wallet.AnchorTransactionBuilder.deriveEscrowPda(s.listingId)
-                        android.util.Base64.encodeToString(pda.address, android.util.Base64.NO_WRAP)
+                        Base58.encodeToString(pda.address)
                     } catch (_: Exception) { "" },
                     sellerWalletBase58 = s.sellerWallet,
                     buyerWalletBase58 = walletAddress,
@@ -101,13 +106,18 @@ fun MeetSessionScreen(
                     assetTitle = assetTitle,
                     amount = listing?.priceLamports ?: 0L
                 )
+                isVerifying = false
                 if (success) {
                     AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
                     onHandshakeComplete()
+                } else {
+                    nfcError = "Escrow release failed — tag verification may have failed. Please retry."
+                    HapticEngine.triggerThud(view)
                 }
-            }
+            } ?: run { isVerifying = false }
         } else if (nfcState is NfcHandshakeResult.Error) {
             HapticEngine.triggerThud(view)
+            nfcError = (nfcState as NfcHandshakeResult.Error).reason
         }
     }
 
@@ -253,29 +263,19 @@ fun MeetSessionScreen(
                                 imageVector = Icons.Default.Warning,
                                 contentDescription = "No NFC",
                                 modifier = Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.tertiary
+                                tint = MaterialTheme.colorScheme.error
                             )
                             Text(
-                                "NFC not available on this device",
-                                style = MaterialTheme.typography.titleMedium
+                                "NFC Required",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.error
                             )
-                            if (qrBitmap != null) {
-                                Text("Scan QR code instead", style = MaterialTheme.typography.bodyMedium)
-                                Image(
-                                    bitmap = qrBitmap.asImageBitmap(),
-                                    contentDescription = "QR Code",
-                                    modifier = Modifier
-                                        .size(200.dp)
-                                        .background(Color.White),
-                                    contentScale = ContentScale.Fit,
-                                )
-                            }
-                            Button(onClick = {
-                                AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
-                                onHandshakeComplete()
-                            }) {
-                                Text("Continue without NFC")
-                            }
+                            Text(
+                                "This device cannot verify NFC tags. Both parties must use an NFC-capable device to complete a trade. " +
+                                    "The physical item's NTAG 424 DNA chip must be tapped to release escrow funds.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
 
                         is NfcHandshakeResult.Idle -> {
@@ -286,8 +286,44 @@ fun MeetSessionScreen(
                 }
             }
 
-            // Strict Mode: Handshake must occur via NFC tap or fallback QR.
-            // Debug simulation bypassed.
+            // NFC error / verification failure feedback
+            if (nfcError != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                androidx.compose.material3.Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            nfcError ?: "",
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(onClick = {
+                            nfcError = null
+                            NfcHandoverManager.reset()
+                        }) {
+                            Text("Retry NFC Tap")
+                        }
+                    }
+                }
+            }
+
+            // Verifying indicator
+            if (isVerifying) {
+                Spacer(modifier = Modifier.height(12.dp))
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(32.dp)
+                )
+                Text(
+                    "Verifying chip & releasing escrow…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

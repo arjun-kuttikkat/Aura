@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
-declare_id!("AuRAEscrow1111111111111111111111111111111111");
+declare_id!("BMKWLYrXtuuxp4TA4yNhrs9LbomR1fMdbrko6R7Qj5WM");
 
 #[program]
 pub mod aura_escrow {

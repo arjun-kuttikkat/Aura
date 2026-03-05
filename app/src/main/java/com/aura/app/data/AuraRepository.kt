@@ -22,6 +22,11 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.github.jan.supabase.storage.storage
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
+import io.github.jan.supabase.realtime.decodeRecord
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,8 +34,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import android.annotation.SuppressLint
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.serialization.SerialName
+import kotlin.math.pow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -277,10 +287,23 @@ object AuraRepository {
                 }
             }
 
-            // 2. Fetch fresh from network
+            // 2. Get user location once for Nearby / Explore distance stamps (best-effort)
+            var userLat: Double? = null
+            var userLng: Double? = null
+            try {
+                appContext?.let { ctx ->
+                    @SuppressLint("MissingPermission")
+                    val loc = LocationServices.getFusedLocationProviderClient(ctx)
+                        .lastLocation.await()
+                    userLat = loc?.latitude
+                    userLng = loc?.longitude
+                }
+            } catch (_: Exception) {}
+
+            // 3. Fetch fresh from network
             try {
                 val rows = db.from("listings").select().decodeList<ListingRow>()
-                val domainListings = rows.map { it.toDomain() }
+                val domainListings = rows.map { it.toDomain(userLat, userLng) }
                 _listings.value = domainListings
                 Log.d(TAG, "Loaded ${rows.size} listings from Supabase")
                 // Cache to disk for offline use
@@ -348,8 +371,8 @@ object AuraRepository {
                         uploadedUrls.add(ref)
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to upload image $index to Supabase Storage", e)
-                    uploadedUrls.add(ref)
+                    Log.e(TAG, "Failed to upload image $index to Supabase Storage — skipping bad ref", e)
+                    // Do NOT add local file path: it becomes unloadable after app restart
                 }
             } else {
                 uploadedUrls.add(ref)
@@ -397,15 +420,25 @@ object AuraRepository {
                 put("listingId", listing.id)
                 put("title", listing.title)
                 put("sellerWalletBase58", listing.sellerWallet)
-                put("metadataUrl", "https://aura.app/metadata/${listing.id}.json")
+                put("metadataUrl", listing.images.firstOrNull() ?: "https://aura.so/metadata/${listing.id}.json")
             }
-            db.functions.invoke("mint-nft") {
+            val response = db.functions.invoke("mint-nft") {
                 setBody(reqBody.toString())
                 contentType(ContentType.Application.Json)
             }
-            val mintAddr = "MintPending_RefreshedViaRealtime"
+            // Parse the real mint address from the Edge Function response
+            val responseText = response.bodyAsText()
+            val jsonElement = kotlinx.serialization.json.Json.parseToJsonElement(responseText).jsonObject
+            val mintAddr = jsonElement["mintAddress"]?.jsonPrimitive?.content ?: "MintPending"
             val updated = listing.copy(mintedStatus = MintedStatus.MINTED, mintAddress = mintAddr)
             _listings.value = _listings.value.map { if (it.id == listingId) updated else it }
+            // Also persist the mint address back to Supabase (Edge Function does this too, belt-and-suspenders)
+            try {
+                db.from("listings").update({
+                    set("mint_address", mintAddr)
+                    set("minted_status", "MINTED")
+                }) { filter { eq("id", listingId) } }
+            } catch (_: Exception) {}
             updated
         } catch (e: Exception) {
             Log.w(TAG, "Minting Edge Function failed (non-fatal) — listing is saved: ${e.message}")
@@ -421,15 +454,24 @@ object AuraRepository {
                 put("listingId", listingId)
                 put("photoBase64", base64Photo)
             }
-            db.functions.invoke("verify-photo") {
+            val response = db.functions.invoke("verify-photo") {
                 setBody(reqBody.toString())
                 contentType(ContentType.Application.Json)
             }
-            // Parse Edge Function response in production
-            return VerificationResult(score = 0.92f, pass = true, reason = "Verified via AI Vision")
+            // Parse the real AI Vision response
+            val responseText = response.bodyAsText()
+            val jsonElement = kotlinx.serialization.json.Json.parseToJsonElement(responseText).jsonObject
+            val rating = jsonElement["rating"]?.jsonPrimitive?.int ?: 50
+            val pass = jsonElement["pass"]?.jsonPrimitive?.boolean ?: false
+            val feedback = jsonElement["feedback"]?.jsonPrimitive?.content ?: "Analysis complete"
+            return VerificationResult(
+                score = rating / 100f,
+                pass = pass,
+                reason = feedback
+            )
         } catch (e: Exception) {
             Log.e(TAG, "verify-photo Edge Function failed", e)
-            return VerificationResult(score = 0.5f, pass = false, reason = "Verification service unavailable")
+            return VerificationResult(score = 0f, pass = false, reason = "Verification service unavailable: ${e.message}")
         }
     }
 
@@ -458,6 +500,8 @@ object AuraRepository {
                 )
             } catch (e: Exception) {}
         }
+        // Start listening for Realtime state changes on this session
+        observeTradeSession(session.id)
         return session
     }
 
@@ -477,25 +521,94 @@ object AuraRepository {
 
     fun clearTradeSession() {
         _currentTradeSession.value = null
+        _activeTradeChannel?.let { ch ->
+            scope.launch {
+                try { ch.unsubscribe() } catch (_: Exception) {}
+            }
+        }
+        _activeTradeChannel = null
+    }
+
+    // ── Realtime Trade Session Observation ───────────────────────────────────
+
+    private var _activeTradeChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
+
+    /**
+     * Subscribe to Realtime updates for the current trade session.
+     * Both buyer and seller can observe state transitions (ESCROW_LOCKED → BOTH_PRESENT → COMPLETE)
+     * without polling. Call this after createTradeSession().
+     */
+    fun observeTradeSession(tradeId: String) {
+        // Unsubscribe from any existing channel
+        _activeTradeChannel?.let { ch ->
+            scope.launch {
+                try { ch.unsubscribe() } catch (_: Exception) {}
+            }
+        }
+
+        scope.launch {
+            try {
+                val channel = db.realtime.channel("trade_session_$tradeId")
+                _activeTradeChannel = channel
+                val flow = channel.postgresChangeFlow<PostgresAction.Update>("public") {
+                    table = "trade_sessions"
+                }
+                channel.subscribe()
+
+                flow.collect { action ->
+                    try {
+                        val row = action.decodeRecord<TradeSessionRow>()
+                        if (row.id == tradeId) {
+                            val newState = runCatching { TradeState.valueOf(row.state) }
+                                .getOrDefault(TradeState.SESSION_CREATED)
+                            _currentTradeSession.value?.let { session ->
+                                _currentTradeSession.value = session.copy(
+                                    state = newState,
+                                    lastUpdated = System.currentTimeMillis()
+                                )
+                            }
+                            Log.d(TAG, "Realtime trade state update: $tradeId → ${row.state}")
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to decode Realtime trade update", e)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to subscribe to trade session Realtime", e)
+            }
+        }
     }
 
     // ── Escrow (Live Anchor Integration) ────────
 
+    /**
+     * Build the escrow initialization transaction.
+     * NOTE: State is NOT updated here — the caller must update state AFTER
+     * the wallet adapter confirms the signature.
+     */
     suspend fun initEscrow(tradeId: String, amount: Long): ByteArray {
         Log.d(TAG, "Initializing escrow for trade $tradeId, amount: $amount lamports")
         val walletAddr = com.aura.app.wallet.WalletConnectionState.walletAddress.value
             ?: throw IllegalStateException("Wallet not connected")
         val session = _currentTradeSession.value
         val listingId = session?.listingId ?: tradeId
+        val sellerWallet = session?.sellerWallet
+            ?: throw IllegalStateException("No seller wallet in trade session")
         val txBytes = com.aura.app.wallet.AnchorTransactionBuilder.buildInitializeEscrowTx(
             listingId = listingId,
             amountLamports = amount,
-            buyerPubkey = walletAddr
+            buyerPubkey = walletAddr,
+            sellerPubkey = sellerWallet,
         )
-        updateTradeState(TradeState.ESCROW_LOCKED)
+        // Do NOT call updateTradeState here — wait for wallet signing confirmation
         return txBytes
     }
 
+    /**
+     * Build the Anchor release_funds_and_mint transaction (non-NFC path).
+     * NOTE: State is NOT updated here — the caller must update state AFTER
+     * the wallet adapter confirms the signature.
+     */
     suspend fun releaseEscrow(tradeId: String): ByteArray {
         Log.d(TAG, "Releasing escrow for trade $tradeId")
         val walletAddr = com.aura.app.wallet.WalletConnectionState.walletAddress.value
@@ -504,13 +617,15 @@ object AuraRepository {
         val listingId = session?.listingId ?: tradeId
         val listing = getListing(listingId)
         val sellerWallet = session?.sellerWallet ?: ""
-        // Build SOL transfer from escrow vault to seller as release mechanism
-        val txBytes = com.aura.app.wallet.AnchorTransactionBuilder.buildSolTransferTx(
-            fromPubkey = walletAddr,
-            toPubkey = sellerWallet,
-            lamports = listing?.priceLamports ?: 0L
+        // Build the proper Anchor release_funds_and_mint instruction
+        val txBytes = com.aura.app.wallet.AnchorTransactionBuilder.buildReleaseEscrowTx(
+            listingId = listingId,
+            sellerPubkey = sellerWallet,
+            signerPubkey = walletAddr,
+            assetUri = listing?.images?.firstOrNull() ?: "",
+            assetTitle = listing?.title ?: "Aura Verified Asset",
         )
-        updateTradeState(TradeState.COMPLETE)
+        // Do NOT call updateTradeState here — wait for wallet signing confirmation
         return txBytes
     }
 
@@ -574,7 +689,7 @@ object AuraRepository {
 
     // ── DTO → Domain Mapper ──────────────────────────────────────────────────
 
-    private fun ListingRow.toDomain() = Listing(
+    private fun ListingRow.toDomain(userLat: Double? = null, userLng: Double? = null) = Listing(
         id = id,
         sellerWallet = sellerWallet,
         title = title,
@@ -585,12 +700,26 @@ object AuraRepository {
         mintAddress = mintAddress,
         fingerprintHash = fingerprintHash ?: "",
         condition = condition,
-        createdAt = System.currentTimeMillis(),
+        createdAt = runCatching {
+            OffsetDateTime.parse(createdAt ?: "").toInstant().toEpochMilli()
+        }.getOrDefault(System.currentTimeMillis()),
         latitude = latitude,
         longitude = longitude,
         soldAt = soldAt?.let { try { java.time.OffsetDateTime.parse(it).toEpochSecond() * 1000 } catch (_: Exception) { null } },
         buyerWallet = buyerWallet,
+        distanceMeters = if (userLat != null && userLng != null && latitude != null && longitude != null)
+            haversineMeters(userLat, userLng, latitude, longitude).toInt()
+        else null,
         sellerAuraScore = sellerAuraScore,
         emirate = emirate,
     )
+
+    private fun haversineMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
+        val r = 6_371_000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLng = Math.toRadians(lng2 - lng1)
+        val a = Math.sin(dLat / 2).pow(2) +
+            Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.sin(dLng / 2).pow(2)
+        return r * 2 * Math.asin(Math.sqrt(a))
+    }
 }

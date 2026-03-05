@@ -89,9 +89,9 @@ object AnchorTransactionBuilder {
      * Build the `initialize` instruction data (Borsh-serialized).
      *
      * Instruction layout:
-     * [8 bytes discriminator][8 bytes amount (u64 LE)][variable listing_id (borsh string)]
+     * [8 bytes discriminator][8 bytes amount (u64 LE)][variable listing_id (borsh string)][32 bytes seller_wallet (Pubkey)]
      */
-    fun buildInitializeInstructionData(amount: Long, listingId: String): ByteArray {
+    fun buildInitializeInstructionData(amount: Long, listingId: String, sellerWallet: ByteArray): ByteArray {
         val buf = ByteArrayOutputStream()
         buf.write(INITIALIZE_DISCRIMINATOR)
 
@@ -104,6 +104,9 @@ object AnchorTransactionBuilder {
         val lenBytes = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(idBytes.size).array()
         buf.write(lenBytes)
         buf.write(idBytes)
+
+        // seller_wallet: Pubkey (32 bytes, raw)
+        buf.write(sellerWallet)
 
         return buf.toByteArray()
     }
@@ -163,12 +166,14 @@ object AnchorTransactionBuilder {
         listingId: String,
         amountLamports: Long,
         buyerPubkey: String,
+        sellerPubkey: String,
     ): ByteArray {
         Log.d(TAG, "Building Initialize TX: listing=$listingId, amount=$amountLamports")
 
         val escrowPda = deriveEscrowPda(listingId)
         val vaultPda = deriveVaultPda(escrowPda.address)
-        val instructionData = buildInitializeInstructionData(amountLamports, listingId)
+        val sellerBytes = decodeBase58(sellerPubkey)
+        val instructionData = buildInitializeInstructionData(amountLamports, listingId, sellerBytes)
         Log.d(TAG, "Derived Escrow PDA: ${Base58.encodeToString(escrowPda.address)}")
 
         // Fetch recent blockhash
@@ -217,6 +222,56 @@ object AnchorTransactionBuilder {
                     accounts = listOf(
                         AccountMeta(decodeBase58(fromPubkey), isSigner = true, isWritable = true),
                         AccountMeta(decodeBase58(toPubkey), isSigner = false, isWritable = true),
+                    ),
+                    data = instructionData,
+                ),
+            ),
+        )
+    }
+
+    /**
+     * Construct a full transaction for the release_funds_and_mint instruction.
+     *
+     * This is a client-side transaction that the BUYER signs.
+     * The authority signer is handled server-side by the Edge Function.
+     *
+     * Account metas for ReleaseFunds:
+     * 0. seller (writable)
+     * 1. escrow PDA (writable)
+     * 2. vault PDA (writable)
+     * 3. system_program
+     *
+     * NOTE: In production, release is triggered server-side via verify-sun Edge Function.
+     * This method exists for the non-NFC fallback path only.
+     */
+    suspend fun buildReleaseEscrowTx(
+        listingId: String,
+        sellerPubkey: String,
+        signerPubkey: String,
+        assetUri: String,
+        assetTitle: String,
+    ): ByteArray {
+        Log.d(TAG, "Building Release TX: listing=$listingId, seller=$sellerPubkey")
+
+        val escrowPda = deriveEscrowPda(listingId)
+        val vaultPda = deriveVaultPda(escrowPda.address)
+        val instructionData = buildReleaseInstructionData(assetUri, assetTitle)
+        Log.d(TAG, "Derived Escrow PDA for release: ${Base58.encodeToString(escrowPda.address)}")
+
+        val blockhash = SolanaRpc.getLatestBlockhash()
+            ?: throw IllegalStateException("Failed to fetch recent blockhash")
+
+        return buildSerializedMessage(
+            recentBlockhash = blockhash,
+            feePayer = decodeBase58(signerPubkey),
+            instructions = listOf(
+                Instruction(
+                    programId = decodeBase58(PROGRAM_ID),
+                    accounts = listOf(
+                        AccountMeta(decodeBase58(sellerPubkey), isSigner = false, isWritable = true),
+                        AccountMeta(escrowPda.address, isSigner = false, isWritable = true),
+                        AccountMeta(vaultPda.address, isSigner = false, isWritable = true),
+                        AccountMeta(decodeBase58(SYSTEM_PROGRAM), isSigner = false, isWritable = false),
                     ),
                     data = instructionData,
                 ),
@@ -366,30 +421,78 @@ object AnchorTransactionBuilder {
         joinToString("") { "%02x".format(it) }
 
     /**
-     * Find program-derived address (PDA).
+     * Find program-derived address (PDA) using the real Solana algorithm.
      *
-     * This calculates deterministic addresses matching the Anchor specs.
-     * PRODUCTION NOTE: This implementation relies on SHA-256 brute-forcing.
-     * While deterministic, ensure the resulting address does not collide with on-curve points.
+     * Hash: SHA256(seed_0 || ... || seed_n || bump_byte || program_id || "ProgramDerivedAddress")
+     * Iterates bump from 255 downTo 0, returns the first result that is NOT on the ed25519 curve.
      */
     private fun findProgramAddress(seeds: List<ByteArray>, programId: ByteArray): PdaResult {
         for (bump in 255 downTo 0) {
-            try {
-                val digest = MessageDigest.getInstance("SHA-256")
-                for (seed in seeds) {
-                    digest.update(seed)
-                }
-                digest.update(byteArrayOf(bump.toByte()))
-                digest.update(programId)
-                digest.update("ProgramDerivedAddress".toByteArray(Charsets.UTF_8))
-                val hash = digest.digest()
-                // Take first 32 bytes as the derived address
-                return PdaResult(hash.take(32).toByteArray(), bump)
-            } catch (_: Exception) {
-                continue
+            val digest = MessageDigest.getInstance("SHA-256")
+            for (seed in seeds) {
+                digest.update(seed)
+            }
+            digest.update(byteArrayOf(bump.toByte()))
+            digest.update(programId)
+            digest.update("ProgramDerivedAddress".toByteArray(Charsets.UTF_8))
+            val hash = digest.digest()
+            val candidate = hash.copyOf(32)
+            // A valid PDA must NOT be on the ed25519 curve
+            if (!isOnCurve(candidate)) {
+                return PdaResult(candidate, bump)
             }
         }
-        throw IllegalStateException("Could not find PDA")
+        throw IllegalStateException("Could not find PDA — all 256 bumps produced on-curve points")
+    }
+
+    /**
+     * Check if a 32-byte array represents a valid point on the ed25519 curve.
+     *
+     * Uses the compressed point decompression check: attempt to recover y^2 = x^3 + 486662*x^2 + x
+     * over the field GF(2^255 - 19). If the Legendre symbol indicates a quadratic residue, the point
+     * is on the curve.
+     *
+     * For Solana PDAs, we want this to return FALSE (off-curve).
+     */
+    private fun isOnCurve(point: ByteArray): Boolean {
+        if (point.size != 32) return false
+        try {
+            // ed25519 field prime p = 2^255 - 19
+            val p = java.math.BigInteger.TWO.pow(255).subtract(java.math.BigInteger.valueOf(19))
+
+            // Decode the y-coordinate from the compressed point (little-endian, clear top bit)
+            val yCopy = point.copyOf(32)
+            yCopy[31] = (yCopy[31].toInt() and 0x7F).toByte()
+            // Reverse to big-endian for BigInteger
+            val yBytes = yCopy.reversedArray()
+            val y = java.math.BigInteger(1, yBytes)
+
+            if (y >= p) return false
+
+            // ed25519 curve equation: -x^2 + y^2 = 1 + d*x^2*y^2
+            // Rearranged to solve for x^2: x^2 = (y^2 - 1) / (d*y^2 + 1)
+            val d = java.math.BigInteger("-121665")
+                .multiply(java.math.BigInteger("121666").modInverse(p))
+                .mod(p)
+
+            val y2 = y.modPow(java.math.BigInteger.TWO, p)
+            val numerator = y2.subtract(java.math.BigInteger.ONE).mod(p)
+            val denominator = d.multiply(y2).add(java.math.BigInteger.ONE).mod(p)
+
+            val denominatorInverse = denominator.modInverse(p)
+            val x2 = numerator.multiply(denominatorInverse).mod(p)
+
+            if (x2 == java.math.BigInteger.ZERO) return true
+
+            // Check if x^2 is a quadratic residue mod p using Euler's criterion:
+            // x^2 is a QR iff x^2^((p-1)/2) ≡ 1 (mod p)
+            val exp = p.subtract(java.math.BigInteger.ONE).divide(java.math.BigInteger.TWO)
+            val legendreSymbol = x2.modPow(exp, p)
+            return legendreSymbol == java.math.BigInteger.ONE
+        } catch (_: Exception) {
+            // If any math fails (e.g., no modular inverse), treat as on-curve to be safe
+            return true
+        }
     }
 
     // ══════════════════════════════════════════════════════════════

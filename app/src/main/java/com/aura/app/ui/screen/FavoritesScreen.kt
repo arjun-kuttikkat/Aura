@@ -39,7 +39,7 @@ import com.aura.app.ui.theme.Orange500
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FavoritesScreen() {
+fun FavoritesScreen(onNavigateToHome: () -> Unit = {}) {
     // In Phase 2, this will observe a real list from Room/Supabase
     val favoriteListings = emptyList<Any>() 
     
@@ -59,7 +59,7 @@ fun FavoritesScreen() {
             contentAlignment = Alignment.Center
         ) {
             if (favoriteListings.isEmpty()) {
-                EmptyFavoritesState()
+                EmptyFavoritesState(onNavigateToHome = onNavigateToHome)
             } else {
                 // Logic for displaying the grid of liked items will go here
                 Text("You have items!")
@@ -69,7 +69,7 @@ fun FavoritesScreen() {
 }
 
 @Composable
-private fun EmptyFavoritesState() {
+private fun EmptyFavoritesState(onNavigateToHome: () -> Unit = {}) {
     Column(
         modifier = Modifier.padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -112,7 +112,7 @@ private fun EmptyFavoritesState() {
         Spacer(modifier = Modifier.height(32.dp))
         
         Button(
-            onClick = { /* In phase 2, navigation to Home/Explore */ },
+            onClick = onNavigateToHome,
             colors = ButtonDefaults.buttonColors(containerColor = Orange500),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth().height(56.dp)

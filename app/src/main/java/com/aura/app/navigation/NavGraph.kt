@@ -86,11 +86,14 @@ fun NavGraph(
                 )
             }
             composable(Routes.FAVORITES) {
-                com.aura.app.ui.screen.FavoritesScreen()
+                com.aura.app.ui.screen.FavoritesScreen(
+                    onNavigateToHome = { navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } } }
+                )
             }
             composable(Routes.CHATS) {
                 com.aura.app.ui.screen.ChatsScreen(
-                    onNavigateToChat = { listingId -> navController.navigate(Routes.chatDetail(listingId)) }
+                    onNavigateToChat = { listingId -> navController.navigate(Routes.chatDetail(listingId)) },
+                    onNavigateToHome = { navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } } }
                 )
             }
             composable(Routes.REWARDS) {

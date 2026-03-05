@@ -55,19 +55,27 @@ CREATE TABLE IF NOT EXISTS public.directives (
 
 ALTER TABLE public.directives ENABLE ROW LEVEL SECURITY;
 
--- Basic Read Policies (For Hackathon ease)
-CREATE POLICY "Public profiles are viewable by everyone." 
+-- ── Read Policies ────────────────────────────────────────────────────────
+-- profiles & hotzones: public read (non-sensitive data)
+CREATE POLICY "Public profiles are viewable by everyone."
   ON public.profiles FOR SELECT USING (true);
 
-CREATE POLICY "Hotzones are public." 
+CREATE POLICY "Profiles updatable by owner"
+  ON public.profiles FOR UPDATE USING (
+    wallet_address = public.requesting_wallet()
+  );
+
+CREATE POLICY "Hotzones are public."
   ON public.hotzones FOR SELECT USING (true);
 
-CREATE POLICY "Turf streaks are public." 
+CREATE POLICY "Turf streaks are public."
   ON public.turf_streaks FOR SELECT USING (true);
 
+-- Directives: users only see their own quests
 CREATE POLICY "Users can see their own directives."
   ON public.directives FOR SELECT USING (
-    -- You should replace this with auth.uid() if using Supabase Auth.
-    -- For hackathon, if using raw wallet addresses from app:
-    true 
+    profile_id IN (
+      SELECT id FROM public.profiles
+      WHERE wallet_address = public.requesting_wallet()
+    )
   );

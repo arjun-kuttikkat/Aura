@@ -6,7 +6,8 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from "https://esm.sh/@solana/web3.js@1"
 
-const SOLANA_RPC = Deno.env.get("SOLANA_RPC_URL") || "https://api.devnet.solana.com"
+const SOLANA_RPC = Deno.env.get("SOLANA_RPC_URL")
+if (!SOLANA_RPC) throw new Error("SOLANA_RPC_URL env var is required — set in Supabase Edge Function secrets")
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 const APP_URL = Deno.env.get("APP_URL") || "https://aura.so"
@@ -128,13 +129,27 @@ serve(async (req: Request) => {
                 data,
             })
 
-            // Record the trade session
-            await supabase.from("trade_sessions").insert({
-                listing_id: listingId,
-                buyer_wallet: buyerPubkey.toBase58(),
-                seller_wallet: listing.seller_wallet,
-                state: "ESCROW_FUNDED",
-            })
+            // Idempotency guard: check for existing non-failed session for this listing+buyer
+            const { data: existingSession } = await supabase
+                .from("trade_sessions")
+                .select("id, state")
+                .eq("listing_id", listingId)
+                .eq("buyer_wallet", buyerPubkey.toBase58())
+                .not("state", "in", "(VERIFIED_FAIL,CANCELLED)")
+                .maybeSingle()
+
+            if (existingSession) {
+                // Re-return the same transaction without creating a duplicate session
+                // The escrow PDA is deterministic so the tx is the same
+            } else {
+                // Record the trade session
+                await supabase.from("trade_sessions").insert({
+                    listing_id: listingId,
+                    buyer_wallet: buyerPubkey.toBase58(),
+                    seller_wallet: listing.seller_wallet,
+                    state: "ESCROW_FUNDED",
+                })
+            }
 
             // Serialize transaction for client signing
             const serializedTx = tx.serialize({

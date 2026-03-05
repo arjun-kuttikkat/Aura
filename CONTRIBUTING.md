@@ -10,13 +10,13 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 ### Reporting Bugs
 
-1. Check if the bug has already been reported in [Issues](https://github.com/yourusername/aura-android/issues)
+1. Check if the bug has already been reported in [Issues](https://github.com/arjun-kuttikkat/Aura/issues)
 2. If not, create a new issue with:
    - A clear, descriptive title
    - Steps to reproduce the bug
    - Expected vs actual behavior
    - Screenshots (if applicable)
-   - Device/OS information
+   - Device/OS information and wallet app version
    - App version
 
 ### Suggesting Features
@@ -35,7 +35,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
    git checkout -b feature/your-feature-name
    ```
 3. **Make your changes**:
-   - Follow the code style guidelines
+   - Follow the code style guidelines below
    - Write or update tests
    - Update documentation if needed
 4. **Commit your changes**:
@@ -70,8 +70,9 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 - Keep composables small and focused
 - Use `@Preview` annotations for preview functions
-- Extract reusable components
+- Extract reusable components into `ui/components/`
 - Follow Material Design 3 guidelines
+- Use `remember` and `derivedStateOf` to avoid recomposition
 
 ### File Naming
 
@@ -81,30 +82,47 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 ### Architecture
 
-- Follow MVVM pattern
-- Keep business logic separate from UI
-- Use dependency injection where appropriate
-- Write unit tests for business logic
+- **Single-Activity** with Jetpack Navigation Compose (17 destinations)
+- **Repository pattern** — all data access through `AuraRepository`
+- **StateFlow** for reactive state management
+- Business logic in Repository / Manager classes, not in composables
+- Edge Functions handle all server-side validation (NFC, AI, minting)
 
 ## Development Setup
 
 1. Clone your fork:
    ```bash
-   git clone https://github.com/yourusername/aura-android.git
+   git clone https://github.com/<your-username>/Aura.git
    ```
 
-2. Open in Android Studio
+2. Create `local.properties` with required keys (see README)
 
-3. Sync Gradle dependencies
+3. Open in Android Studio Ladybug+
 
-4. Run the app to verify setup
+4. Sync Gradle dependencies
+
+5. Connect an NFC-capable Android device or emulator (API 26+)
+
+6. Run the app to verify setup
+
+## Edge Function Development
+
+Edge Functions live in `supabase/functions/`. To develop locally:
+
+```bash
+supabase start                     # Start local Supabase
+supabase functions serve <name>    # Hot-reload a single function
+```
+
+Each function is a standalone Deno module. Keep them stateless and idempotent.
 
 ## Testing
 
 - Write unit tests for new features
 - Test on multiple Android versions (API 26+)
 - Test on different screen sizes
-- Ensure no memory leaks
+- Test wallet flows with both Phantom and Solflare
+- Verify NFC flows on a physical device (emulators lack NFC)
 
 ## Review Process
 
@@ -117,4 +135,4 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 Feel free to open an issue for questions or reach out to maintainers.
 
-Thank you for contributing to Aura! 🎉
+Thank you for contributing to Aura!

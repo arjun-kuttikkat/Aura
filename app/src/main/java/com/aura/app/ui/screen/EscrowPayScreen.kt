@@ -78,6 +78,21 @@ fun EscrowPayScreen(
             )
         },
     ) { padding ->
+        if (session == null || listing == null) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("\u26A0\uFE0F", style = MaterialTheme.typography.displayMedium)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("No active trade session", style = MaterialTheme.typography.titleMedium)
+                Text("Start a trade from a listing first.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(onClick = onBack) { Text("Go Back") }
+            }
+            return@Scaffold
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -85,7 +100,7 @@ fun EscrowPayScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            listing?.let {
+            listing.let {
                 Text(
                     text = it.title,
                     style = MaterialTheme.typography.titleLarge,
@@ -223,14 +238,31 @@ fun EscrowPayScreen(
             errorMsg?.let { Text(it, color = com.aura.app.ui.theme.RadicalRed) }
             
             if (status == EscrowState.LOCKED || txSig != null) {
+                var showConfirmRelease by remember { mutableStateOf(false) }
+
                 Spacer(modifier = Modifier.weight(1f))
                 com.aura.app.ui.components.AuraPrimaryButton(
                     text = "Complete Trade & Release Goods",
-                    onClick = {
-                        AuraRepository.updateTradeState(TradeState.COMPLETE)
-                        onComplete()
-                    }
+                    onClick = { showConfirmRelease = true }
                 )
+
+                if (showConfirmRelease) {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { showConfirmRelease = false },
+                        title = { Text("Release Escrow?") },
+                        text = { Text("This will release SOL to the seller. This action cannot be undone.") },
+                        confirmButton = {
+                            androidx.compose.material3.TextButton(onClick = {
+                                showConfirmRelease = false
+                                AuraRepository.updateTradeState(TradeState.COMPLETE)
+                                onComplete()
+                            }) { Text("Release Funds", color = MaterialTheme.colorScheme.error) }
+                        },
+                        dismissButton = {
+                            androidx.compose.material3.TextButton(onClick = { showConfirmRelease = false }) { Text("Cancel") }
+                        }
+                    )
+                }
             }
         }
     }

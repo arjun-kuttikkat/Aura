@@ -20,6 +20,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         com.aura.app.data.AuraPreferences.init(applicationContext)
         com.aura.app.data.SupabaseClient.appContext = applicationContext
+        com.aura.app.data.AuraRepository.appContext = applicationContext
         WalletConnectionState.init { intent ->
             startActivity(intent)
         }
@@ -28,8 +29,6 @@ class MainActivity : ComponentActivity() {
         com.aura.app.data.DirectivesManager.generateDailyDirectives()
         
         lifecycleScope.launch {
-            // Force re-seed by clearing the flag
-            com.aura.app.data.OfficialListingSeeder.clearSeededFlag(applicationContext)
             OfficialListingSeeder.seedIfNeeded(applicationContext)
         }
         

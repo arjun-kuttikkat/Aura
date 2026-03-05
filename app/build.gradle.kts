@@ -30,6 +30,7 @@ android {
         buildConfigField("String", "SUPABASE_URL", "\"${localProps.getProperty("SUPABASE_URL", "")}\"")
         buildConfigField("String", "SUPABASE_KEY", "\"${localProps.getProperty("SUPABASE_KEY", "")}\"")
         buildConfigField("String", "GROQ_API_KEY", "\"${localProps.getProperty("GROQ_API_KEY", "")}\"")
+        buildConfigField("String", "CEREBRAS_API_KEY", "\"${localProps.getProperty("CEREBRAS_API_KEY", "")}\"")
         manifestPlaceholders["MAPS_API_KEY"] = localProps.getProperty("MAPS_API_KEY", "PLACEHOLDER_KEY")
     }
 
@@ -94,27 +95,20 @@ dependencies {
     // Coroutines Guava
     implementation(libs.kotlinx.coroutines.guava)
 
-    // Supabase
-    implementation("io.github.jan-tennert.supabase:postgrest-kt:3.1.4")
-    implementation("io.github.jan-tennert.supabase:realtime-kt:3.1.4")
-    implementation("io.github.jan-tennert.supabase:functions-kt:3.1.4")
-    implementation("io.ktor:ktor-client-okhttp:3.1.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
+    // Supabase (single declaration via version catalog)
+    implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.auth)
+    implementation(libs.supabase.storage)
+    implementation(libs.supabase.realtime)
+    implementation(libs.supabase.functions)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.kotlinx.serialization.json)
 
     // Encrypted Storage
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // Accompanist Permissions
     implementation(libs.accompanist.permissions)
-
-    // Supabase
-    implementation(libs.supabase.postgrest)
-    implementation(libs.supabase.auth)
-    implementation(libs.supabase.storage)
-    implementation(libs.supabase.realtime)
-    implementation(libs.supabase.functions)
-    implementation(libs.ktor.client.android)
-    implementation(libs.kotlinx.serialization.json)
 
     // Animation & Persistence
     implementation(libs.lottie.compose)

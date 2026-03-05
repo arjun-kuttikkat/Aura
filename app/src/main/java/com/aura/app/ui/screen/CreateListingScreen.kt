@@ -63,7 +63,7 @@ fun CreateListingScreen(
 
     // ── State ────────────────────────────────────────────────────────────────
     var showCamera by remember { mutableStateOf(false) }
-    var capturedImagePath by remember { mutableStateOf<String?>(null) }
+    var capturedImages by remember { mutableStateOf<List<String>>(emptyList()) }
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var priceSol by remember { mutableStateOf("") }
@@ -108,10 +108,11 @@ fun CreateListingScreen(
                 actions = {
                     TextButton(
                         onClick = {
+                            if (title.isBlank()) { errorMsg = "Please enter a title"; return@TextButton }
                             if (walletAddress == null) { errorMsg = "Wallet not connected"; return@TextButton }
                             val price = priceSol.toDoubleOrNull() ?: 0.0
                             if (price <= 0) { errorMsg = "Enter a valid price"; return@TextButton }
-                            if (capturedImagePath == null) { errorMsg = "Please add a photo"; return@TextButton }
+                            if (capturedImages.isEmpty()) { errorMsg = "Please add a photo"; return@TextButton }
                             if (!aiAnalyzed) { errorMsg = "Tap AI Analyze to verify your product"; return@TextButton }
                             isSubmitting = true
                             errorMsg = null
@@ -122,7 +123,7 @@ fun CreateListingScreen(
                                         title = title.ifBlank { "Untitled" },
                                         description = description,
                                         priceLamports = (price * 1_000_000_000).toLong(),
-                                        imageRefs = capturedImagePath?.let { listOf(it) } ?: emptyList(),
+                                        imageRefs = capturedImages,
                                         condition = condition,
                                     )
                                     // Minting is best-effort: if the Edge Function isn't deployed yet
@@ -226,7 +227,7 @@ fun CreateListingScreen(
                                             ContextCompat.getMainExecutor(context),
                                             object : ImageCapture.OnImageSavedCallback {
                                                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                                                    capturedImagePath = photoFile.absolutePath
+                                                    capturedImages = capturedImages + photoFile.absolutePath
                                                     showCamera = false
                                                     aiAnalyzed = false
                                                     aiTags = emptyList()
@@ -248,9 +249,9 @@ fun CreateListingScreen(
                             }
                         }
                     }
-                } else if (capturedImagePath != null) {
+                } else if (capturedImages.isNotEmpty()) {
                     AsyncImage(
-                        model = "file://$capturedImagePath",
+                        model = "file://${capturedImages.last()}",
                         contentDescription = "Product photo",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -264,7 +265,7 @@ fun CreateListingScreen(
                     ) {
                         IconButton(
                             onClick = {
-                                capturedImagePath = null
+                                capturedImages = emptyList()
                                 aiAnalyzed = false
                                 aiTags = emptyList()
                                 title = ""
@@ -337,10 +338,41 @@ fun CreateListingScreen(
                 }
             }
 
+            // ── Multi-photo Thumbnail Strip ──────────────────────────────────
+            if (capturedImages.size > 1) {
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(capturedImages) { path ->
+                        Box(modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp))) {
+                            AsyncImage(
+                                model = "file://$path",
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                            )
+                            IconButton(
+                                onClick = { capturedImages = capturedImages - path },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(20.dp)
+                                    .background(Color.Black.copy(0.6f), CircleShape),
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(12.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
 
             // ── AI Analyze Button ─────────────────────────────────────────────
-            if (capturedImagePath != null && !aiAnalyzed) {
+            if (capturedImages.isNotEmpty() && !aiAnalyzed) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -358,12 +390,12 @@ fun CreateListingScreen(
                                 aiError = null
                                 scope.launch {
                                     try {
-                                        val imageFile = File(capturedImagePath!!)
+                                        val imageFile = File(capturedImages.first())
                                         val imageBytes = imageFile.readBytes()
                                         val analysis = GroqAIService.analyzeProductImage(imageBytes)
                                         if (!analysis.isRelevant) {
                                             aiError = "❌ Item not suitable: ${analysis.rejectionReason ?: "Please upload a valid product photo"}"
-                                            capturedImagePath = null
+                                            capturedImages = emptyList()
                                         } else {
                                             title = analysis.title
                                             description = analysis.description

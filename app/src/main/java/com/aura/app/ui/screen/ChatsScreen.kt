@@ -51,15 +51,19 @@ import com.aura.app.ui.theme.Orange500
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatsScreen(
-    onNavigateToChat: (String) -> Unit = {}
+    onNavigateToChat: (String) -> Unit = {},
+    onNavigateToHome: () -> Unit = {},
 ) {
     val walletAddress by WalletConnectionState.walletAddress.collectAsState()
     var activeChats by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
 
+    var isLoading by remember { mutableStateOf(true) }
     LaunchedEffect(walletAddress) {
+        isLoading = true
         walletAddress?.let { wallet ->
             activeChats = ChatRepository.getMyConversations(wallet)
         }
+        isLoading = false
     }
     
     Scaffold(
@@ -77,8 +81,10 @@ fun ChatsScreen(
                 .padding(padding),
             contentAlignment = Alignment.Center
         ) {
-            if (activeChats.isEmpty()) {
-                EmptyChatsState()
+            if (isLoading) {
+                androidx.compose.material3.CircularProgressIndicator(color = Gold500)
+            } else if (activeChats.isEmpty()) {
+                EmptyChatsState(onNavigateToHome = onNavigateToHome)
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -155,7 +161,7 @@ fun ChatInboxRow(chatMessage: ChatMessage, onClick: () -> Unit) {
 }
 
 @Composable
-private fun EmptyChatsState() {
+private fun EmptyChatsState(onNavigateToHome: () -> Unit = {}) {
     Column(
         modifier = Modifier.padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -198,7 +204,7 @@ private fun EmptyChatsState() {
         Spacer(modifier = Modifier.height(32.dp))
         
         Button(
-            onClick = { /* In phase 2, navigation to Home/Explore */ },
+            onClick = onNavigateToHome,
             colors = ButtonDefaults.buttonColors(containerColor = Gold500),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth().height(56.dp)

@@ -16,7 +16,8 @@ import {
     createAssociatedTokenAccountInstruction,
 } from "https://esm.sh/@solana/spl-token"
 
-const SOLANA_RPC = Deno.env.get("SOLANA_RPC_URL") || "https://api.devnet.solana.com"
+const SOLANA_RPC = Deno.env.get("SOLANA_RPC_URL")
+if (!SOLANA_RPC) throw new Error("SOLANA_RPC_URL env var is required — set in Supabase Edge Function secrets")
 const AUTHORITY_KEY = JSON.parse(Deno.env.get("SOLANA_AUTHORITY_KEY") || "[]")
 const AURA_MINT = Deno.env.get("AURA_TOKEN_MINT") || ""
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!

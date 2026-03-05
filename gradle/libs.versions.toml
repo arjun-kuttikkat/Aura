@@ -22,10 +22,10 @@ multimult = "0.2.6"
 mlKit = "16.1.7"
 coroutines = "1.9.0"
 accompanist = "0.36.0"
-supabase = "3.0.0"
-ktor = "3.0.0"
+supabase = "3.1.4"
+ktor = "3.1.1"
 kotlinSerialization = "2.0.21"
-kotlinxSerializationJson = "1.7.3"
+kotlinxSerializationJson = "1.8.0"
 lottie = "6.6.0"
 datastore = "1.1.1"
 browser = "1.8.0"
@@ -74,7 +74,7 @@ supabase-auth = { group = "io.github.jan-tennert.supabase", name = "auth-kt", ve
 supabase-storage = { group = "io.github.jan-tennert.supabase", name = "storage-kt", version.ref = "supabase" }
 supabase-realtime = { group = "io.github.jan-tennert.supabase", name = "realtime-kt", version.ref = "supabase" }
 supabase-functions = { group = "io.github.jan-tennert.supabase", name = "functions-kt", version.ref = "supabase" }
-ktor-client-android = { group = "io.ktor", name = "ktor-client-android", version.ref = "ktor" }
+ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
 
 
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }

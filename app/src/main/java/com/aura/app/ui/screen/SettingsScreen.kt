@@ -31,6 +31,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -107,11 +112,9 @@ fun SettingsScreen(
             )
 
             Spacer(modifier = Modifier.height(24.dp))
+            var showDisconnectDialog by remember { mutableStateOf(false) }
             Button(
-                onClick = {
-                    WalletConnectionState.disconnect()
-                    onLogout()
-                },
+                onClick = { showDisconnectDialog = true },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -126,6 +129,23 @@ fun SettingsScreen(
                 Text(
                     if (walletAddress != null) "Disconnect Wallet" else "No Wallet Connected",
                     fontWeight = FontWeight.SemiBold,
+                )
+            }
+            if (showDisconnectDialog) {
+                AlertDialog(
+                    onDismissRequest = { showDisconnectDialog = false },
+                    title = { Text("Disconnect Wallet?") },
+                    text = { Text("Are you sure you want to disconnect? Active trade sessions may be affected.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showDisconnectDialog = false
+                            WalletConnectionState.disconnect()
+                            onLogout()
+                        }) { Text("Disconnect", color = MaterialTheme.colorScheme.error) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDisconnectDialog = false }) { Text("Cancel") }
+                    }
                 )
             }
             Spacer(modifier = Modifier.height(48.dp))

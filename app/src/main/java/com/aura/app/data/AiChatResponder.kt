@@ -27,8 +27,8 @@ object AiChatResponder {
 
     const val AURA_OFFICIAL_WALLET = "AURA_OFFICIAL_BOT"
     private const val TAG = "AiChatResponder"
-    private const val BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
-    private const val MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+    private const val BASE_URL = "https://api.cerebras.ai/v1/chat/completions"
+    private const val MODEL = "gpt-oss-120b"
 
     private fun buildSystemPrompt(listing: Listing): String = """
 You are Aura's personal wellness companion — warm, empathetic, and human.
@@ -81,7 +81,7 @@ Conversation flow:
             val url = URL(BASE_URL)
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
-            conn.setRequestProperty("Authorization", "Bearer ${BuildConfig.GROQ_API_KEY}")
+            conn.setRequestProperty("Authorization", "Bearer ${BuildConfig.CEREBRAS_API_KEY}")
             conn.setRequestProperty("Content-Type", "application/json")
             conn.doOutput = true
             conn.connectTimeout = 30_000
@@ -92,7 +92,7 @@ Conversation flow:
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val response = BufferedReader(InputStreamReader(stream)).use { it.readText() }
 
-            if (code !in 200..299) throw Exception("Groq error $code: $response")
+            if (code !in 200..299) throw Exception("Cerebras error $code: $response")
 
             val json = Json.parseToJsonElement(response)
             json.jsonObject["choices"]

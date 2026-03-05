@@ -187,9 +187,10 @@ fun ChatDetailScreen(
 
                 Spacer(modifier = Modifier.width(12.dp))
 
+                val canSend = inputText.isNotBlank() && walletAddress != null && listing != null
                 IconButton(
                     onClick = {
-                        if (inputText.isNotBlank() && walletAddress != null && listing != null) {
+                        if (canSend) {
                             val userMsg = ChatMessage(
                                 id = UUID.randomUUID().toString(),
                                 listingId = listingId,
@@ -222,8 +223,13 @@ fun ChatDetailScreen(
                             }
                         }
                     },
+                    enabled = canSend,
                     modifier = Modifier
-                        .background(if (isOfficialBot) UltraViolet else Orange500, CircleShape)
+                        .background(
+                            if (!canSend) Color.Gray.copy(alpha = 0.3f)
+                            else if (isOfficialBot) UltraViolet else Orange500,
+                            CircleShape
+                        )
                         .size(48.dp)
                 ) {
                     Icon(
