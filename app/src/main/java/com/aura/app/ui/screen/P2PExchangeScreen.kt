@@ -109,7 +109,7 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
     
     // Handle NFC Reader state based on mode
     DisposableEffect(mode, isLivenessVerified) {
-        if (mode == ExchangeMode.RECEIVE && isLivenessVerified) {
+        if (mode == ExchangeMode.RECEIVE && isLivenessVerified && walletAddress != null) {
             // Disable reader so HCE can broadcast
             NfcHandoverManager.disable(context)
             val amount = receiveAmount.toDoubleOrNull() ?: 0.0
@@ -292,14 +292,15 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Spacer(modifier = Modifier.height(16.dp))
+                            val isValidAmount = receiveAmount.toDoubleOrNull()?.let { it > 0 } == true
                             Button(
                                 onClick = {
-                                    if (receiveAmount.isNotEmpty()) {
+                                    if (isValidAmount) {
                                         isLivenessVerifying = true
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
-                                enabled = receiveAmount.isNotEmpty()
+                                enabled = isValidAmount
                             ) {
                                 Text("Generate Secure Request")
                             }

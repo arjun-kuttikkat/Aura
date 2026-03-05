@@ -106,7 +106,12 @@ class AuraHceService : HostApduService() {
     }
 
     private fun constructNdefFile(): ByteArray {
-        val tradeId = AuraRepository.currentTradeSession.value?.id ?: "DEMO_TRADE_XYZ"
+        val tradeId = AuraRepository.currentTradeSession.value?.id
+        if (tradeId == null) {
+            // No active trade session — refuse to emit HCE data
+            Log.w(TAG, "No active trade session — HCE service cannot construct NDEF")
+            return byteArrayOf()  // Return empty file; reader will see no NDEF record
+        }
         val quickReceiveUrl = AuraRepository.activeQuickReceiveUri.value
         val url = quickReceiveUrl ?: "https://aura.so/pay/$tradeId"
         Log.d(TAG, "Constructing NDEF for URL: $url")

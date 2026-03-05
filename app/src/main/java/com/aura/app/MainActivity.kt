@@ -14,6 +14,9 @@ import com.aura.app.ui.theme.AuraTheme
 import com.aura.app.ui.theme.DarkBase
 import com.aura.app.util.NfcHandoverManager
 import com.aura.app.wallet.WalletConnectionState
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import com.aura.app.data.OfficialListingSeeder
 
 class MainActivity : ComponentActivity() {
 
@@ -36,6 +39,7 @@ class MainActivity : ComponentActivity() {
         try {
             com.aura.app.data.AuraPreferences.init(applicationContext)
             com.aura.app.data.SupabaseClient.appContext = applicationContext
+            com.aura.app.data.AuraRepository.appContext = applicationContext
             WalletConnectionState.init { intent ->
                 startActivity(intent)
             }
@@ -50,6 +54,10 @@ class MainActivity : ComponentActivity() {
                 Log.w("MainActivity", "HotzoneManager init failed", e)
             }
             com.aura.app.data.DirectivesManager.generateDailyDirectives()
+            lifecycleScope.launch {
+                OfficialListingSeeder.seedIfNeeded(applicationContext)
+                com.aura.app.data.AuraRepository.refreshListingsAwait()
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "Init failed", e)
         }

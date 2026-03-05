@@ -66,7 +66,7 @@ fun ShimmerListingCard(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF1E293B))
+            .background(com.aura.app.ui.theme.SlateElevated)
             .padding(12.dp),
     ) {
         // Image placeholder

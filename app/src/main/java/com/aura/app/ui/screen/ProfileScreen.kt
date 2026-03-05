@@ -1,15 +1,14 @@
 package com.aura.app.ui.screen
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -27,7 +26,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -35,10 +33,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
@@ -46,14 +48,14 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,40 +65,35 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.content.Intent
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.sp
+import com.aura.app.ui.theme.UltraViolet
 import com.aura.app.data.AuraRepository
-import com.aura.app.navigation.LocalBottomNavInset
 import com.aura.app.model.TrustTier
-import com.aura.app.ui.components.AuraHaptics
-import com.aura.app.ui.components.AuraScoreRing
-import com.aura.app.ui.components.GlassCard
 import com.aura.app.ui.components.MainTopBar
-import com.aura.app.ui.theme.AuraAnimations
-import com.aura.app.ui.theme.DarkBase
+import com.aura.app.ui.theme.GlassBorder
 import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.Gold500
-import com.aura.app.ui.theme.GlassBorder
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SuccessGreen
-import com.aura.app.ui.util.pulseGlow
 import com.aura.app.ui.util.springScale
 import com.aura.app.wallet.WalletConnectionState
-
+import com.aura.app.data.AvatarPreferences
+import com.aura.app.ui.avatar.AvatarCanvas
+import com.aura.app.navigation.Routes
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     onVerifyIdentity: () -> Unit,
+    onNavigate: (String) -> Unit = {},
 ) {
     val pubkey by WalletConnectionState.walletAddress.collectAsState()
-    val profile by AuraRepository.currentProfile.collectAsState(initial = null)
-    val haptic = LocalHapticFeedback.current
-    val context = LocalContext.current
+    val profile by AuraRepository.currentProfile.collectAsState()
 
     LaunchedEffect(pubkey) {
         pubkey?.let { AuraRepository.loadProfile(it) }
@@ -130,20 +127,13 @@ fun ProfileScreen(
         streakRaw >= 8 -> 1
         else -> 0
     }
-    val tierGlowColor = when (tier) {
-        TrustTier.PLATINUM -> Color(0xFFE040FB)
-        TrustTier.GOLD -> Gold500
-        TrustTier.SILVER -> Color(0xFFC0C0C0)
-        TrustTier.BRONZE -> Color(0xFFCD7F32)
-        TrustTier.NEW -> Orange500
-    }
     val nftStages = listOf("Seed 🌱", "Sprout 🌿", "Tree 🌳", "Aura ✨")
     val nftStageThresholds = listOf(0, 8, 31, 90)
     val nftStageColors = listOf(
-        Color(0xFF4CAF50), // Seed - green
-        Color(0xFF00BCD4), // Sprout - cyan
-        Color(0xFFFF9800), // Tree - orange
-        Color(0xFF9C27B0), // Aura - purple
+        Color(0xFF141414), // Seed
+        Color(0xFFE65100), // Sprout - orange700
+        Color(0xFFFF9800), // Tree - orange500
+        Color(0xFFFFD700), // Aura - gold
     )
     val nextThreshold = if (nftStageIndex < 3) nftStageThresholds[nftStageIndex + 1] else 90
     val currentThreshold = nftStageThresholds[nftStageIndex]
@@ -154,29 +144,23 @@ fun ProfileScreen(
     // Profile customization state
     val displayName by com.aura.app.data.AuraPreferences.displayName.collectAsState()
     val userBio by com.aura.app.data.AuraPreferences.bio.collectAsState()
-    val avatarColorIndex by com.aura.app.data.AuraPreferences.avatarColorIndex.collectAsState()
+    val avatarConfig by AvatarPreferences.avatarConfigFlow(LocalContext.current).collectAsState(initial = com.aura.app.model.AvatarConfig())
+    val creditsBalance by AvatarPreferences.creditsFlow(LocalContext.current).collectAsState(initial = 0)
     var showNameDialog by remember { mutableStateOf(false) }
     var showBioDialog by remember { mutableStateOf(false) }
     var editingText by remember { mutableStateOf("") }
 
     val avatarPalette = listOf(
         Color(0xFFFF6B35), // Ember
-        Color(0xFF9945FF), // Solana Purple
-        Color(0xFF14F195), // Solana Green
-        Color(0xFF00BCD4), // Cyan
+        Color(0xFFFF9800), // Orange
+        Color(0xFFFFD700), // Gold
+        Color(0xFFE65100), // Dark Orange
         Color(0xFFE91E63), // Rose
     )
 
     Scaffold(
         topBar = { MainTopBar(title = "Profile") },
-        containerColor = DarkBase,
     ) { padding ->
-        var contentVisible by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) {
-            kotlinx.coroutines.delay(100)
-            contentVisible = true
-        }
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -186,66 +170,47 @@ fun ProfileScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // ── Dynamic Aura Core ──
-            val isDegraded = remember(profile?.lastScanAt) {
-                profile?.lastScanAt?.let { lastScan ->
-                    try {
-                        val last = java.time.OffsetDateTime.parse(lastScan)
-                        val hours = java.time.temporal.ChronoUnit.HOURS.between(last, java.time.OffsetDateTime.now())
-                        hours > 48
-                    } catch (_: Exception) { false }
-                } ?: false
+            // ── Snapcode-style Avatar Frame ──
+            Box(
+                modifier = Modifier
+                    .padding(top = 20.dp, bottom = 10.dp)
+                    .size(220.dp)
+                    .clip(RoundedCornerShape(48.dp))
+                    .background(Brush.linearGradient(
+                        listOf(Orange500, Gold500)
+                    ))
+                    .border(6.dp, Color.White.copy(alpha = 0.9f), RoundedCornerShape(48.dp)),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                // Avatar sticking up from the bottom of the card
+                AvatarCanvas(
+                    config = avatarConfig,
+                    animate = true,
+                    modifier = Modifier
+                        .size(190.dp)
+                        .padding(bottom = 10.dp)
+                )
             }
 
-            AnimatedVisibility(
-                visible = contentVisible,
-                enter = fadeIn(tween(400)) + slideInVertically(
-                    initialOffsetY = { 50 },
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-                )
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    // Avatar Glow
-                    Box(
-                        modifier = Modifier
-                            .size(180.dp)
-                            .clip(CircleShape)
-                            .background(Brush.radialGradient(listOf(SuccessGreen.copy(alpha = 0.2f), Color.Transparent)))
-                    )
-                    com.aura.app.ui.components.AuraCoreRenderer(
-                        streakDays = streakRaw,
-                        auraScore = trustScoreRaw,
-                        isDegraded = isDegraded,
-                        size = 160.dp,
-                    )
-                    Text(
-                        pubkey?.take(2)?.uppercase() ?: "?",
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White.copy(alpha = 0.9f),
-                )
-                }
-            }
-
-            AnimatedVisibility(
-                visible = contentVisible,
-                enter = fadeIn(tween(400, delayMillis = 100)) + slideInVertically(
-                    initialOffsetY = { 50 },
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-                )
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    // ── Display Name (tap to edit) ──
-                    Text(
+            // ── Display Name (tap to edit) ──
+            Text(
                 text = displayName.ifBlank { "Tap to set name" },
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Black,
                 color = if (displayName.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.onSurface,
+                else Color.White,
                 modifier = Modifier.clickable {
                     editingText = displayName
                     showNameDialog = true
                 },
+            )
+
+            // Wallet address (username style)
+            Text(
+                pubkey?.let { "@${it.take(5)}...${it.takeLast(4)}".lowercase() } ?: "Not connected",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
             )
 
             // ── Bio (tap to edit) ──
@@ -253,53 +218,51 @@ fun ProfileScreen(
                 text = userBio.ifBlank { "Tap to add bio" },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.clickable {
-                    editingText = userBio
-                    showBioDialog = true
-                },
+                modifier = Modifier
+                    .padding(bottom = 8.dp)
+                    .clickable {
+                        editingText = userBio
+                        showBioDialog = true
+                    },
             )
 
-            // Wallet address
-            Text(
-                pubkey?.let { "${it.take(6)}...${it.takeLast(4)}" } ?: "Not connected",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            )
-
-            // ── Avatar Color Picker ──
+            // ── Edit Profile & Shop Buttons ──
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("Aura Tint: ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                avatarPalette.forEachIndexed { index, color ->
-                    val isSelected = index == avatarColorIndex
-                    Box(
-                        modifier = Modifier
-                            .size(if (isSelected) 36.dp else 28.dp)
-                            .padding(2.dp)
-                            .clip(CircleShape)
-                            .background(color)
-                            .then(
-                                if (isSelected) Modifier.border(2.dp, Color.White, CircleShape)
-                                else Modifier
-                            )
-                            .clickable { com.aura.app.data.AuraPreferences.setAvatarColorIndex(index) },
-                    )
-                    if (index < avatarPalette.size - 1) Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = { showNameDialog = true },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Text("Edit Profile", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                Button(
+                    onClick = { onNavigate(Routes.AVATAR_STORE) },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = UltraViolet)
+                ) {
+                    Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Shop", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
-            } // End of Column
-            } // End of User Info AnimatedVisibility
 
             // ── Trust Score card ──
-            AnimatedVisibility(
-                visible = contentVisible,
-                enter = fadeIn(tween(400, delayMillis = 200)) + slideInVertically(
-                    initialOffsetY = { 50 },
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-                )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Orange500.copy(alpha = 0.12f), Gold500.copy(alpha = 0.08f)),
+                        ),
+                    )
+                    .border(1.dp, GlassBorder, RoundedCornerShape(20.dp))
+                    .padding(20.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -319,7 +282,7 @@ fun ProfileScreen(
                         }
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.LocalFireDepartment, contentDescription = null, tint = Orange500, modifier = Modifier.size(32.dp).pulseGlow())
+                        Icon(Icons.Default.LocalFireDepartment, contentDescription = null, tint = Orange500, modifier = Modifier.size(32.dp))
                         Text("$streak", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Orange500)
                         Text("day streak", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -327,13 +290,6 @@ fun ProfileScreen(
             }
 
             // ── NFT Evolution card (visual progress) ──
-            AnimatedVisibility(
-                visible = contentVisible,
-                enter = fadeIn(tween(400, delayMillis = 300)) + slideInVertically(
-                    initialOffsetY = { 50 },
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-                )
-            ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -407,20 +363,11 @@ fun ProfileScreen(
                     }
                 }
             }
-            }
 
             val context = androidx.compose.ui.platform.LocalContext.current
             val isVerified by com.aura.app.data.AuraPreferences.identityVerified.collectAsState()
 
-            AnimatedVisibility(
-                visible = contentVisible,
-                enter = fadeIn(tween(400, delayMillis = 400)) + slideInVertically(
-                    initialOffsetY = { 50 },
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-                )
-            ) {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                if (isVerified) {
+            if (isVerified) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -491,10 +438,92 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Share Profile", fontWeight = FontWeight.Medium)
             }
-            } // End of Column
-            } // End of bottom buttons AnimatedVisibility
 
-            Spacer(modifier = Modifier.height(LocalBottomNavInset.current))
+            // ── Quick Actions Grid ──
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Quick Actions",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Directives
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(com.aura.app.ui.theme.UltraViolet.copy(alpha = 0.12f))
+                        .border(1.dp, com.aura.app.ui.theme.UltraViolet.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                        .clickable { onNavigate(com.aura.app.navigation.Routes.DIRECTIVES) }
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = com.aura.app.ui.theme.UltraViolet, modifier = Modifier.size(28.dp))
+                        Text("Directives", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = com.aura.app.ui.theme.UltraViolet)
+                    }
+                }
+                // Quick Pay
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(com.aura.app.ui.theme.SolanaGreen.copy(alpha = 0.12f))
+                        .border(1.dp, com.aura.app.ui.theme.SolanaGreen.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                        .clickable { onNavigate(com.aura.app.navigation.Routes.P2P_EXCHANGE) }
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.Send, contentDescription = null, tint = com.aura.app.ui.theme.SolanaGreen, modifier = Modifier.size(28.dp))
+                        Text("Quick Pay", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = com.aura.app.ui.theme.SolanaGreen)
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Create Listing
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Orange500.copy(alpha = 0.12f))
+                        .border(1.dp, Orange500.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                        .clickable { onNavigate(com.aura.app.navigation.Routes.CREATE_LISTING) }
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = Orange500, modifier = Modifier.size(28.dp))
+                        Text("Create Listing", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Orange500)
+                    }
+                }
+                // Settings
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .border(1.dp, GlassBorder, RoundedCornerShape(16.dp))
+                        .clickable { onNavigate(com.aura.app.navigation.Routes.SETTINGS) }
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
+                        Text("Settings", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 
@@ -546,44 +575,5 @@ fun ProfileScreen(
                 androidx.compose.material3.TextButton(onClick = { showBioDialog = false }) { Text("Cancel") }
             },
         )
-    }
-}
-
-@Composable
-fun RowScope.StatGlassCard(
-    title: String,
-    value: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-) {
-    GlassCard(
-        modifier = Modifier.weight(1f),
-        glowColor = Orange500,
-        cornerRadius = 16.dp,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = Orange500,
-                modifier = Modifier.size(24.dp),
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                value,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = Orange500,
-            )
-            Text(
-                title,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 }

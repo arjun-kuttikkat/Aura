@@ -1,16 +1,6 @@
 package com.aura.app.ui.screen
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.runtime.LaunchedEffect
-import kotlinx.coroutines.delay
-import androidx.compose.ui.draw.scale
-import com.aura.app.ui.util.pulseGlow
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -19,12 +9,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
@@ -33,24 +24,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.BrokenImage
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,19 +48,28 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import coil.compose.SubcomposeAsyncImage
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import com.aura.app.data.AuraRepository
-import com.aura.app.navigation.LocalBottomNavInset
-import com.aura.app.model.Listing
-import com.aura.app.ui.components.GlassCard
-import com.aura.app.ui.theme.DarkBase
-import com.aura.app.model.MintedStatus
-import com.aura.app.model.TradeSession
-import com.aura.app.ui.theme.Orange500
-import com.aura.app.ui.theme.Orange500
-import com.aura.app.ui.theme.Gold500
 import com.aura.app.data.TradeRiskOracle
+import com.aura.app.model.Listing
+import com.aura.app.model.MintedStatus
+import com.aura.app.model.ProfileDto
+import com.aura.app.model.TradeSession
+import com.aura.app.ui.theme.DarkVoid
+import com.aura.app.ui.theme.GlassBorder
+import com.aura.app.ui.theme.GlassSurface
+import com.aura.app.ui.theme.Gold500
+import com.aura.app.ui.theme.Orange500
+import com.aura.app.ui.theme.SlateElevated
+import com.aura.app.ui.theme.SlateLight
+import com.aura.app.util.CryptoPriceFormatter
 import com.aura.app.wallet.WalletConnectionState
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,314 +78,400 @@ fun ListingDetailScreen(
     tradeSession: TradeSession?,
     onStartMeetup: () -> Unit,
     onBack: () -> Unit,
+    onChatClicked: () -> Unit = {},
 ) {
     val listing = AuraRepository.getListing(listingId)
     val walletAddress by WalletConnectionState.walletAddress.collectAsState()
-    
-    // Animation states
-    var isImageLoaded by remember { mutableStateOf<Boolean>(false) }
-    var contentVisible by remember { mutableStateOf<Boolean>(false) }
-    val imageScale by animateFloatAsState(
-        targetValue = if (isImageLoaded) 1.0f else 0.95f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy)
-    )
-
-    LaunchedEffect(Unit) {
-        delay(50) // Slight delay to ensure layout pass before triggering cascade
-        contentVisible = true
-    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(listing?.title ?: "Listing", fontWeight = FontWeight.SemiBold) },
+                title = { },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = DarkBase,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
                 ),
-                windowInsets = WindowInsets.statusBars,
             )
         },
-        containerColor = DarkBase,
+        containerColor = DarkVoid,
     ) { padding ->
         if (listing == null) {
-            Text("Listing not found", modifier = Modifier.padding(padding))
+            Column(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    Icons.Default.BrokenImage,
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Listing not found", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(onClick = onBack) { Text("Go Back") }
+            }
             return@Scaffold
         }
-        val l = listing
+
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
+                .background(SlateElevated)
                 .padding(padding)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 120.dp),
         ) {
+            // ── Hero Image ─────────────────────────────────────────────────
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
-                    .scale(imageScale)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Orange500.copy(alpha = 0.15f),
-                                DarkBase,
-                            ),
-                        ),
-                    )
-                    .border(0.5.dp, Orange500.copy(alpha = 0.2f), RoundedCornerShape(0.dp, 0.dp, 24.dp, 24.dp)),
+                    .clip(RoundedCornerShape(0.dp)),
             ) {
-                val imageUrl = l.images.firstOrNull()
-                if (imageUrl != null && imageUrl.isNotBlank()) {
-                    val context = androidx.compose.ui.platform.LocalContext.current
+                val imageUrl = listing.images.firstOrNull()?.takeIf { it.isNotBlank() }
+                val context = androidx.compose.ui.platform.LocalContext.current
+                if (imageUrl != null) {
                     val modelData = if (imageUrl.startsWith("/")) "file://$imageUrl" else imageUrl
                     coil.compose.SubcomposeAsyncImage(
                         model = coil.request.ImageRequest.Builder(context)
                             .data(modelData)
                             .crossfade(true)
                             .build(),
-                        contentDescription = l.title,
-                        modifier = Modifier.fillMaxWidth().scale(imageScale),
-                        onSuccess = { isImageLoaded = true },
+                        contentDescription = listing.title,
+                        modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
                         error = {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(200.dp)
+                                    .fillMaxSize()
                                     .background(
                                         Brush.linearGradient(
-                                            colors = listOf(Orange500.copy(alpha = 0.2f), Orange500.copy(alpha = 0.1f)),
+                                            listOf(Orange500.copy(alpha = 0.15f), Gold500.copy(alpha = 0.08f)),
                                         ),
                                     ),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(
-                                    Icons.Default.BrokenImage,
-                                    contentDescription = null,
-                                    tint = Orange500.copy(alpha = 0.4f),
-                                    modifier = Modifier.size(48.dp),
-                                )
+                                Icon(Icons.Default.BrokenImage, null, modifier = Modifier.size(48.dp), tint = Orange500.copy(alpha = 0.5f))
                             }
                         },
                         loading = {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(200.dp)
-                                    .background(
-                                        Brush.linearGradient(
-                                            colors = listOf(Orange500.copy(alpha = 0.08f), Orange500.copy(alpha = 0.04f)),
-                                        ),
-                                    ),
-                                contentAlignment = Alignment.Center,
-                            ) {}
+                                    .fillMaxSize()
+                                    .background(SlateElevated),
+                            )
                         },
                     )
                 } else {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .fillMaxSize()
                             .background(
                                 Brush.linearGradient(
-                            colors = listOf(Orange500.copy(alpha = 0.25f), Orange500.copy(alpha = 0.12f)),
-                        ),
+                                    listOf(Orange500.copy(alpha = 0.2f), Gold500.copy(alpha = 0.1f)),
+                                ),
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(64.dp), tint = Orange500.copy(alpha = 0.5f))
+                        Icon(Icons.Default.BrokenImage, null, modifier = Modifier.size(48.dp), tint = Orange500.copy(alpha = 0.5f))
                     }
                 }
+                // Status badge
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(20.dp)
+                        .padding(16.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .background(
-                            when (l.mintedStatus) {
+                            when (listing.mintedStatus) {
                                 MintedStatus.VERIFIED -> Orange500
                                 MintedStatus.MINTED -> Gold500
-                                MintedStatus.PENDING -> MaterialTheme.colorScheme.outline
-                                MintedStatus.SOLD -> Color(0xFF4CAF50)
+                                MintedStatus.PENDING -> SlateLight.copy(alpha = 0.9f)
+                                MintedStatus.SOLD -> SlateLight.copy(alpha = 0.9f)
                             },
-                            RoundedCornerShape(12.dp),
                         )
-                        .border(0.5.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        if (l.mintedStatus == MintedStatus.VERIFIED || l.mintedStatus == MintedStatus.SOLD) {
-                            Icon(
-                                Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                                tint = Color.White,
-                            )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (listing.mintedStatus == MintedStatus.VERIFIED) {
+                            Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(14.dp), tint = Color.White)
                         }
                         Text(
-                            text = when (l.mintedStatus) {
+                            when (listing.mintedStatus) {
                                 MintedStatus.PENDING -> "Pending"
                                 MintedStatus.MINTED -> "Minted"
                                 MintedStatus.VERIFIED -> "Verified"
                                 MintedStatus.SOLD -> "Sold"
                             },
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onPrimary,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }
             }
-            
-            AnimatedVisibility(
-                visible = contentVisible,
-                enter = fadeIn(tween(400, delayMillis = 100)) + slideInVertically(
-                    initialOffsetY = { 100 },
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-                )
+
+            // ── Premium content card (overlaps image slightly) ──────────────
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset(0.dp, (-24).dp)
+                    .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                    .background(SlateElevated)
+                    .border(0.5.dp, GlassBorder, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
+                // Title + Price
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        listing.title,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Bottom,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                    Text(
-                        text = l.title,
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = "%.2f SOL ◎".format(l.priceLamports / 1_000_000_000.0),
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = Orange500,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.pulseGlow()
-                    )
-                    }
-                    GlassCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        glowColor = Orange500,
-                    cornerRadius = 16.dp,
-                    ) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Text("Condition", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(l.condition, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text("Seller", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            CryptoPriceFormatter.formatLamports(listing.priceLamports),
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = Orange500,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(GlassSurface)
+                                .border(0.5.dp, GlassBorder, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                        ) {
                             Text(
-                                "${l.sellerWallet.take(6)}...${l.sellerWallet.takeLast(4)}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                listing.condition,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Medium,
                             )
                         }
                     }
+                }
 
-                    // ── AI Trade-Risk Oracle ──────────────────────────────
-                    val sellerProfile = AuraRepository.currentProfile.collectAsState().value
-                    val riskAssessment = remember(sellerProfile, l) {
-                        TradeRiskOracle.evaluate(sellerProfile, l)
-                    }
+                val scope = rememberCoroutineScope()
+                var isStartingTrade by remember { mutableStateOf(false) }
+                var tradeError by remember { mutableStateOf<String?>(null) }
+                var showBuyConfirm by remember { mutableStateOf(false) }
+                val isSeller = walletAddress == listing.sellerWallet
 
-                    val riskColor = when (riskAssessment.level) {
-                        TradeRiskOracle.RiskLevel.LOW -> Orange500
-                        TradeRiskOracle.RiskLevel.MEDIUM -> Gold500
-                        TradeRiskOracle.RiskLevel.HIGH -> Orange500
-                        TradeRiskOracle.RiskLevel.CRITICAL -> Color.Red
-                    }
-                    val riskIcon = when (riskAssessment.level) {
-                        TradeRiskOracle.RiskLevel.LOW -> Icons.Default.CheckCircle
-                        else -> Icons.Filled.Warning
-                    }
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = riskColor.copy(alpha = 0.08f)
-                        ),
-                        shape = RoundedCornerShape(16.dp),
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                // ── Action buttons (high up, prominent) ────────────────────
+                if (!isSeller) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(
+                            onClick = { showBuyConfirm = true },
+                            enabled = walletAddress != null && listing.mintedStatus != MintedStatus.SOLD && !isStartingTrade,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.Transparent,
+                                disabledContainerColor = SlateLight.copy(alpha = 0.5f),
+                            ),
+                            contentPadding = PaddingValues(),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(
+                                        Brush.linearGradient(listOf(Orange500, Gold500)),
+                                    ),
+                                contentAlignment = Alignment.Center,
                             ) {
-                                Icon(
-                                    riskIcon,
-                                    contentDescription = null,
-                                    tint = riskColor,
-                                    modifier = Modifier.size(24.dp),
-                                )
-                                Text(
-                                    "AI Risk: ${riskAssessment.level.name}",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = riskColor,
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                riskAssessment.recommendation,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            if (riskAssessment.flags.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                riskAssessment.flags.forEach { flag ->
+                                if (isStartingTrade) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = DarkVoid)
+                                } else {
                                     Text(
-                                        "• $flag",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = riskColor.copy(alpha = 0.8f),
+                                        when {
+                                            listing.mintedStatus == MintedStatus.SOLD -> "Sold"
+                                            walletAddress != null -> "Buy Now"
+                                            else -> "Connect Wallet"
+                                        },
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = DarkVoid,
+                                        fontWeight = FontWeight.Bold,
                                     )
                                 }
                             }
                         }
+                        OutlinedButton(
+                            onClick = onChatClicked,
+                            enabled = walletAddress != null,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Orange500),
+                            border = BorderStroke(1.dp, Orange500.copy(alpha = 0.6f)),
+                        ) {
+                            Text("Message Seller", fontWeight = FontWeight.SemiBold)
+                        }
                     }
 
-                    Button(
-                        onClick = {
-                            walletAddress?.let { wallet ->
-                                AuraRepository.createTradeSession(
-                                    listingId = l.id,
-                                    buyerWallet = wallet,
-                                    sellerWallet = l.sellerWallet,
-                                )
-                                onStartMeetup()
-                            }
-                        },
-                        enabled = walletAddress != null && l.mintedStatus != MintedStatus.SOLD,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(58.dp),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Orange500,
-                            contentColor = Color.Black,
-                        ),
-                    ) {
-                        Text(
-                            when {
-                                l.mintedStatus == MintedStatus.SOLD -> "Sold"
-                                walletAddress != null -> "Start Meetup / Buy"
-                                else -> "Connect Wallet First"
+                    if (showBuyConfirm) {
+                        AlertDialog(
+                            onDismissRequest = { showBuyConfirm = false },
+                            title = { Text("Start trade", fontWeight = FontWeight.Bold) },
+                            text = { Text("Meet the seller and verify the item before payment.", style = MaterialTheme.typography.bodyMedium) },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    showBuyConfirm = false
+                                    walletAddress?.let { wallet ->
+                                        isStartingTrade = true
+                                        scope.launch {
+                                            try {
+                                                AuraRepository.createTradeSession(
+                                                    listingId = listing.id,
+                                                    buyerWallet = wallet,
+                                                    sellerWallet = listing.sellerWallet,
+                                                )
+                                                onStartMeetup()
+                                            } catch (e: Exception) {
+                                                tradeError = e.message ?: "Failed"
+                                            } finally {
+                                                isStartingTrade = false
+                                            }
+                                        }
+                                    }
+                                }) { Text("Start Meetup", color = Orange500, fontWeight = FontWeight.Bold) }
                             },
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleMedium,
+                            dismissButton = {
+                                TextButton(onClick = { showBuyConfirm = false }) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            },
                         )
                     }
-                    Spacer(modifier = Modifier.height(LocalBottomNavInset.current))
+                    tradeError?.let {
+                        Text(it, color = Color.Red, style = MaterialTheme.typography.bodySmall)
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(GlassSurface)
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("Your listing", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                // ── Description (minimal) ───────────────────────────────────
+                if (listing.description.isNotBlank()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "Details",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            listing.description,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 1.4f,
+                        )
+                    }
+                }
+
+                // ── AI Risk Assessment (why risk is high) ───────────────────
+                val riskAssessment = remember(listing) {
+                    TradeRiskOracle.evaluate(
+                        ProfileDto(walletAddress = listing.sellerWallet, auraScore = listing.sellerAuraScore),
+                        listing,
+                    )
+                }
+                val riskColor = when (riskAssessment.level) {
+                    TradeRiskOracle.RiskLevel.LOW -> Orange500
+                    TradeRiskOracle.RiskLevel.MEDIUM -> Gold500
+                    TradeRiskOracle.RiskLevel.HIGH -> Orange500
+                    TradeRiskOracle.RiskLevel.CRITICAL -> Color.Red
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(riskColor.copy(alpha = 0.08f))
+                        .border(0.5.dp, riskColor.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                        .padding(16.dp),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(Icons.Default.Shield, null, modifier = Modifier.size(20.dp), tint = riskColor)
+                            Text(
+                                "AI Risk: ${riskAssessment.level.name}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = riskColor,
+                            )
+                        }
+                        Text(
+                            riskAssessment.recommendation,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = MaterialTheme.typography.bodySmall.lineHeight * 1.3f,
+                        )
+                        if (riskAssessment.flags.isNotEmpty()) {
+                            riskAssessment.flags.forEach { flag ->
+                                Text(
+                                    "• $flag",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = riskColor.copy(alpha = 0.9f),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ── Seller footer ────────────────────────────────────────────
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Seller ${listing.sellerWallet.take(6)}…${listing.sellerWallet.takeLast(4)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(Icons.Default.Shield, null, modifier = Modifier.size(14.dp), tint = riskColor)
+                        Text(
+                            riskAssessment.level.name,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = riskColor,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
                 }
             }
         }

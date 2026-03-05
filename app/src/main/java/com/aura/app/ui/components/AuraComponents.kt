@@ -34,6 +34,9 @@ import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.RadicalRed
 import com.aura.app.ui.theme.DarkCard
+import com.aura.app.ui.theme.SlateElevated
+import com.aura.app.ui.theme.SlateLight
+import com.aura.app.ui.theme.SolanaGreen
 import com.aura.app.ui.theme.Typography
 import com.aura.app.ui.util.HapticEngine
 import com.aura.app.ui.util.shimmerBorder
@@ -179,10 +182,10 @@ fun AuraInputField(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = DarkCard,
-            unfocusedContainerColor = DarkCard,
-            focusedBorderColor = Orange500,
-            unfocusedBorderColor = Color(0xFF334155),
+            focusedContainerColor = SlateElevated,
+            unfocusedContainerColor = SlateElevated,
+            focusedBorderColor = SolanaGreen,
+            unfocusedBorderColor = SlateLight,
             errorBorderColor = RadicalRed
         ),
         textStyle = Typography.bodyLarge

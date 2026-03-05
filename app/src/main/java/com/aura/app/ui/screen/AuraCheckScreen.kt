@@ -77,8 +77,8 @@ fun AuraCheckScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
-    var result by mutableStateOf<AuraCheckResult?>(null)
-    var isAnalyzing by mutableStateOf(false)
+    var result by remember { mutableStateOf<AuraCheckResult?>(null) }
+    var isAnalyzing by remember { mutableStateOf(false) }
     val imageCapture = remember { ImageCapture.Builder().build() }
     val hasCameraPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }

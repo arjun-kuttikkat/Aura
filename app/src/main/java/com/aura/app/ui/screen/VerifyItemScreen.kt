@@ -72,9 +72,10 @@ fun VerifyItemScreen(
     val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var result by mutableStateOf<VerificationResult?>(null)
-    var isVerifying by mutableStateOf(false)
+    var result by remember { mutableStateOf<VerificationResult?>(null) }
+    var isVerifying by remember { mutableStateOf(false) }
     var showFullScreenCamera by rememberSaveable { mutableStateOf(false) }
+    val imageCapture = remember { ImageCapture.Builder().build() }
     val hasCameraPermission = context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) showFullScreenCamera = true

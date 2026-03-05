@@ -28,8 +28,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material3.Icon
@@ -48,7 +49,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aura.app.navigation.Routes
-import com.aura.app.ui.theme.GlassBorder
+import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.DarkBase
@@ -68,10 +69,10 @@ fun MainBottomBar(
 ) {
     val navItems = listOf(
         BottomNavItem(Routes.HOME, Icons.Filled.Store, "Market"),
-        BottomNavItem(Routes.REWARDS, Icons.Filled.Star, "Rewards"),
+        BottomNavItem(Routes.DIRECTIVES, Icons.Filled.AutoAwesome, "Directives"),
         BottomNavItem(Routes.CREATE_LISTING, Icons.Default.Add, "Create", isCenter = true),
         BottomNavItem(Routes.PROFILE, Icons.Default.Person, "Profile"),
-        BottomNavItem(Routes.SETTINGS, Icons.Default.Settings, "Settings"),
+        BottomNavItem(Routes.CHATS, Icons.Default.Chat, "Chat"),
     )
 
     val regularItems = navItems.filter { !it.isCenter }
@@ -88,19 +89,20 @@ fun MainBottomBar(
         ),
         label = "breathe",
     )
-    Box(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).padding(bottom = 4.dp)) {
-        // Frosted glass bar
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(bottom = 8.dp),
+    ) {
+        // Glassmorphism bar background
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 72.dp)
                 .clip(RoundedCornerShape(24.dp))
-                .background(Color.Black.copy(alpha = 0.4f))
-                .border(
-                    width = 0.5.dp,
-                    color = Orange500.copy(alpha = 0.2f),
-                    shape = RoundedCornerShape(24.dp),
-                ),
+                .background(GlassSurface)
+                .border(0.5.dp, Orange500.copy(alpha = 0.2f), RoundedCornerShape(24.dp)),
         ) {
             Row(
                 modifier = Modifier
@@ -191,13 +193,13 @@ private fun RowScope.BottomNavBarItem(
             imageVector = item.icon,
             contentDescription = item.label,
             modifier = Modifier.size(22.dp),
-            tint = if (selected) Orange500 else Color.White.copy(alpha = 0.6f),
+            tint = if (selected) Orange500 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
         )
         Text(
             text = item.label,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = if (selected) Orange500 else Color.White.copy(alpha = 0.6f),
+            color = if (selected) Orange500 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
         )
         if (selected) {
             Box(

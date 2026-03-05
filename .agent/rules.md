@@ -28,7 +28,7 @@
 7. **Dependencies** are managed in `gradle/libs.versions.toml` using version catalogs.
 
 ## Supabase Configuration
-- **Project URL**: `https://hwxfqdatmhpdtpugxuxr.supabase.co`
+- **Project URL**: `https://kftffasnhojjxqnqvyco.supabase.co`
 - **Kotlin SDK**: `io.github.jan-tennert.supabase` (supabase-kt)
 - Use `io.ktor` for the HTTP engine on Android.
 

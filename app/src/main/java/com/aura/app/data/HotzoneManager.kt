@@ -174,8 +174,8 @@ object HotzoneManager {
     private fun generateDemoZones(lat: Double, lng: Double): List<Hotzone> {
         return listOf(
             Hotzone("h3_central_mall", "Central Mall", lat + 0.001, lng + 0.002, null, 0, 0, 0.0, 0xFFFF9800, false, 45),
-            Hotzone("h3_tech_hub", "Tech Hub Lobby", lat - 0.002, lng + 0.001, "AuRaVa...9821", 12, 28, 336.0, 0xFF14F195, true, 120),
-            Hotzone("h3_university", "University Library", lat + 0.003, lng - 0.001, null, 0, 0, 0.0, 0xFF9945FF, false, 310),
+            Hotzone("h3_tech_hub", "Tech Hub Lobby", lat - 0.002, lng + 0.001, "AuRaVa...9821", 12, 28, 336.0, 0xFFE65100, true, 120),
+            Hotzone("h3_university", "University Library", lat + 0.003, lng - 0.001, null, 0, 0, 0.0, 0xFFFF9800, false, 310),
             Hotzone("h3_station", "Downtown Station", lat - 0.005, lng + 0.004, "XyZ12...ABcD", 45, 92, 4140.0, 0xFFFF3B30, true, 890),
         )
     }

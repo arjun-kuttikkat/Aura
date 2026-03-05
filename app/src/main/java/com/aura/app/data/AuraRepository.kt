@@ -22,6 +22,11 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.github.jan.supabase.storage.storage
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
+import io.github.jan.supabase.realtime.decodeRecord
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,8 +34,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import android.annotation.SuppressLint
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
+import kotlin.math.pow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -49,11 +60,11 @@ data class ListingRow(
     val id: String = "",
     @SerialName("seller_wallet") val sellerWallet: String = "",
     val title: String = "",
-    val description: String = "",
+    @EncodeDefault val description: String = "",
     @SerialName("price_lamports") val priceLamports: Long = 0,
-    val images: List<String> = emptyList(),
-    val condition: String = "Good",
-    @SerialName("minted_status") val mintedStatus: String = "PENDING",
+    @EncodeDefault val images: List<String> = emptyList(),
+    @EncodeDefault val condition: String = "Good",
+    @EncodeDefault @SerialName("minted_status") val mintedStatus: String = "PENDING",
     @SerialName("mint_address") val mintAddress: String? = null,
     @SerialName("fingerprint_hash") val fingerprintHash: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
@@ -63,6 +74,7 @@ data class ListingRow(
     @SerialName("sold_at") val soldAt: String? = null,
     @SerialName("buyer_wallet") val buyerWallet: String? = null,
     @SerialName("seller_aura_score") val sellerAuraScore: Int = 50,
+    val emirate: String? = null,
 )
 
 @Serializable
@@ -102,6 +114,20 @@ object AuraRepository {
 
     init {
         refreshListings()
+        // Auto-refresh listings every 60 seconds so other users' new listings appear
+        scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(60_000)
+                try {
+                    val rows = db.from("listings").select {
+                        limit(count = 1000)
+                    }.decodeList<ListingRow>()
+                    _listings.value = rows.map { it.toDomain() }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Background refresh failed: ${e.message}")
+                }
+            }
+        }
     }
 
     // ── Profiles & Ritual ───────────────────────────────────────────────────
@@ -226,7 +252,7 @@ object AuraRepository {
             streakMaintained = true
         }
 
-        val newScore = (profile.auraScore + creditsEarned)
+        val newScore = (profile.auraScore + creditsEarned).coerceAtMost(100)
         val updatedProfile = profile.copy(auraScore = newScore, streakDays = streak, lastScanAt = nowStr)
 
         try {
@@ -256,30 +282,52 @@ object AuraRepository {
     // ── Listings ──────────────────────────────────────────────────────────────
 
     fun refreshListings() {
-        scope.launch {
-            try {
-                val rows = db.from("listings").select().decodeList<ListingRow>()
-                _listings.value = rows.map { it.toDomain() }
-                Log.d(TAG, "Loaded ${rows.size} listings from Supabase")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to load listings", e)
+        scope.launch { refreshListingsAwait() }
+    }
+
+    suspend fun refreshListingsAwait() {
+        // 1. Instantly load from cache if context is available
+        appContext?.let { ctx ->
+            val cached = ListingCache.load(ctx)
+            if (cached.isNotEmpty()) {
+                _listings.value = cached
             }
+        }
+
+        // 2. Get user location once for Nearby / Explore distance stamps (best-effort)
+        var userLat: Double? = null
+        var userLng: Double? = null
+        try {
+            appContext?.let { ctx ->
+                @SuppressLint("MissingPermission")
+                val loc = LocationServices.getFusedLocationProviderClient(ctx)
+                    .lastLocation.await()
+                userLat = loc?.latitude
+                userLng = loc?.longitude
+            }
+        } catch (_: Exception) {}
+
+        // 3. Fetch fresh from network (same table "listings" as insert)
+        try {
+            val rows = db.from("listings").select {
+                limit(count = 1000)
+            }.decodeList<ListingRow>()
+            val domainListings = rows.map { it.toDomain(userLat, userLng) }
+            _listings.value = domainListings
+            Log.d(TAG, "Loaded ${rows.size} listings from Supabase (table: listings)")
+            // Cache to disk for offline use
+            appContext?.let { ctx ->
+                ListingCache.save(ctx, domainListings)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load listings from network", e)
         }
     }
 
     fun getListing(id: String): Listing? = _listings.value.find { it.id == id }
 
-    private suspend fun uploadImageToStorage(listingId: String, localPath: String, index: Int): String? {
-        if (localPath.startsWith("http")) return localPath // Already a URL
-        val file = File(localPath)
-        if (!file.exists()) {
-            Log.w(TAG, "Image file not found: $localPath")
-            return null
-        }
-        // TODO: Re-enable Supabase Storage upload when storage-kt API is properly resolved.
-        // For now use local file path so listings can be created; Coil can load file:// URIs.
-        return "file://$localPath"
-    }
+    // ── Context for offline cache (set from Application or MainActivity) ──
+    var appContext: android.content.Context? = null
 
     suspend fun createListing(
         sellerWallet: String,
@@ -288,8 +336,11 @@ object AuraRepository {
         priceLamports: Long,
         imageRefs: List<String>,
         condition: String,
-        textureHash: String? = null
+        textureHash: String? = null,
+        emirate: String? = null
     ): Listing {
+        // Ensure seller profile exists (required by FK: seller_wallet REFERENCES profiles)
+        loadProfile(sellerWallet)
         val listingId = UUID.randomUUID().toString()
         val fingerprint = textureHash ?: "fp_${listingId.take(8)}"
 
@@ -306,8 +357,15 @@ object AuraRepository {
                         val path = ref.removePrefix("file://")
                         java.io.File(path).readBytes()
                     } else {
+                        // Handle content:// URIs
+                        val ctx = SupabaseClient.appContext
+                        if (ctx == null) {
+                            Log.e(TAG, "appContext is null, cannot read content:// URI")
+                            uploadedUrls.add(ref)
+                            continue
+                        }
                         val uri = android.net.Uri.parse(ref)
-                        val inputStream = SupabaseClient.appContext?.contentResolver?.openInputStream(uri)
+                        val inputStream = ctx.contentResolver?.openInputStream(uri)
                         val bytes = inputStream?.readBytes() ?: ByteArray(0)
                         inputStream?.close()
                         bytes
@@ -316,14 +374,17 @@ object AuraRepository {
                     if (fileBytes.isNotEmpty()) {
                         bucket.upload(remotePath, fileBytes) {
                             upsert = true
+                            contentType = if (ext == "png") ContentType.Image.PNG else ContentType.Image.JPEG
                         }
-                        uploadedUrls.add(bucket.publicUrl(remotePath))
+                        val publicUrl = bucket.publicUrl(remotePath)
+                        uploadedUrls.add(publicUrl)
+                        Log.d(TAG, "Uploaded image $index -> $publicUrl")
                     } else {
-                        uploadedUrls.add(ref)
+                        Log.w(TAG, "Image $index empty bytes, skipping")
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to upload image $index to Supabase Storage", e)
-                    uploadedUrls.add(ref)
+                    Log.e(TAG, "Failed to upload image $index to Supabase Storage: ${e.message}", e)
+                    throw e  // Surface error so user knows upload failed; don't create listing with no images
                 }
             } else {
                 uploadedUrls.add(ref)
@@ -340,38 +401,71 @@ object AuraRepository {
             condition = condition,
             mintedStatus = "PENDING",
             fingerprintHash = fingerprint,
+            emirate = emirate,
         )
-        // Step 2: Establish the synchronized row in PostgreSQL
         try {
             db.from("listings").insert(row)
-        } catch (e: Exception) { 
-            Log.e(TAG, "Failed to create PostgreSQL listing row", e) 
+            Log.d(TAG, "Inserted listing $listingId (table: listings) into Supabase")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create PostgreSQL listing row", e)
+            throw e
         }
         val listing = row.toDomain()
         _listings.value = _listings.value + listing
+        // Persist to cache so it survives app restart before next network fetch
+        appContext?.let { ctx -> ListingCache.save(ctx, _listings.value) }
+        // Re-fetch from DB to confirm round-trip (insert + select both hit public.listings)
+        try {
+            refreshListingsAwait()
+            Log.d(TAG, "Re-fetched listings from Supabase after create; count=${_listings.value.size}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Re-fetch after create failed (listing still in local state): ${e.message}")
+        }
         return listing
     }
 
     suspend fun mintListing(listingId: String): Listing {
-        val listing = getListing(listingId) ?: throw IllegalArgumentException("Listing not found")
-        try {
+        val listing = getListing(listingId) ?: run {
+            Log.w(TAG, "mintListing: listing $listingId not found in local state, skipping mint")
+            // Return a dummy so the caller's flow doesn't crash
+            return@mintListing Listing(
+                id = listingId, sellerWallet = "", title = "",
+                priceLamports = 0, images = emptyList(), condition = "Good",
+                mintedStatus = MintedStatus.PENDING,
+                mintAddress = null,
+                fingerprintHash = "",
+                createdAt = System.currentTimeMillis(),
+            )
+        }
+        return try {
             val reqBody = buildJsonObject {
                 put("listingId", listing.id)
                 put("title", listing.title)
                 put("sellerWalletBase58", listing.sellerWallet)
-                put("metadataUrl", "https://aura.app/metadata/${listing.id}.json")
+                put("metadataUrl", listing.images.firstOrNull() ?: "https://aura.so/metadata/${listing.id}.json")
             }
-            db.functions.invoke("mint-nft") {
+            val response = db.functions.invoke("mint-nft") {
                 setBody(reqBody.toString())
                 contentType(ContentType.Application.Json)
             }
-            val mintAddr = "MintPending_RefreshedViaRealtime"
+            // Parse the real mint address from the Edge Function response
+            val responseText = response.bodyAsText()
+            val jsonElement = kotlinx.serialization.json.Json.parseToJsonElement(responseText).jsonObject
+            val mintAddr = jsonElement["mintAddress"]?.jsonPrimitive?.content ?: "MintPending"
             val updated = listing.copy(mintedStatus = MintedStatus.MINTED, mintAddress = mintAddr)
             _listings.value = _listings.value.map { if (it.id == listingId) updated else it }
-            return updated
+            // Also persist the mint address back to Supabase (Edge Function does this too, belt-and-suspenders)
+            try {
+                db.from("listings").update({
+                    set("mint_address", mintAddr)
+                    set("minted_status", "MINTED")
+                }) { filter { eq("id", listingId) } }
+            } catch (_: Exception) {}
+            updated
         } catch (e: Exception) {
-            Log.e(TAG, "Minting Failed", e)
-            throw e
+            Log.w(TAG, "Minting Edge Function failed (non-fatal) — listing is saved: ${e.message}")
+            // Return un-minted listing so the publish flow continues without crashing
+            listing
         }
     }
 
@@ -382,15 +476,24 @@ object AuraRepository {
                 put("listingId", listingId)
                 put("photoBase64", base64Photo)
             }
-            db.functions.invoke("verify-photo") {
+            val response = db.functions.invoke("verify-photo") {
                 setBody(reqBody.toString())
                 contentType(ContentType.Application.Json)
             }
-            // Parse Edge Function response in production
-            return VerificationResult(score = 0.92f, pass = true, reason = "Verified via AI Vision")
+            // Parse the real AI Vision response
+            val responseText = response.bodyAsText()
+            val jsonElement = kotlinx.serialization.json.Json.parseToJsonElement(responseText).jsonObject
+            val rating = jsonElement["rating"]?.jsonPrimitive?.int ?: 50
+            val pass = jsonElement["pass"]?.jsonPrimitive?.boolean ?: false
+            val feedback = jsonElement["feedback"]?.jsonPrimitive?.content ?: "Analysis complete"
+            return VerificationResult(
+                score = rating / 100f,
+                pass = pass,
+                reason = feedback
+            )
         } catch (e: Exception) {
             Log.e(TAG, "verify-photo Edge Function failed", e)
-            return VerificationResult(score = 0.5f, pass = false, reason = "Verification service unavailable")
+            return VerificationResult(score = 0f, pass = false, reason = "Verification service unavailable: ${e.message}")
         }
     }
 
@@ -419,6 +522,8 @@ object AuraRepository {
                 )
             } catch (e: Exception) {}
         }
+        // Start listening for Realtime state changes on this session
+        observeTradeSession(session.id)
         return session
     }
 
@@ -438,25 +543,94 @@ object AuraRepository {
 
     fun clearTradeSession() {
         _currentTradeSession.value = null
+        _activeTradeChannel?.let { ch ->
+            scope.launch {
+                try { ch.unsubscribe() } catch (_: Exception) {}
+            }
+        }
+        _activeTradeChannel = null
+    }
+
+    // ── Realtime Trade Session Observation ───────────────────────────────────
+
+    private var _activeTradeChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
+
+    /**
+     * Subscribe to Realtime updates for the current trade session.
+     * Both buyer and seller can observe state transitions (ESCROW_LOCKED → BOTH_PRESENT → COMPLETE)
+     * without polling. Call this after createTradeSession().
+     */
+    fun observeTradeSession(tradeId: String) {
+        // Unsubscribe from any existing channel
+        _activeTradeChannel?.let { ch ->
+            scope.launch {
+                try { ch.unsubscribe() } catch (_: Exception) {}
+            }
+        }
+
+        scope.launch {
+            try {
+                val channel = db.realtime.channel("trade_session_$tradeId")
+                _activeTradeChannel = channel
+                val flow = channel.postgresChangeFlow<PostgresAction.Update>("public") {
+                    table = "trade_sessions"
+                }
+                channel.subscribe()
+
+                flow.collect { action ->
+                    try {
+                        val row = action.decodeRecord<TradeSessionRow>()
+                        if (row.id == tradeId) {
+                            val newState = runCatching { TradeState.valueOf(row.state) }
+                                .getOrDefault(TradeState.SESSION_CREATED)
+                            _currentTradeSession.value?.let { session ->
+                                _currentTradeSession.value = session.copy(
+                                    state = newState,
+                                    lastUpdated = System.currentTimeMillis()
+                                )
+                            }
+                            Log.d(TAG, "Realtime trade state update: $tradeId → ${row.state}")
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to decode Realtime trade update", e)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to subscribe to trade session Realtime", e)
+            }
+        }
     }
 
     // ── Escrow (Live Anchor Integration) ────────
 
+    /**
+     * Build the escrow initialization transaction.
+     * NOTE: State is NOT updated here — the caller must update state AFTER
+     * the wallet adapter confirms the signature.
+     */
     suspend fun initEscrow(tradeId: String, amount: Long): ByteArray {
         Log.d(TAG, "Initializing escrow for trade $tradeId, amount: $amount lamports")
         val walletAddr = com.aura.app.wallet.WalletConnectionState.walletAddress.value
             ?: throw IllegalStateException("Wallet not connected")
         val session = _currentTradeSession.value
         val listingId = session?.listingId ?: tradeId
+        val sellerWallet = session?.sellerWallet
+            ?: throw IllegalStateException("No seller wallet in trade session")
         val txBytes = com.aura.app.wallet.AnchorTransactionBuilder.buildInitializeEscrowTx(
             listingId = listingId,
             amountLamports = amount,
-            buyerPubkey = walletAddr
+            buyerPubkey = walletAddr,
+            sellerPubkey = sellerWallet,
         )
-        updateTradeState(TradeState.ESCROW_LOCKED)
+        // Do NOT call updateTradeState here — wait for wallet signing confirmation
         return txBytes
     }
 
+    /**
+     * Build the Anchor release_funds_and_mint transaction (non-NFC path).
+     * NOTE: State is NOT updated here — the caller must update state AFTER
+     * the wallet adapter confirms the signature.
+     */
     suspend fun releaseEscrow(tradeId: String): ByteArray {
         Log.d(TAG, "Releasing escrow for trade $tradeId")
         val walletAddr = com.aura.app.wallet.WalletConnectionState.walletAddress.value
@@ -465,13 +639,15 @@ object AuraRepository {
         val listingId = session?.listingId ?: tradeId
         val listing = getListing(listingId)
         val sellerWallet = session?.sellerWallet ?: ""
-        // Build SOL transfer from escrow vault to seller as release mechanism
-        val txBytes = com.aura.app.wallet.AnchorTransactionBuilder.buildSolTransferTx(
-            fromPubkey = walletAddr,
-            toPubkey = sellerWallet,
-            lamports = listing?.priceLamports ?: 0L
+        // Build the proper Anchor release_funds_and_mint instruction
+        val txBytes = com.aura.app.wallet.AnchorTransactionBuilder.buildReleaseEscrowTx(
+            listingId = listingId,
+            sellerPubkey = sellerWallet,
+            signerPubkey = walletAddr,
+            assetUri = listing?.images?.firstOrNull() ?: "",
+            assetTitle = listing?.title ?: "Aura Verified Asset",
         )
-        updateTradeState(TradeState.COMPLETE)
+        // Do NOT call updateTradeState here — wait for wallet signing confirmation
         return txBytes
     }
 
@@ -535,7 +711,7 @@ object AuraRepository {
 
     // ── DTO → Domain Mapper ──────────────────────────────────────────────────
 
-    private fun ListingRow.toDomain() = Listing(
+    private fun ListingRow.toDomain(userLat: Double? = null, userLng: Double? = null) = Listing(
         id = id,
         sellerWallet = sellerWallet,
         title = title,
@@ -546,11 +722,26 @@ object AuraRepository {
         mintAddress = mintAddress,
         fingerprintHash = fingerprintHash ?: "",
         condition = condition,
-        createdAt = System.currentTimeMillis(),
+        createdAt = runCatching {
+            OffsetDateTime.parse(createdAt ?: "").toInstant().toEpochMilli()
+        }.getOrDefault(System.currentTimeMillis()),
         latitude = latitude,
         longitude = longitude,
         soldAt = soldAt?.let { try { java.time.OffsetDateTime.parse(it).toEpochSecond() * 1000 } catch (_: Exception) { null } },
         buyerWallet = buyerWallet,
+        distanceMeters = if (userLat != null && userLng != null && latitude != null && longitude != null)
+            haversineMeters(userLat, userLng, latitude, longitude).toInt()
+        else null,
         sellerAuraScore = sellerAuraScore,
+        emirate = emirate,
     )
+
+    private fun haversineMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
+        val r = 6_371_000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLng = Math.toRadians(lng2 - lng1)
+        val a = Math.sin(dLat / 2).pow(2) +
+            Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.sin(dLng / 2).pow(2)
+        return r * 2 * Math.asin(Math.sqrt(a))
+    }
 }

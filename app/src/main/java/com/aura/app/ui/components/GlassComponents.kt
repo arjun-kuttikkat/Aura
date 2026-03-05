@@ -36,7 +36,12 @@ fun GlassCard(
                 spotColor = glowColor.copy(alpha = 0.3f),
             )
             .background(
-                color = DarkCard,
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.06f),
+                        Color.White.copy(alpha = 0.02f),
+                    ),
+                ),
                 shape = RoundedCornerShape(cornerRadius),
             )
             .border(

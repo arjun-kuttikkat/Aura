@@ -1,23 +1,16 @@
 package com.aura.app.ui.screen
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,19 +30,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aura.app.data.AuraRepository
 import com.aura.app.model.EscrowState
+import com.aura.app.util.CryptoPriceFormatter
 import com.aura.app.model.TradeState
-import com.aura.app.ui.components.GlassCard
-import com.aura.app.ui.theme.DarkBase
-import com.aura.app.ui.theme.Gold500
-import com.aura.app.ui.theme.Orange500
-import com.aura.app.ui.theme.RadicalRed
 import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.launch
 import androidx.compose.animation.togetherWith
@@ -63,9 +48,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.rememberLottieComposition
-import androidx.compose.ui.platform.LocalView
-import com.aura.app.ui.util.HapticEngine
-import com.aura.app.ui.util.breathe
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,20 +57,15 @@ fun EscrowPayScreen(
 ) {
     val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
     val listing = session?.let { AuraRepository.getListing(it.listingId) }
+    
+    // Wallet State
     val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
-    val view = LocalView.current
-
+    
     var status by remember { mutableStateOf<EscrowState?>(null) }
     var txSig by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
-
-    val isLocked = status == EscrowState.LOCKED || txSig != null
-    val lockScale by animateFloatAsState(
-        targetValue = if (isLocked) 1.1f else 1f,
-        label = "lockScale",
-    )
 
     Scaffold(
         topBar = {
@@ -99,63 +76,52 @@ fun EscrowPayScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
-                    containerColor = DarkBase,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
             )
         },
-        containerColor = DarkBase,
     ) { padding ->
+        if (session == null || listing == null) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("\u26A0\uFE0F", style = MaterialTheme.typography.displayMedium)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("No active trade session", style = MaterialTheme.typography.titleMedium)
+                Text("Start a trade from a listing first.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(onClick = onBack) { Text("Go Back") }
+            }
+            return@Scaffold
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp)
-                .then(if (isLoading) Modifier.breathe() else Modifier),
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            listing?.let {
-                GlassCard(modifier = Modifier.fillMaxWidth(), glowColor = Orange500) {
-                    Column(modifier = Modifier.padding(20.dp)) {
-                        Text(
-                            it.title,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            "%.2f SOL".format(it.priceLamports / 1_000_000_000.0),
-                            style = MaterialTheme.typography.displaySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Orange500,
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                    contentDescription = null,
-                    modifier = Modifier.size(80.dp).scale(lockScale),
-                    tint = if (isLocked) Gold500 else Orange500,
+            listing.let {
+                Text(
+                    text = it.title,
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Text(
+                    text = CryptoPriceFormatter.formatLamports(it.priceLamports),
+                    style = MaterialTheme.typography.headlineSmall,
                 )
             }
-
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // Connection Prompt
             if (walletAddress == null) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("Wallet Not Connected", style = MaterialTheme.typography.titleMedium)
-                        Text("Connect your Solana wallet to proceed.")
+                        Text("Connect your Solana wallet to proceed with payment.")
                         Spacer(modifier = Modifier.height(8.dp))
                         com.aura.app.ui.components.AuraPrimaryButton(
                             text = "Connect Wallet",
@@ -164,7 +130,10 @@ fun EscrowPayScreen(
                                 WalletConnectionState.connect(
                                     scope = scope,
                                     onSuccess = { isLoading = false },
-                                    onError = { isLoading = false; errorMsg = it.message }
+                                    onError = { 
+                                        isLoading = false 
+                                        errorMsg = it.message
+                                    }
                                 )
                             },
                             enabled = !isLoading
@@ -186,9 +155,8 @@ fun EscrowPayScreen(
                 ) { success ->
                     if (!success) {
                         com.aura.app.ui.components.AuraPrimaryButton(
-                            text = if (isLoading) "Processing..." else "Confirmed: Pay %.2f SOL".format(listing?.priceLamports?.div(1_000_000_000.0) ?: 0.0),
+                            text = if (isLoading) "Processing..." else "Confirmed: Pay ${CryptoPriceFormatter.formatLamports(listing?.priceLamports ?: 0L)}",
                             onClick = {
-                                HapticEngine.triggerThud(view) // Financial gravity
                                 val amount = listing?.priceLamports ?: 0L
                                 val amountSol = amount / 1_000_000_000.0
                                 
@@ -211,7 +179,6 @@ fun EscrowPayScreen(
                                             scope = scope,
                                             base64EncodedTx = base64Tx,
                                             onSuccess = { sig ->
-                                                HapticEngine.triggerSuccess(view)
                                                 isLoading = false
                                                 txSig = sig
                                                 status = EscrowState.LOCKED
@@ -243,8 +210,8 @@ fun EscrowPayScreen(
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .border(1.dp, com.aura.app.ui.theme.Orange500.copy(alpha = bgAlpha * 2), androidx.compose.foundation.shape.RoundedCornerShape(16.dp)),
-                            colors = CardDefaults.cardColors(containerColor = com.aura.app.ui.theme.Orange500.copy(alpha = bgAlpha)),
+                                .border(1.dp, com.aura.app.ui.theme.SolanaGreen.copy(alpha = bgAlpha * 2), androidx.compose.foundation.shape.RoundedCornerShape(16.dp)),
+                            colors = CardDefaults.cardColors(containerColor = com.aura.app.ui.theme.SolanaGreen.copy(alpha = bgAlpha)),
                             shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
                         ) {
                             Column(
@@ -253,7 +220,7 @@ fun EscrowPayScreen(
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 val composition by rememberLottieComposition(
-                                    spec = LottieCompositionSpec.Url("https://lottie.host/80fb48c8-b5cc-4ff2-bc0d-bf5dc34ebc21/j5QvL9VdK4.json")
+                                    LottieCompositionSpec.Url("https://lottie.host/80fb48c8-b5cc-4ff2-bc0d-bf5dc34ebc21/j5QvL9VdK4.json")
                                 )
                                 LottieAnimation(
                                     composition = composition,
@@ -261,25 +228,42 @@ fun EscrowPayScreen(
                                     modifier = Modifier.size(64.dp)
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text("Escrow Locked", style = MaterialTheme.typography.titleMedium, color = com.aura.app.ui.theme.Orange500)
+                                Text("Escrow Locked", style = MaterialTheme.typography.titleMedium, color = com.aura.app.ui.theme.SolanaGreen)
                                 txSig?.let { Text("Sig: ${it.take(8)}...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             }
                         }
                     }
                 }
             }
-
-            errorMsg?.let { Text(it, color = RadicalRed) }
-
+            
+            errorMsg?.let { Text(it, color = com.aura.app.ui.theme.RadicalRed) }
+            
             if (status == EscrowState.LOCKED || txSig != null) {
+                var showConfirmRelease by remember { mutableStateOf(false) }
+
                 Spacer(modifier = Modifier.weight(1f))
                 com.aura.app.ui.components.AuraPrimaryButton(
                     text = "Complete Trade & Release Goods",
-                    onClick = {
-                        AuraRepository.updateTradeState(TradeState.COMPLETE)
-                        onComplete()
-                    }
+                    onClick = { showConfirmRelease = true }
                 )
+
+                if (showConfirmRelease) {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { showConfirmRelease = false },
+                        title = { Text("Release Escrow?") },
+                        text = { Text("This will release SOL to the seller. This action cannot be undone.") },
+                        confirmButton = {
+                            androidx.compose.material3.TextButton(onClick = {
+                                showConfirmRelease = false
+                                AuraRepository.updateTradeState(TradeState.COMPLETE)
+                                onComplete()
+                            }) { Text("Release Funds", color = MaterialTheme.colorScheme.error) }
+                        },
+                        dismissButton = {
+                            androidx.compose.material3.TextButton(onClick = { showConfirmRelease = false }) { Text("Cancel") }
+                        }
+                    )
+                }
             }
         }
     }

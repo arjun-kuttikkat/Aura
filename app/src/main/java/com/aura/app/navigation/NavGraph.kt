@@ -3,12 +3,17 @@ package com.aura.app.navigation
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -17,6 +22,9 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -39,12 +47,14 @@ import com.aura.app.ui.screen.TradeCompleteScreen
 import com.aura.app.ui.screen.VerifyItemScreen
 import com.aura.app.ui.theme.DarkBase
 import com.aura.app.wallet.WalletConnectionState
+import com.aura.app.ui.screen.EmiratePickerScreen
 
 private val MAIN_TAB_ROUTES = setOf(
     Routes.HOME,
-    Routes.REWARDS,
+    Routes.FAVORITES,
+    Routes.CHATS,
+    Routes.DIRECTIVES,
     Routes.PROFILE,
-    Routes.SETTINGS,
 )
 
 /** MainBottomBar height: 72dp bar + 10dp vertical padding + 4dp bottom. Used for content inset. */
@@ -83,7 +93,16 @@ fun NavGraph(
                 ) {
             composable(Routes.ONBOARDING) {
                 OnboardingScreen(
-                    onWalletConnected = { navController.navigate(Routes.HOME) { popUpTo(0) { inclusive = true } } },
+                    onWalletConnected = {
+                        navController.navigate(Routes.EMIRATE_PICKER) { popUpTo(0) { inclusive = true } }
+                    },
+                )
+            }
+            composable(Routes.EMIRATE_PICKER) {
+                EmiratePickerScreen(
+                    onEmirateSelected = { emirate ->
+                        navController.navigate(Routes.HOME) { popUpTo(0) { inclusive = true } }
+                    }
                 )
             }
             composable(Routes.HOME) {
@@ -97,12 +116,24 @@ fun NavGraph(
                     onNavigate = { route -> navController.navigate(route) },
                 )
             }
+            composable(Routes.FAVORITES) {
+                com.aura.app.ui.screen.FavoritesScreen(
+                    onNavigateToHome = { navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } } }
+                )
+            }
+            composable(Routes.CHATS) {
+                com.aura.app.ui.screen.ChatsScreen(
+                    onNavigateToChat = { listingId -> navController.navigate(Routes.chatDetail(listingId)) },
+                    onNavigateToHome = { navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } } }
+                )
+            }
             composable(Routes.REWARDS) {
                 RewardsScreen()
             }
             composable(Routes.PROFILE) {
                 ProfileScreen(
-                    onVerifyIdentity = { navController.navigate(Routes.FACE_VERIFICATION) }
+                    onVerifyIdentity = { navController.navigate(Routes.FACE_VERIFICATION) },
+                    onNavigate = { route -> navController.navigate(route) }
                 )
             }
             composable(Routes.SETTINGS) {
@@ -116,8 +147,33 @@ fun NavGraph(
             }
             composable(Routes.CREATE_LISTING) {
                 CreateListingScreen(
-                    onListingCreated = { navController.popBackStack() },
-                    onBack = { navController.popBackStack() },
+                    onListingCreated = {
+                        navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } }
+                    },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Routes.PLACE_AD_TYPE) { backStackEntry ->
+                val category = backStackEntry.arguments?.getString("category") ?: ""
+                com.aura.app.ui.screen.PlaceAdTypeScreen(
+                    category = category,
+                    onSellWithAI = { navController.navigate(Routes.PLACE_AD_UPLOAD) },
+                    onClassicPost = { navController.navigate(Routes.PLACE_AD_UPLOAD) },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Routes.PLACE_AD_UPLOAD) {
+                com.aura.app.ui.screen.PlaceAdAiUploadScreen(
+                    onNext = { navController.navigate(Routes.PLACE_AD_LOCATION) },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Routes.PLACE_AD_LOCATION) {
+                com.aura.app.ui.screen.PlaceAdLocationScreen(
+                    onLocationConfirmed = { 
+                        navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } } 
+                    },
+                    onBack = { navController.popBackStack() }
                 )
             }
             composable(Routes.LISTING_DETAIL) { backStackEntry ->
@@ -128,6 +184,14 @@ fun NavGraph(
                 tradeSession = session,
                 onStartMeetup = { navController.navigate(Routes.MEET_SESSION) },
                 onBack = { navController.popBackStack() },
+                onChatClicked = { navController.navigate(Routes.chatDetail(listingId)) }
+            )
+        }
+        composable(Routes.CHAT_DETAIL) { backStackEntry ->
+            val listingId = backStackEntry.arguments?.getString("listingId") ?: return@composable
+            com.aura.app.ui.screen.ChatDetailScreen(
+                listingId = listingId,
+                onBack = { navController.popBackStack() }
             )
         }
         composable(Routes.MEET_SESSION) {
@@ -181,23 +245,57 @@ fun NavGraph(
                 onBack = { navController.popBackStack() }
             )
         }
+        composable(Routes.AVATAR_CREATOR) {
+            com.aura.app.ui.screen.AvatarCreatorScreen(
+                onDone = {
+                    navController.navigate(Routes.HOME) { popUpTo(0) { inclusive = true } }
+                }
+            )
         }
+        composable(Routes.AVATAR_STORE) {
+            com.aura.app.ui.screen.AvatarStoreScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+                }
             }
         }
         if (showBottomBar) {
-            MainBottomBar(
+            Box(
                 modifier = Modifier.align(Alignment.BottomCenter),
-                currentRoute = currentRoute ?: Routes.HOME,
-                onNavigate = { route ->
-                    if (route != currentRoute) {
-                        navController.navigate(route) {
-                            popUpTo(Routes.HOME) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
+            ) {
+                // Fade behind navbar — content extends to bottom, fades under bar
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(140.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    MaterialTheme.colorScheme.background.copy(alpha = 0.7f),
+                                    MaterialTheme.colorScheme.background,
+                                    MaterialTheme.colorScheme.background,
+                                ),
+                            ),
+                        )
+                        .blur(32.dp),
+                )
+                MainBottomBar(
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    currentRoute = currentRoute ?: Routes.HOME,
+                    onNavigate = { route ->
+                        if (route != currentRoute) {
+                            navController.navigate(route) {
+                                popUpTo(Routes.HOME) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
+            }
         }
     }
 }

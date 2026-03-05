@@ -5,90 +5,50 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Scaffold
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.aura.app.data.AuraRepository
-import com.aura.app.ui.components.AuraEmbeddedCamera
-import com.aura.app.ui.components.GlassCard
-import com.aura.app.ui.theme.DarkBase
-import com.aura.app.ui.theme.Gold500
-import com.aura.app.ui.theme.Orange500
-import com.aura.app.ui.util.HapticEngine
-import com.aura.app.ui.util.springScale
+import com.aura.app.data.GroqAIService
+import com.aura.app.ui.theme.*
 import com.aura.app.wallet.WalletConnectionState
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.util.UUID
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,97 +61,59 @@ fun CreateListingScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    var step by remember { mutableIntStateOf(1) }
-    var title by mutableStateOf("")
-    var description by mutableStateOf("")
-    var priceSol by mutableStateOf("")
-    var condition by mutableStateOf("Good")
-    var capturedImagePath by mutableStateOf<String?>(null)
-    var textureHash by mutableStateOf<String?>(null)
-    var isSubmitting by mutableStateOf(false)
-    var errorMsg by mutableStateOf<String?>(null)
+    // ── State ────────────────────────────────────────────────────────────────
+    var showCamera by remember { mutableStateOf(false) }
+    var capturedImages by remember { mutableStateOf<List<String>>(emptyList()) }
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var priceSol by remember { mutableStateOf("") }
+    var condition by remember { mutableStateOf("Good") }
+    var category by remember { mutableStateOf("") }
+    var aiTags by remember { mutableStateOf<List<String>>(emptyList()) }
 
+    // AI states
+    var isAnalyzing by remember { mutableStateOf(false) }
+    var aiError by remember { mutableStateOf<String?>(null) }
+    var aiAnalyzed by remember { mutableStateOf(false) }
+
+    // Submission states
+    var isSubmitting by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    val imageCapture = remember { ImageCapture.Builder().build() }
     val hasCameraPermission = context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) showCamera = true
+    }
 
-    Box(modifier = Modifier.fillMaxSize().background(DarkBase)) {
+    val conditions = listOf("New", "Like New", "Good", "Fair")
+    val categories = listOf("Electronics", "Fashion", "Sports", "Home", "Books", "Collectibles", "Tools", "Other")
+
+    // ── Layout ───────────────────────────────────────────────────────────────
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("List Item", fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        "Sell on Aura",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                },
                 navigationIcon = {
-                    IconButton(onClick = { if (step == 1) onBack() else step -= 1 }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
-                    containerColor = DarkBase,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-                windowInsets = WindowInsets.statusBars,
-            )
-        },
-        containerColor = DarkBase,
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 20.dp),
-        ) {
-            StepIndicator(currentStep = step, totalSteps = 4)
-            Spacer(modifier = Modifier.height(24.dp))
-            AnimatedContent(
-                targetState = step,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
-                label = "step",
-            ) { currentStep ->
-                when (currentStep) {
-                    1 -> PhotoStep(
-                        capturedImagePath = capturedImagePath,
-                        hasCameraPermission = hasCameraPermission,
-                        onRequestPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                        onPhotoCaptured = { capturedImagePath = it },
-                        onCaptureError = { errorMsg = it },
-                        onNext = { if (capturedImagePath != null) step = 2 },
-                    )
-                    2 -> MacroTextureStep(
-                        textureHash = textureHash,
-                        onScanComplete = { hash -> textureHash = hash },
-                        onBack = { step = 1 },
-                        onNext = { step = 3 }
-                    )
-                    3 -> DetailsStep(
-                        title = title,
-                        onTitleChange = { title = it },
-                        description = description,
-                        onDescriptionChange = { description = it },
-                        priceSol = priceSol,
-                        onPriceChange = { priceSol = it.filter { c -> c.isDigit() || c == '.' } },
-                        condition = condition,
-                        onConditionChange = { condition = it },
-                        onBack = { step = 2 },
-                        onNext = { step = 4 },
-                    )
-                    4 -> ReviewStep(
-                        title = title,
-                        description = description,
-                        priceSol = priceSol,
-                        condition = condition,
-                        imagePath = capturedImagePath,
-                        textureHash = textureHash,
-                        onEdit = { step = 3 },
-                        onSubmit = {
-                            if (walletAddress == null) {
-                                errorMsg = "Wallet not connected"
-                                return@ReviewStep
-                            }
+                actions = {
+                    TextButton(
+                        onClick = {
+                            if (title.isBlank()) { errorMsg = "Please enter a title"; return@TextButton }
+                            if (walletAddress == null) { errorMsg = "Wallet not connected"; return@TextButton }
                             val price = priceSol.toDoubleOrNull() ?: 0.0
-                            if (price <= 0) {
-                                errorMsg = "Enter valid price"
-                                return@ReviewStep
-                            }
+                            if (price <= 0) { errorMsg = "Enter a valid price"; return@TextButton }
+                            if (capturedImages.isEmpty()) { errorMsg = "Please add a photo"; return@TextButton }
+                            if (!aiAnalyzed) { errorMsg = "Tap AI Analyze to verify your product"; return@TextButton }
                             isSubmitting = true
                             errorMsg = null
                             scope.launch {
@@ -201,500 +123,511 @@ fun CreateListingScreen(
                                         title = title.ifBlank { "Untitled" },
                                         description = description,
                                         priceLamports = (price * 1_000_000_000).toLong(),
-                                        imageRefs = capturedImagePath?.let { listOf(it) } ?: emptyList(),
+                                        imageRefs = capturedImages,
                                         condition = condition,
-                                        textureHash = textureHash
                                     )
-                                    AuraRepository.mintListing(listing.id)
-                                    val view = (context as? android.app.Activity)?.window?.decorView
-                                    if(view != null) com.aura.app.ui.util.HapticEngine.triggerSuccess(view)
+                                    // Minting is best-effort: if the Edge Function isn't deployed yet
+                                    // the listing is still created. Mint status will be PENDING.
+                                    try { AuraRepository.mintListing(listing.id) } catch (_: Exception) {}
                                     onListingCreated()
                                 } catch (e: Exception) {
-                                    errorMsg = e.message ?: "Failed"
+                                    errorMsg = e.message ?: "Failed to publish"
                                 } finally {
                                     isSubmitting = false
                                 }
                             }
                         },
-                        isSubmitting = isSubmitting,
-                        errorMsg = errorMsg,
-                    )
-                }
-            }
-        }
-    }
-
-    }
-}
-
-@Composable
-private fun StepIndicator(currentStep: Int, totalSteps: Int) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        repeat(totalSteps) { index ->
-            val isActive = index + 1 == currentStep
-            val isComplete = index + 1 < currentStep
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(
-                        when {
-                            isComplete -> Gold500
-                            isActive -> Orange500
-                            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        enabled = !isSubmitting
+                    ) {
+                        if (isSubmitting) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Text(
+                                "Publish",
+                                color = Orange500,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
                         }
-                    ),
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                )
             )
         }
-    }
-}
-
-@Composable
-private fun PhotoStep(
-    capturedImagePath: String?,
-    hasCameraPermission: Boolean,
-    onRequestPermission: () -> Unit,
-    onPhotoCaptured: (String) -> Unit,
-    onCaptureError: (String) -> Unit,
-    onNext: () -> Unit,
-) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(
-            text = "Add a photo",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        if (capturedImagePath != null) {
-            GlassCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                glowColor = Orange500,
-                cornerRadius = 16.dp,
-            ) {
-                AsyncImage(
-                    model = "file://$capturedImagePath",
-                    contentDescription = "Captured",
-                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)),
-                    contentScale = ContentScale.Crop,
-                )
-            }
-        } else if (hasCameraPermission) {
-            GlassCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                glowColor = Orange500,
-                cornerRadius = 16.dp,
-            ) {
-                AuraEmbeddedCamera(
-                    modifier = Modifier.fillMaxSize(),
-                    onPhotoCaptured = onPhotoCaptured,
-                    onCaptureError = onCaptureError,
-                )
-            }
-        } else {
-            GlassCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .border(1.dp, Orange500.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
-                glowColor = Orange500,
-                cornerRadius = 16.dp,
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(32.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Icon(
-                        Icons.Default.CameraAlt,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = Orange500,
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Grant camera access to add a photo",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = onRequestPermission,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
-                    ) {
-                        Text("Allow camera", fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
-        }
-        if (capturedImagePath != null) {
-            Button(
-                onClick = onNext,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Gold500, contentColor = Color.Black),
-            ) {
-                Text("Continue", fontWeight = FontWeight.SemiBold)
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DetailsStep(
-    title: String,
-    onTitleChange: (String) -> Unit,
-    description: String,
-    onDescriptionChange: (String) -> Unit,
-    priceSol: String,
-    onPriceChange: (String) -> Unit,
-    condition: String,
-    onConditionChange: (String) -> Unit,
-    onBack: () -> Unit,
-    onNext: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-    ) {
-        Text(
-            text = "Item details",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        OutlinedTextField(
-            value = title,
-            onValueChange = onTitleChange,
-            label = { Text("Title") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-        )
-        OutlinedTextField(
-            value = description,
-            onValueChange = onDescriptionChange,
-            label = { Text("Description") },
-            modifier = Modifier.fillMaxWidth().height(120.dp),
-            singleLine = false,
-            shape = RoundedCornerShape(12.dp),
-        )
-        OutlinedTextField(
-            value = priceSol,
-            onValueChange = onPriceChange,
-            label = { Text("Price (SOL)") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-        )
-        
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Condition", style = MaterialTheme.typography.labelLarge)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                val conditions = listOf("New", "Like New", "Good", "Fair")
-                conditions.chunked(2).forEach { rowConditions ->
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                        rowConditions.forEach { cond ->
-                            val isSelected = condition == cond
-                            val view = LocalView.current
-                            val bgAnim by animateColorAsState(
-                                targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                label = "chip_bg"
-                            )
-                            val textAnim by animateColorAsState(
-                                targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                label = "chip_fg"
-                            )
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = {
-                                    HapticEngine.triggerLight(view)
-                                    onConditionChange(cond)
-                                },
-                                label = { Text(cond, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .springScale(isPressed = isSelected, scaleDown = 0.96f),
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = bgAnim,
-                                    selectedLabelColor = textAnim,
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                ),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Button(
-                onClick = onBack,
-                modifier = Modifier.weight(1f).height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
-            ) {
-                Text("Back")
-            }
-            Button(
-                onClick = onNext,
-                modifier = Modifier.weight(1f).height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
-            ) {
-                Text("Review", fontWeight = FontWeight.SemiBold)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReviewStep(
-    title: String,
-    description: String,
-    priceSol: String,
-    condition: String,
-    imagePath: String?,
-    textureHash: String?,
-    onEdit: () -> Unit,
-    onSubmit: () -> Unit,
-    isSubmitting: Boolean,
-    errorMsg: String?,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-    ) {
-        Text(
-            text = "Review & list",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        GlassCard(
-            modifier = Modifier.fillMaxWidth(),
-            glowColor = Gold500,
-            cornerRadius = 16.dp,
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                if (imagePath != null) {
-                    AsyncImage(
-                        model = "file://$imagePath",
-                        contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp)
-                            .clip(RoundedCornerShape(12.dp)),
-                        contentScale = ContentScale.Crop,
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        if (description.isNotBlank()) {
-                            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(modifier = Modifier.height(4.dp))
-                        }
-                        Text(condition, style = MaterialTheme.typography.bodyMedium)
-                        if (textureHash != null) {
-                            Text("Asset Refined \n${textureHash.take(16)}...", style = MaterialTheme.typography.labelSmall, color = Orange500)
-                        }
-                    }
-                    Text(
-                        "%.2f SOL".format(priceSol.toDoubleOrNull() ?: 0.0),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = Gold500,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-        }
-        errorMsg?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Button(
-            onClick = onEdit,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
-        ) {
-            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(20.dp))
-            Spacer(modifier = Modifier.size(ButtonDefaults.IconSpacing))
-            Text("Edit details")
-        }
-        Button(
-            onClick = onSubmit,
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape = RoundedCornerShape(16.dp),
-            enabled = !isSubmitting,
-            colors = ButtonDefaults.buttonColors(containerColor = Gold500, contentColor = Color.Black),
-        ) {
-            if (isSubmitting) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.Black)
-                Spacer(modifier = Modifier.size(8.dp))
-            } else {
-                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.size(ButtonDefaults.IconSpacing))
-            }
-            Text(if (isSubmitting) "Listing…" else "List item", fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-@Composable
-fun MacroTextureStep(
-    textureHash: String?,
-    onScanComplete: (String) -> Unit,
-    onBack: () -> Unit,
-    onNext: () -> Unit
-) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var isScanning by remember { mutableStateOf(false) }
-    var scanProgress by remember { mutableStateOf(0f) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-    ) {
-        Text(
-            text = "Asset Refinement",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            text = "Scan the item's surface texture with your macro lens. This anchors a deterministic hardware layer into the cNFT, proving authenticity over time.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        GlassCard(
+    ) { padding ->
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f),
-            glowColor = Gold500,
-            cornerRadius = 20.dp,
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
         ) {
-            if (textureHash == null && !isScanning) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Orange500, modifier = Modifier.size(64.dp))
-                    Spacer(Modifier.height(16.dp))
-                    Text("Place camera 2 inches from surface", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(20.dp))
-                    Button(
-                        onClick = { isScanning = true },
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
+            // ── Photo Section ─────────────────────────────────────────────────
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(280.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                if (showCamera) {
+                    // Camera preview
+                    AndroidView(
+                        factory = { ctx ->
+                            val previewView = PreviewView(ctx).apply {
+                                scaleType = PreviewView.ScaleType.FILL_CENTER
+                            }
+                            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                            cameraProviderFuture.addListener({
+                                val provider = cameraProviderFuture.get()
+                                val preview = Preview.Builder().build().apply {
+                                    setSurfaceProvider(previewView.surfaceProvider)
+                                }
+                                provider.unbindAll()
+                                provider.bindToLifecycle(
+                                    lifecycleOwner,
+                                    CameraSelector.DEFAULT_BACK_CAMERA,
+                                    preview,
+                                    imageCapture
+                                )
+                            }, ContextCompat.getMainExecutor(ctx))
+                            previewView
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    // Capture button overlay
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.BottomCenter
                     ) {
-                        Text("Begin AI Texture Scan", fontWeight = FontWeight.SemiBold)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = { showCamera = false },
+                                modifier = Modifier
+                                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                    .size(48.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .background(Color.White, CircleShape)
+                                    .clickable {
+                                        val photoFile = File(context.cacheDir, "aura_${System.currentTimeMillis()}.jpg")
+                                        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+                                        imageCapture.takePicture(
+                                            outputOptions,
+                                            ContextCompat.getMainExecutor(context),
+                                            object : ImageCapture.OnImageSavedCallback {
+                                                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                                                    capturedImages = capturedImages + photoFile.absolutePath
+                                                    showCamera = false
+                                                    aiAnalyzed = false
+                                                    aiTags = emptyList()
+                                                }
+                                                override fun onError(exception: ImageCaptureException) {
+                                                    errorMsg = exception.message ?: "Capture failed"
+                                                    showCamera = false
+                                                }
+                                            }
+                                        )
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(60.dp)
+                                        .border(3.dp, Color.Gray, CircleShape)
+                                )
+                            }
+                        }
                     }
-                }
-            } else if (isScanning) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                AndroidView(
-                    factory = { ctx ->
-                        val previewView = PreviewView(ctx).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
-                        val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                        cameraProviderFuture.addListener({
-                            val provider = cameraProviderFuture.get()
-                            val preview = Preview.Builder().build().apply { setSurfaceProvider(previewView.surfaceProvider) }
-                            provider.unbindAll()
-                            provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview)
-                        }, ContextCompat.getMainExecutor(ctx))
-                        previewView
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-                Box(modifier = Modifier.fillMaxSize().background(DarkBase.copy(alpha=0.6f)), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(progress = { scanProgress }, color = Gold500, modifier = Modifier.size(100.dp))
-                        Spacer(Modifier.height(16.dp))
-                        Text("Mapping micro-textures...", color = MaterialTheme.colorScheme.onSurface)
+                } else if (capturedImages.isNotEmpty()) {
+                    AsyncImage(
+                        model = "file://${capturedImages.last()}",
+                        contentDescription = "Product photo",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                    // Re-take button
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(12.dp),
+                        contentAlignment = Alignment.TopEnd
+                    ) {
+                        IconButton(
+                            onClick = {
+                                capturedImages = emptyList()
+                                aiAnalyzed = false
+                                aiTags = emptyList()
+                                title = ""
+                                description = ""
+                                if (hasCameraPermission) showCamera = true
+                                else permissionLauncher.launch(Manifest.permission.CAMERA)
+                            },
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                                .size(40.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
                     }
-                }
-                }
-
-                LaunchedEffect(Unit) {
-                    while (scanProgress < 1f) {
-                        delay(20)
-                        scanProgress += 0.01f
+                    // Add more hint
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(12.dp),
+                        contentAlignment = Alignment.BottomEnd
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .clickable {
+                                    if (hasCameraPermission) showCamera = true
+                                    else permissionLauncher.launch(Manifest.permission.CAMERA)
+                                }
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                Text("Add more detail photos", color = Color.White, fontSize = 12.sp)
+                            }
+                        }
                     }
-                    isScanning = false
-                    val hardwareId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-                    val timeSalt = System.currentTimeMillis() / 10000 // 10s deterministic window
-                    val baseHash = (hardwareId.hashCode() xor timeSalt.hashCode()).toString(16)
-                    val hash = "0x" + baseHash.padStart(16, '0') + UUID.randomUUID().toString().replace("-", "").take(48)
-                    onScanComplete(hash)
-                }
-            } else {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
+                } else {
+                    // Empty state - tap to add photo
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.clickable {
+                            if (hasCameraPermission) showCamera = true
+                            else permissionLauncher.launch(Manifest.permission.CAMERA)
+                        }
                     ) {
-                        Icon(Icons.Default.Check, contentDescription = null, tint = Gold500, modifier = Modifier.size(64.dp))
-                        Spacer(Modifier.height(16.dp))
-                        Text("Hardware Texture Analyzed", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-                        Text(textureHash?.take(16) + "...", color = Orange500, style = MaterialTheme.typography.labelSmall)
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .background(
+                                    Brush.linearGradient(listOf(Orange500.copy(0.2f), Gold500.copy(0.15f))),
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.CameraAlt,
+                                contentDescription = null,
+                                tint = Orange500,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+                        Text("Add product photo", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                        Text(
+                            "Tap to take a photo of your item",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
-        }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Button(
-                onClick = onBack,
-                modifier = Modifier.weight(1f).height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
-            ) {
-                Text("Back")
+            // ── Multi-photo Thumbnail Strip ──────────────────────────────────
+            if (capturedImages.size > 1) {
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(capturedImages) { path ->
+                        Box(modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp))) {
+                            AsyncImage(
+                                model = "file://$path",
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                            )
+                            IconButton(
+                                onClick = { capturedImages = capturedImages - path },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(20.dp)
+                                    .background(Color.Black.copy(0.6f), CircleShape),
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(12.dp))
+                            }
+                        }
+                    }
+                }
             }
-            Button(
-                onClick = onNext,
-                modifier = Modifier.weight(1f).height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                enabled = textureHash != null,
-                colors = ButtonDefaults.buttonColors(containerColor = Gold500, contentColor = Color.Black),
-            ) {
-                Text("Next", fontWeight = FontWeight.SemiBold)
+
+            Spacer(modifier = Modifier.height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+
+            // ── AI Analyze Button ─────────────────────────────────────────────
+            if (capturedImages.isNotEmpty() && !aiAnalyzed) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    Orange500.copy(alpha = 0.1f),
+                                    DarkVoid.copy(alpha = 0.3f)
+                                )
+                            )
+                        )
+                        .clickable(enabled = !isAnalyzing) {
+                            if (!isAnalyzing) {
+                                isAnalyzing = true
+                                aiError = null
+                                scope.launch {
+                                    try {
+                                        val imageFile = File(capturedImages.first())
+                                        val imageBytes = imageFile.readBytes()
+                                        val analysis = GroqAIService.analyzeProductImage(imageBytes)
+                                        if (!analysis.isRelevant) {
+                                            aiError = "❌ Item not suitable: ${analysis.rejectionReason ?: "Please upload a valid product photo"}"
+                                            capturedImages = emptyList()
+                                        } else {
+                                            title = analysis.title
+                                            description = analysis.description
+                                            category = analysis.category
+                                            condition = analysis.condition
+                                            aiTags = analysis.tags
+                                            aiAnalyzed = true
+                                        }
+                                    } catch (e: Exception) {
+                                        aiError = "AI analysis failed. Please fill details manually."
+                                        aiAnalyzed = true // Let them proceed manually
+                                    } finally {
+                                        isAnalyzing = false
+                                    }
+                                }
+                            }
+                        }
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        if (isAnalyzing) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Orange500)
+                        } else {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = Orange500,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                if (isAnalyzing) "AI is analyzing your product..." else "✨ AI Analyze & Auto-fill",
+                                fontWeight = FontWeight.SemiBold,
+                                color = Orange500
+                            )
+                            Text(
+                                "Let Aura AI identify your item and fill in details",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Orange500)
+                    }
+                }
+            }
+
+            // AI Error Message
+            aiError?.let { err ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.errorContainer)
+                        .padding(12.dp)
+                ) {
+                    Text(err, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            // AI Tags Row (after analysis)
+            AnimatedVisibility(visible = aiTags.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Orange500.copy(alpha = 0.05f))
+                        .padding(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Orange500, modifier = Modifier.size(16.dp))
+                        Text("AI Detected Tags", style = MaterialTheme.typography.labelMedium, color = Orange500, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(aiTags) { tag ->
+                            Box(
+                                modifier = Modifier
+                                    .background(Orange500.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(tag, style = MaterialTheme.typography.labelSmall, color = Orange500)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Details Section ───────────────────────────────────────────────
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+
+                // Title field
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("What are you selling?", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        placeholder = { Text("Give your listing a title", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                }
+
+                // Description
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    placeholder = { Text("Describe your item — mention special features, flaws, etc.", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    modifier = Modifier.fillMaxWidth().height(100.dp),
+                    singleLine = false,
+                    shape = RoundedCornerShape(12.dp),
+                )
+
+                Divider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                // Category chips
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        Text("Category / Brand / Type", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Icon(Icons.Default.ExpandLess, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+
+                    // Category row
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Category", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(72.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(categories) { cat ->
+                                val isSelected = category == cat
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { category = cat },
+                                    label = { Text(cat, fontSize = 12.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Orange500,
+                                        selectedLabelColor = Color.Black,
+                                    ),
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Condition tags
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Condition", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(72.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            conditions.forEach { cond ->
+                                val isSelected = condition == cond
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { condition = cond },
+                                    label = { Text(cond, fontSize = 12.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Orange500,
+                                        selectedLabelColor = Color.Black,
+                                    ),
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Divider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                // Price field
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Price", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("◎", fontSize = 20.sp, color = Orange500, fontWeight = FontWeight.Bold)
+                            BasicPriceTextField(
+                                value = priceSol,
+                                onValueChange = { priceSol = it.filter { c -> c.isDigit() || c == '.' } }
+                            )
+                        }
+                        Text("SOL / item", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    // Tip
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Gold500.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                            .padding(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Icon(Icons.Default.Lightbulb, contentDescription = null, tint = Gold500, modifier = Modifier.size(16.dp))
+                        Text(
+                            "Tip: Prices include shipping by default. Chat with buyer to discuss meeting in person.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Error message
+                errorMsg?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
+}
+
+@Composable
+private fun BasicPriceTextField(value: String, onValueChange: (String) -> Unit) {
+    androidx.compose.foundation.text.BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        textStyle = MaterialTheme.typography.headlineSmall.copy(
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.Bold
+        ),
+        singleLine = true,
+        decorationBox = { inner ->
+            if (value.isEmpty()) {
+                Text("0.00", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.5f), fontWeight = FontWeight.Bold)
+            }
+            inner()
+        }
+    )
 }

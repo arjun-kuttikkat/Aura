@@ -196,7 +196,7 @@ fun RewardsScreen() {
                 icon = Icons.Default.Star,
                 title = "NFT Evolution",
                 subtitle = "Level up your Aura",
-                description = "Your on-chain Aura NFT evolves as your streak grows: Seed → Sprout → Tree → Aura.",
+                description = "Your on-chain Aura NFT evolves as your streak grows: Seed → Sprout → Tree → Aura. Higher tiers unlock exclusive features.",
                 leftBorderColor = Orange700,
             )
 

@@ -29,6 +29,10 @@ android {
         buildConfigField("String", "HELIUS_KEY", "\"${localProps.getProperty("HELIUS_API_KEY", "")}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${localProps.getProperty("SUPABASE_URL", "")}\"")
         buildConfigField("String", "SUPABASE_KEY", "\"${localProps.getProperty("SUPABASE_KEY", "")}\"")
+        buildConfigField("String", "GROQ_API_KEY", "\"${localProps.getProperty("GROQ_API_KEY", "")}\"")
+        buildConfigField("String", "GROQ_MODEL", "\"${localProps.getProperty("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")}\"")
+        buildConfigField("String", "CEREBRAS_API_KEY", "\"${localProps.getProperty("CEREBRAS_API_KEY", "")}\"")
+        manifestPlaceholders["MAPS_API_KEY"] = localProps.getProperty("MAPS_API_KEY", "PLACEHOLDER_KEY")
     }
 
     buildTypes {
@@ -90,18 +94,20 @@ dependencies {
     
     // ML Kit Face Detection
     implementation(libs.mlkit.face.detection)
+    implementation("com.google.mlkit:image-labeling:17.0.9")
 
 
     // Coroutines Guava
     implementation(libs.kotlinx.coroutines.guava)
 
-    // Supabase
+    // Supabase (single declaration via version catalog)
     implementation(libs.supabase.postgrest)
     implementation(libs.supabase.auth)
     implementation(libs.supabase.storage)
     implementation(libs.supabase.realtime)
     implementation(libs.supabase.functions)
-    implementation(libs.ktor.client.android)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.kotlinx.serialization.json)
 
     // Encrypted Storage
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
@@ -109,11 +115,18 @@ dependencies {
     // Accompanist Permissions
     implementation(libs.accompanist.permissions)
 
-    implementation(libs.kotlinx.serialization.json)
-
     // Animation & Persistence
     implementation(libs.lottie.compose)
     implementation(libs.datastore.preferences)
+
+    // New Additions: Maps, 3D Avatars, Confetti Animations
+    implementation(libs.maps.compose)
+    implementation(libs.play.services.maps)
+    implementation(libs.sceneview.arsceneview)
+    implementation(libs.konfetti.compose)
+    
+    // Uber H3 Spatial Indexing
+    implementation("com.uber:h3:4.1.1")
 
     // Google Fonts
     implementation("androidx.compose.ui:ui-text-google-fonts:1.6.1")
