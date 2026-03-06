@@ -9,7 +9,7 @@ import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.flow.first
 
 private val Context.officialSeederStore by preferencesDataStore("official_seeder")
-private val SEEDED_KEY = booleanPreferencesKey("listings_seeded_v1")
+private val SEEDED_KEY = booleanPreferencesKey("listings_seeded_v2")
 
 /**
  * Seeds 10 official Aura listings for the UAE marketplace distributed across all 7 emirates.
@@ -180,10 +180,13 @@ object OfficialListingSeeder {
                         "fingerprint_hash" to "aura_official_${seed.emirate.lowercase().replace(" ", "_")}",
                         "latitude" to seed.lat,
                         "longitude" to seed.lng,
+                        "location" to "${seed.emirate}",
                         "emirate" to seed.emirate,
-                        "seller_aura_score" to 95
+                        "seller_aura_score" to 95,
+                        "is_active" to true,
+                        "is_published" to true
                     )
-                    db.from("listings").insert(row)
+                    db.from("marketplace_listings").insert(row)
                     Log.d(TAG, "Seeded: ${seed.title} in ${seed.emirate}")
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to seed ${seed.title}: ${e.message}")

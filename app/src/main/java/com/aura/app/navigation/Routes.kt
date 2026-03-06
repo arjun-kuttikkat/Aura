@@ -18,6 +18,7 @@ object Routes {
     const val PLACE_AD_LOCATION = "place_ad_location"
     const val LISTING_DETAIL = "listing_detail/{listingId}"
     const val CHAT_DETAIL = "chat_detail/{listingId}"
+    const val MEET_LOCATION = "meet_location/{listingId}"
     const val MEET_SESSION = "meet_session"
     const val VERIFY_ITEM = "verify_item"
     const val ESCROW_PAY = "escrow_pay"
@@ -36,6 +37,7 @@ object Routes {
     const val EMIRATE_PICKER = "emirate_picker"
 
     fun listingDetail(listingId: String) = "listing_detail/$listingId"
+    fun meetLocation(listingId: String) = "meet_location/$listingId"
     fun chatDetail(listingId: String) = "chat_detail/$listingId"
     fun placeAdType(category: String) = "place_ad_type/$category"
 }

@@ -40,7 +40,7 @@ fun ChatDetailScreen(
     listingId: String,
     onBack: () -> Unit
 ) {
-    val walletAddress by WalletConnectionState.walletAddress.collectAsState()
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     val listing = AuraRepository.getListing(listingId)
     val isOfficialBot = listing?.sellerWallet == AiChatResponder.AURA_OFFICIAL_WALLET
 

@@ -6,9 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.SystemBarStyle
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.runtime.getValue
 import com.aura.app.navigation.NavGraph
 import com.aura.app.ui.theme.AuraTheme
 import com.aura.app.ui.theme.DarkBase
@@ -62,8 +60,7 @@ class MainActivity : ComponentActivity() {
             Log.e("MainActivity", "Init failed", e)
         }
         setContent {
-            val isDark by com.aura.app.data.AuraPreferences.isDarkMode.collectAsState()
-            AuraTheme(darkTheme = isDark) {
+            AuraTheme {
                 NavGraph()
             }
         }

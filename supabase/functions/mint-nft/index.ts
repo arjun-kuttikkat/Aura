@@ -50,7 +50,7 @@ serve(async (req) => {
         const mintAddressBase58 = asset.publicKey.toString();
 
         const { error: dbError } = await supabase
-            .from('listings')
+            .from('marketplace_listings')
             .update({ mint_address: mintAddressBase58 })
             .eq('id', listingId);
 

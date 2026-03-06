@@ -100,6 +100,20 @@ fun VerifyItemScreen(
             },
             containerColor = DarkBase,
         ) { padding ->
+            if (session == null) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text("No active trade", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Start a trade from a listing first.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black)) { Text("Go Back") }
+                }
+                return@Scaffold
+            }
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -202,6 +216,12 @@ fun VerifyItemScreen(
                                             style = MaterialTheme.typography.bodyLarge,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = res.reason.ifBlank { if (res.pass) "Item matches the listing." else "Item could not be verified." },
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
                                     }
                                 }
                                 if (res.pass) {
@@ -233,27 +253,34 @@ fun VerifyItemScreen(
                             ContextCompat.getMainExecutor(context),
                             object : ImageCapture.OnImageSavedCallback {
                                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                                    try {
-                                        showFullScreenCamera = false
-                                        isVerifying = true
-                                        scope.launch {
-                                            try {
-                                                val bytes = photoFile.readBytes()
-                                                photoFile.delete()
-                                                val listingId = session?.listingId ?: ""
-                                                result = AuraRepository.verifyPhoto(listingId, bytes)
-                                                if (result?.pass == true) {
-                                                    AuraRepository.updateTradeState(TradeState.VERIFIED_PASS)
-                                                } else {
-                                                    AuraRepository.updateTradeState(TradeState.VERIFIED_FAIL)
-                                                }
-                                            } catch (e: Exception) {
-                                                result = VerificationResult(pass = false, score = 0f, reason = e.message ?: "Verification failed")
-                                            } finally {
+                                    showFullScreenCamera = false
+                                    isVerifying = true
+                                    scope.launch {
+                                        try {
+                                            val bytes = kotlin.runCatching { photoFile.readBytes() }.getOrNull()
+                                            photoFile.delete()
+                                            if (bytes == null || bytes.isEmpty()) {
+                                                result = VerificationResult(pass = false, score = 0f, reason = "Photo could not be read.")
                                                 isVerifying = false
+                                                return@launch
                                             }
+                                            val listingId = session?.listingId?.takeIf { it.isNotBlank() } ?: run {
+                                                result = VerificationResult(pass = false, score = 0f, reason = "No trade session.")
+                                                isVerifying = false
+                                                return@launch
+                                            }
+                                            result = AuraRepository.verifyPhoto(listingId, bytes)
+                                            if (result?.pass == true) {
+                                                AuraRepository.updateTradeState(TradeState.VERIFIED_PASS)
+                                            } else {
+                                                AuraRepository.updateTradeState(TradeState.VERIFIED_FAIL)
+                                            }
+                                        } catch (e: Exception) {
+                                            result = VerificationResult(pass = false, score = 0f, reason = e.message ?: "Verification failed.")
+                                        } finally {
+                                            isVerifying = false
                                         }
-                                    } catch (_: Exception) { isVerifying = false }
+                                    }
                                 }
                                 override fun onError(exception: ImageCaptureException) {
                                     showFullScreenCamera = false

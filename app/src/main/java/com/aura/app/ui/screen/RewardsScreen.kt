@@ -42,7 +42,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -59,11 +58,11 @@ import com.aura.app.ui.theme.Orange700
 
 @Composable
 fun RewardsScreen() {
-    val profile by AuraRepository.currentProfile.collectAsState()
+    val profile by AuraRepository.currentProfile.collectAsState(initial = null)
     val auraScoreRaw = profile?.auraScore ?: 50
     val streakRaw = profile?.streakDays ?: 0
-    val totalAura = com.aura.app.data.AuraPreferences.totalAuraEarned.collectAsState().value
-    val completedToday = com.aura.app.data.DirectivesManager.completedToday.collectAsState().value
+    val totalAura = com.aura.app.data.AuraPreferences.totalAuraEarned.collectAsState(initial = 0).value
+    val completedToday = com.aura.app.data.DirectivesManager.completedToday.collectAsState(initial = 0).value
 
     val animatedAura by animateIntAsState(
         targetValue = totalAura,

@@ -2,6 +2,8 @@ package com.aura.app.ui.screen
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.annotation.SuppressLint
+import android.location.Geocoder
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -47,8 +49,14 @@ import com.aura.app.data.AuraRepository
 import com.aura.app.data.GroqAIService
 import com.aura.app.ui.theme.*
 import com.aura.app.wallet.WalletConnectionState
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,7 +64,7 @@ fun CreateListingScreen(
     onListingCreated: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val walletAddress by WalletConnectionState.walletAddress.collectAsState()
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -89,6 +97,13 @@ fun CreateListingScreen(
     val conditions = listOf("New", "Like New", "Good", "Fair")
     val categories = listOf("Electronics", "Fashion", "Sports", "Home", "Books", "Collectibles", "Tools", "Other")
 
+    var hasLocationPermission by remember {
+        mutableStateOf(context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+    }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        hasLocationPermission = granted
+    }
+
     // ── Layout ───────────────────────────────────────────────────────────────
     Scaffold(
         topBar = {
@@ -114,10 +129,21 @@ fun CreateListingScreen(
                             if (price <= 0) { errorMsg = "Enter a valid price"; return@TextButton }
                             if (capturedImages.isEmpty()) { errorMsg = "Please add a photo"; return@TextButton }
                             if (!aiAnalyzed) { errorMsg = "Tap AI Analyze to verify your product"; return@TextButton }
+                            if (!hasLocationPermission) {
+                                errorMsg = "Allow location access to list your item"
+                                locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                                return@TextButton
+                            }
                             isSubmitting = true
                             errorMsg = null
                             scope.launch {
                                 try {
+                                    val (lat, lng, locationStr) = getCurrentLocationWithAddress(context)
+                                    if (lat == null || lng == null) {
+                                        errorMsg = "Could not get your location. Enable GPS and try again."
+                                        isSubmitting = false
+                                        return@launch
+                                    }
                                     val listing = AuraRepository.createListing(
                                         sellerWallet = walletAddress!!,
                                         title = title.ifBlank { "Untitled" },
@@ -125,6 +151,9 @@ fun CreateListingScreen(
                                         priceLamports = (price * 1_000_000_000).toLong(),
                                         imageRefs = capturedImages,
                                         condition = condition,
+                                        location = locationStr,
+                                        latitude = lat,
+                                        longitude = lng,
                                     )
                                     // Minting is best-effort: if the Edge Function isn't deployed yet
                                     // the listing is still created. Mint status will be PENDING.
@@ -163,11 +192,29 @@ fun CreateListingScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
         ) {
-            // ── Photo Section ─────────────────────────────────────────────────
+            // Error banner — prominent, at top
+            errorMsg?.let { msg ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text(
+                        msg,
+                        modifier = Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+            // ── Photo Section (clipped so camera overlay never overlaps form below) ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(280.dp)
+                    .clip(RoundedCornerShape(0.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
@@ -196,11 +243,11 @@ fun CreateListingScreen(
                         },
                         modifier = Modifier.fillMaxSize()
                     )
-                    // Capture button overlay
+                    // Capture button overlay — kept well inside the 280.dp box
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(16.dp),
+                            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 24.dp),
                         contentAlignment = Alignment.BottomCenter
                     ) {
                         Row(
@@ -560,6 +607,39 @@ fun CreateListingScreen(
                             }
                         }
                     }
+
+                    // Location is set automatically from GPS when you publish
+                    if (!hasLocationPermission) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Gold500.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                                .clickable { locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = Orange500, modifier = Modifier.size(20.dp))
+                            Text(
+                                "Tap to allow location — we use GPS to set where your item is",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = Orange500, modifier = Modifier.size(18.dp))
+                            Text(
+                                "Location will be set from GPS when you publish",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
 
                 Divider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -611,6 +691,42 @@ fun CreateListingScreen(
             }
         }
     }
+}
+
+@SuppressLint("MissingPermission")
+private suspend fun getCurrentLocationWithAddress(context: android.content.Context): Triple<Double?, Double?, String?> {
+    val fused = LocationServices.getFusedLocationProviderClient(context)
+    val loc = try {
+        withContext(Dispatchers.IO) {
+            val token = com.google.android.gms.tasks.CancellationTokenSource().token
+            fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, token).await()
+        }
+    } catch (_: SecurityException) {
+        return Triple(null, null, null)
+    } catch (_: Exception) {
+        null
+    }
+    val fallbackLoc = if (loc != null) loc else try {
+        fused.lastLocation.await()
+    } catch (_: Exception) { null }
+    val lat = loc?.latitude ?: fallbackLoc?.latitude
+    val lng = loc?.longitude ?: fallbackLoc?.longitude
+    if (lat == null || lng == null) return Triple(null, null, null)
+    val locationStr = withContext(Dispatchers.IO) {
+        runCatching {
+            val geocoder = Geocoder(context, Locale.getDefault())
+            @Suppress("DEPRECATION")
+            val addrs = geocoder.getFromLocation(lat, lng, 1)
+            addrs?.firstOrNull()?.let { addr ->
+                listOfNotNull(
+                    addr.locality,
+                    addr.subAdminArea,
+                    addr.adminArea,
+                ).filter { it.isNotBlank() }.distinct().take(2).joinToString(", ")
+            }?.takeIf { it.isNotBlank() } ?: "${lat.toFloat()}, ${lng.toFloat()}"
+        }.getOrNull()
+    }
+    return Triple(lat, lng, locationStr ?: "${lat.toFloat()}, ${lng.toFloat()}")
 }
 
 @Composable

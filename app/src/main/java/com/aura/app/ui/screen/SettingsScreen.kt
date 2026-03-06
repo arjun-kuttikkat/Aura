@@ -16,7 +16,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
@@ -38,8 +37,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.aura.app.data.AuraPreferences
 import com.aura.app.ui.components.MainTopBar
@@ -48,19 +49,18 @@ import com.aura.app.wallet.WalletConnectionState
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    onBack: () -> Unit = {},
     onNotificationsClick: () -> Unit = {},
-    onAppearanceClick: () -> Unit = {},
     onSecurityClick: () -> Unit = {},
     onPrivacyClick: () -> Unit = {},
     onLogout: () -> Unit = {},
 ) {
-    val isDarkMode by AuraPreferences.isDarkMode.collectAsState()
-    val notificationsEnabled by AuraPreferences.notificationsEnabled.collectAsState()
-    val transactionAlerts by AuraPreferences.transactionAlerts.collectAsState()
-    val biometricsEnabled by AuraPreferences.biometricsEnabled.collectAsState()
-    val seedBackedUp by AuraPreferences.seedBackedUp.collectAsState()
-    val publicProfile by AuraPreferences.publicProfile.collectAsState()
-    val walletAddress by WalletConnectionState.walletAddress.collectAsState()
+    val notificationsEnabled by AuraPreferences.notificationsEnabled.collectAsState(initial = true)
+    val transactionAlerts by AuraPreferences.transactionAlerts.collectAsState(initial = true)
+    val biometricsEnabled by AuraPreferences.biometricsEnabled.collectAsState(initial = false)
+    val seedBackedUp by AuraPreferences.seedBackedUp.collectAsState(initial = false)
+    val publicProfile by AuraPreferences.publicProfile.collectAsState(initial = true)
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
 
     val notificationsSubtitle = when {
         notificationsEnabled && transactionAlerts -> "Push + transaction alerts enabled"
@@ -75,15 +75,19 @@ fun SettingsScreen(
         else -> "Biometrics off, backup pending"
     }
 
+    val configuration = LocalConfiguration.current
+    val isCompact = configuration.screenWidthDp < 360
+    val screenPadding = if (isCompact) 16.dp else 24.dp
+
     Scaffold(
-        topBar = { MainTopBar(title = "Settings") },
+        topBar = { MainTopBar(title = "Settings", onBack = onBack) },
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp),
+                .padding(screenPadding),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SettingsItem(
@@ -91,12 +95,6 @@ fun SettingsScreen(
                 title = "Notifications",
                 subtitle = notificationsSubtitle,
                 onClick = onNotificationsClick,
-            )
-            SettingsItem(
-                icon = Icons.Default.Palette,
-                title = "Appearance",
-                subtitle = if (isDarkMode) "Dark mode active" else "Light mode active",
-                onClick = onAppearanceClick,
             )
             SettingsItem(
                 icon = Icons.Default.Security,
@@ -167,14 +165,15 @@ private fun SettingsItem(
                 if (onClick != null) Modifier.clickable(onClick = onClick)
                 else Modifier
             ),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = com.aura.app.ui.theme.SlateElevated),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
+        val itemPadding = 20.dp
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(horizontal = itemPadding, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -189,17 +188,21 @@ private fun SettingsItem(
                     modifier = Modifier.size(24.dp),
                     tint = MaterialTheme.colorScheme.primary,
                 )
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     subtitle?.let {
                         Text(
                             text = it,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }

@@ -191,7 +191,8 @@ fun PlaceAdLocationScreen(
                                             imageRefs = listOf(publicUrl),
                                             condition = "Pristine",
                                             textureHash = "ai_hash_${System.currentTimeMillis()}",
-                                            emirate = emirate
+                                            emirate = emirate,
+                                            location = emirate
                                         )
                                     }
                                 } catch (e: Exception) {

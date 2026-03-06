@@ -2,7 +2,6 @@ package com.aura.app.ui.screen
 
 import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -15,9 +14,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -50,7 +48,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -60,11 +57,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -95,10 +92,10 @@ fun MeetSessionScreen(
     onBack: () -> Unit,
 ) {
     val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
-    val walletAddress by WalletConnectionState.walletAddress.collectAsState()
-    val nfcState by NfcHandoverManager.state.collectAsState()
-    var nfcError by remember { mutableStateOf<String?>(null) }
-    var isVerifying by remember { mutableStateOf(false) }
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
+    val nfcState by NfcHandoverManager.state.collectAsState(initial = com.aura.app.util.NfcHandshakeResult.Idle)
+    var nfcError by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    var isVerifying by remember { androidx.compose.runtime.mutableStateOf(false) }
 
     val view = LocalView.current
 
@@ -170,11 +167,16 @@ fun MeetSessionScreen(
         },
         containerColor = DarkBase,
     ) { padding ->
+        val configuration = LocalConfiguration.current
+        val isCompact = configuration.screenWidthDp < 360
+        val screenPadding = if (isCompact) 16.dp else 24.dp
+        val qrSize = if (isCompact) 160.dp else 180.dp
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(24.dp),
+                .padding(screenPadding),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -208,8 +210,8 @@ fun MeetSessionScreen(
                                 GlassCard(glowColor = Orange500, cornerRadius = 16.dp) {
                                     Box(
                                         modifier = Modifier
-                                            .size(180.dp)
-                                            .padding(12.dp)
+                                            .size(qrSize)
+                                            .padding(if (isCompact) 8.dp else 12.dp)
                                             .clip(RoundedCornerShape(12.dp))
                                             .background(Color.White),
                                         contentAlignment = Alignment.Center,
