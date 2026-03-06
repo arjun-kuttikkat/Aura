@@ -77,7 +77,10 @@ private data class ActiveMission(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DirectivesScreen(onBack: () -> Unit) {
+fun DirectivesScreen(
+    onBack: () -> Unit,
+    onCameraOpenChange: (Boolean) -> Unit = {}
+) {
     val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -111,6 +114,59 @@ fun DirectivesScreen(onBack: () -> Unit) {
             delay(100)
             listState.animateScrollToItem(0)
         }
+    }
+
+    // Hide top bar & bottom nav when camera is fullscreen
+    LaunchedEffect(phase) {
+        onCameraOpenChange(phase == MissionPhase.CAPTURING)
+    }
+
+    // Fullscreen camera — no Scaffold, no top/bottom bars
+    if (phase == MissionPhase.CAPTURING) {
+        var verificationError by remember { mutableStateOf<String?>(null) }
+        // Show error from previous failed verification
+        LaunchedEffect(pendingMission?.verificationResult) {
+            val res = pendingMission?.verificationResult
+            if (res != null && !res.first) verificationError = res.second
+        }
+        CameraProofOverlay(
+            imageCapture = imageCapture,
+            lifecycleOwner = lifecycleOwner,
+            context = context,
+            verificationError = verificationError,
+            onDismissError = { verificationError = null },
+            onPhotoTaken = { path ->
+                verificationError = null
+                pendingMission = pendingMission?.copy(proofPhotoPath = path)
+                phase = MissionPhase.VERIFYING
+                scope.launch {
+                    delay(500)
+                    val mission = pendingMission?.mission
+                    if (mission != null && path != null) {
+                        val photoBytes = java.io.File(path).readBytes()
+                        val (passed, feedback, score) = GroqAIService.verifyMissionCompletion(
+                            missionDescription = mission.description,
+                            imageBytes = photoBytes
+                        )
+                        pendingMission = pendingMission?.copy(
+                            verificationResult = Triple(passed, feedback, score)
+                        )
+                        phase = if (passed) MissionPhase.COMPLETE else MissionPhase.CAPTURING
+                        if (!passed) {
+                            verificationError = feedback
+                            chatHistory = chatHistory + ChatMsg("assistant", "Hmm, I couldn't verify that one. Try again! 📸")
+                        } else {
+                            val creditsEarned = (score * 0.5f).toInt().coerceAtLeast(1)
+                            AvatarPreferences.addCredits(context, creditsEarned)
+                        }
+                    } else {
+                        phase = MissionPhase.COMPLETE
+                    }
+                }
+            },
+            onCancel = { phase = MissionPhase.ACTIVE }
+        )
+        return
     }
 
     Scaffold(
@@ -378,44 +434,6 @@ fun DirectivesScreen(onBack: () -> Unit) {
                 item { Spacer(modifier = Modifier.height(80.dp)) }
             }
 
-            // ── Camera Overlay for Photo Proof ────────────────────────────────
-            if (phase == MissionPhase.CAPTURING) {
-                CameraProofOverlay(
-                    imageCapture = imageCapture,
-                    lifecycleOwner = lifecycleOwner,
-                    context = context,
-                    onPhotoTaken = { path ->
-                        pendingMission = pendingMission?.copy(proofPhotoPath = path)
-                        phase = MissionPhase.VERIFYING
-                        scope.launch {
-                            delay(500)
-                            val mission = pendingMission?.mission
-                            if (mission != null && path != null) {
-                                val photoBytes = java.io.File(path).readBytes()
-                                val (passed, feedback, score) = GroqAIService.verifyMissionCompletion(
-                                    missionDescription = mission.description,
-                                    imageBytes = photoBytes
-                                )
-                                pendingMission = pendingMission?.copy(
-                                    verificationResult = Triple(passed, feedback, score)
-                                )
-                                phase = if (passed) MissionPhase.COMPLETE else MissionPhase.CAPTURING
-                                if (!passed) {
-                                    chatHistory = chatHistory + ChatMsg("assistant", "Hmm, I couldn't verify that one. $feedback Try again! 📸")
-                                } else {
-                                    // Add credits for completion
-                                    val creditsEarned = (score * 0.5f).toInt().coerceAtLeast(1)
-                                    AvatarPreferences.addCredits(context, creditsEarned)
-                                }
-                            } else {
-                                phase = MissionPhase.COMPLETE
-                            }
-                        }
-                    },
-                    onCancel = { phase = MissionPhase.ACTIVE }
-                )
-            }
-
             // ── Verifying overlay ─────────────────────────────────────────────
             if (phase == MissionPhase.VERIFYING) {
                 Box(
@@ -497,23 +515,26 @@ private fun MissionProposalCard(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
-                    onClick = onDecline,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Text("Not Now")
-                }
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Button(
                     onClick = onAccept,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = UltraViolet)
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Accept Mission", fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(
+                    onClick = onDecline,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text("Not Now")
                 }
             }
         }
@@ -649,9 +670,26 @@ private fun CameraProofOverlay(
     imageCapture: ImageCapture,
     lifecycleOwner: androidx.lifecycle.LifecycleOwner,
     context: android.content.Context,
+    verificationError: String? = null,
+    onDismissError: () -> Unit = {},
     onPhotoTaken: (String?) -> Unit,
     onCancel: () -> Unit
 ) {
+    // AI verification error popup — clear, dismissible, no repeating text
+    if (verificationError != null) {
+        AlertDialog(
+            onDismissRequest = onDismissError,
+            title = { Text("Verification Failed", fontWeight = FontWeight.Bold) },
+            text = { Text(verificationError, style = MaterialTheme.typography.bodyMedium) },
+            confirmButton = {
+                TextButton(onClick = onDismissError) {
+                    Text("Try Again", color = UltraViolet, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            containerColor = DarkSurface
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = { ctx ->

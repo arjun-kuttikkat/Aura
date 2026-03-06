@@ -133,9 +133,9 @@ fun HomeScreen(
 
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
-    val isCompact = screenWidthDp < 360
+    val isCompact = screenWidthDp < 380
     val contentPaddingHorizontal = if (isCompact) 12.dp else 16.dp
-    val gridMinCellSize = 140.dp
+    val gridMinCellSize = if (isCompact) 128.dp else 148.dp
 
     Scaffold(
         topBar = {
@@ -287,30 +287,30 @@ fun HomeScreen(
                 }
             }
 
-            // Location scope + Filters row (sheet state hoisted so it survives scroll/recomposition)
+            // Location scope + Filters row — all fit on one line (no cut-off on small phones)
             item(span = { GridItemSpan(maxCurrentLineSpan) }) {
-                val scopeTabPaddingH = if (isCompact) 10.dp else 16.dp
-                val scopeTabPaddingV = if (isCompact) 8.dp else 10.dp
+                val scopeTabPaddingH = if (isCompact) 8.dp else 14.dp
+                val scopeTabPaddingV = if (isCompact) 7.dp else 10.dp
+                val tabSpacing = if (isCompact) 6.dp else 10.dp
 
                 Spacer(modifier = Modifier.height(if (isCompact) 8.dp else 12.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(if (isCompact) 8.dp else 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (isCompact) 6.dp else 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Location tabs — take remaining space and scroll horizontally on small screens
+                    // Scope tabs — flex to fill, equal width so Global never cuts off
                     Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(if (isCompact) 6.dp else 8.dp),
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(tabSpacing),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         scopes.forEach { scope ->
                             val isSelected = scope == selectedScope
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
                                     .background(
                                         if (isSelected) Brush.linearGradient(listOf(Orange500, Gold500.copy(alpha = 0.9f)))
                                         else Brush.linearGradient(listOf(GlassSurface, GlassSurface))
@@ -318,47 +318,52 @@ fun HomeScreen(
                                     .border(
                                         0.5.dp,
                                         if (isSelected) Color.Transparent else SlateLight.copy(alpha = 0.4f),
-                                        RoundedCornerShape(12.dp),
+                                        RoundedCornerShape(10.dp),
                                     )
                                     .clickable { selectedScope = scope }
                                     .padding(horizontal = scopeTabPaddingH, vertical = scopeTabPaddingV),
                             ) {
                                 Text(
                                     scope,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    style = if (isCompact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
                     }
-                    // Filters button — fixed size range so layout is stable on all devices
+                    // Filters — icon-only on compact to save space for scope tabs
                     Box(
                         modifier = Modifier
-                            .widthIn(min = if (isCompact) 72.dp else 80.dp, max = 96.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(10.dp))
                             .background(GlassSurface)
-                            .border(0.5.dp, SlateLight.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                            .border(0.5.dp, SlateLight.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
                             .clickable { showFilterSheet = true }
-                            .padding(horizontal = if (isCompact) 10.dp else 14.dp, vertical = scopeTabPaddingV),
+                            .padding(
+                                horizontal = if (isCompact) 12.dp else 14.dp,
+                                vertical = scopeTabPaddingV,
+                            ),
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(if (isCompact) 0.dp else 6.dp),
                         ) {
                             Icon(
                                 Icons.Filled.FilterList,
                                 contentDescription = "Filters",
                                 tint = Orange500,
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(if (isCompact) 18.dp else 20.dp),
                             )
-                            Text(
-                                "Filters",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                            )
+                            if (!isCompact) {
+                                Text(
+                                    "Filters",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
                             if (selectedCondition != "All") {
                                 Box(
                                     modifier = Modifier
@@ -372,7 +377,7 @@ fun HomeScreen(
                 }
             }
 
-            // Sort + header row
+            // Sort + header row — compact-friendly
             item(span = { GridItemSpan(maxCurrentLineSpan) }) {
                 Spacer(modifier = Modifier.height(if (isCompact) 4.dp else 8.dp))
                 Row(
@@ -381,16 +386,16 @@ fun HomeScreen(
                 ) {
                     Text(
                         "Marketplace",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = if (isCompact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(modifier = Modifier.width(if (isCompact) 8.dp else 12.dp))
+                    Spacer(modifier = Modifier.width(if (isCompact) 6.dp else 12.dp))
                     Row(
                         modifier = Modifier
                             .weight(1f)
                             .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(if (isCompact) 2.dp else 4.dp),
                     ) {
                         sortOptions.forEach { opt ->
                             val isSelected = opt == sortOrder
@@ -402,7 +407,7 @@ fun HomeScreen(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
                                     .clickable { sortOrder = opt }
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    .padding(horizontal = if (isCompact) 6.dp else 8.dp, vertical = 6.dp),
                             )
                         }
                     }
@@ -907,11 +912,11 @@ private fun ListingCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(if (compact) 8.dp else 12.dp),
+                    .padding(if (compact) 6.dp else 12.dp),
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = if (compact) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -921,16 +926,18 @@ private fun ListingCard(
                     Text(
                         text = location,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = if (compact) 2.dp else 4.dp),
                     )
                 }
                 Text(
                     text = CryptoPriceFormatter.formatSol(priceSol),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = if (compact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
                     color = Orange500,
                     fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = if (compact) 2.dp else 4.dp),
                 )
             }
         }

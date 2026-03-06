@@ -73,6 +73,7 @@ import com.aura.app.ui.theme.SlateElevated
 import com.aura.app.ui.theme.SlateLight
 import com.aura.app.util.CryptoPriceFormatter
 import com.aura.app.wallet.WalletConnectionState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -392,9 +393,11 @@ fun ListingDetailScreen(
                                                     buyerWallet = wallet,
                                                     sellerWallet = listing.sellerWallet,
                                                 )
+                                                // Defer navigation so the dialog can fully dismiss first (prevents crash)
+                                                delay(150)
                                                 onStartMeetup()
-                                            } catch (e: Exception) {
-                                                tradeError = e.message ?: "Failed"
+                                            } catch (e: Throwable) {
+                                                tradeError = e.message ?: "Failed to start trade"
                                             } finally {
                                                 isStartingTrade = false
                                             }

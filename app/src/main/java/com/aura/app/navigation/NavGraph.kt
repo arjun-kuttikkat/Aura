@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -26,6 +27,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -79,7 +81,11 @@ fun NavGraph(
     val currentRoute = actualRoute?.let { route ->
         if (route.startsWith("listing_detail/")) Routes.HOME else route
     }
-    val showBottomBar = currentRoute in MAIN_TAB_ROUTES
+    val hideBottomBarForCamera = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(currentRoute) {
+        if (currentRoute != Routes.DIRECTIVES) hideBottomBarForCamera.value = false
+    }
+    val showBottomBar = currentRoute in MAIN_TAB_ROUTES && !hideBottomBarForCamera.value
     val navBarsBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottomPadding = if (showBottomBar) BOTTOM_NAV_HEIGHT + navBarsBottom else 0.dp
 
@@ -135,9 +141,14 @@ fun NavGraph(
                 RewardsScreen()
             }
             composable(Routes.PROFILE) {
+                val scope = rememberCoroutineScope()
                 ProfileScreen(
                     onVerifyIdentity = { navController.navigate(Routes.FACE_VERIFICATION) },
-                    onNavigate = { route -> navController.navigate(route) }
+                    onNavigate = { route ->
+                        scope.launch {
+                            navController.navigate(route)
+                        }
+                    }
                 )
             }
             composable(Routes.SETTINGS) {
@@ -279,7 +290,8 @@ fun NavGraph(
         }
         composable(Routes.DIRECTIVES) {
             com.aura.app.ui.screen.DirectivesScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onCameraOpenChange = { hideBottomBarForCamera.value = it }
             )
         }
         composable(Routes.AVATAR_CREATOR) {

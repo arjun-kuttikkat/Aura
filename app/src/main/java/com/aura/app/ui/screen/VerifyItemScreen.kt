@@ -82,6 +82,61 @@ fun VerifyItemScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(DarkBase)) {
+        if (showFullScreenCamera && result == null) {
+            AuraFullScreenCamera(
+                onCapture = { imageCapture ->
+                    try {
+                        val photoFile = java.io.File(context.cacheDir, "verify_${System.currentTimeMillis()}.jpg")
+                        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+                        imageCapture.takePicture(
+                            outputOptions,
+                            ContextCompat.getMainExecutor(context),
+                            object : ImageCapture.OnImageSavedCallback {
+                                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                                    showFullScreenCamera = false
+                                    isVerifying = true
+                                    scope.launch {
+                                        try {
+                                            val bytes = kotlin.runCatching { photoFile.readBytes() }.getOrNull()
+                                            photoFile.delete()
+                                            if (bytes == null || bytes.isEmpty()) {
+                                                result = VerificationResult(pass = false, score = 0f, reason = "Photo could not be read.")
+                                                isVerifying = false
+                                                return@launch
+                                            }
+                                            val listingId = session?.listingId?.takeIf { it.isNotBlank() } ?: run {
+                                                result = VerificationResult(pass = false, score = 0f, reason = "No trade session.")
+                                                isVerifying = false
+                                                return@launch
+                                            }
+                                            result = AuraRepository.verifyPhoto(listingId, bytes)
+                                            if (result?.pass == true) {
+                                                AuraRepository.updateTradeState(TradeState.VERIFIED_PASS)
+                                            } else {
+                                                AuraRepository.updateTradeState(TradeState.VERIFIED_FAIL)
+                                            }
+                                        } catch (e: Exception) {
+                                            result = VerificationResult(pass = false, score = 0f, reason = e.message ?: "Verification failed.")
+                                        } finally {
+                                            isVerifying = false
+                                        }
+                                    }
+                                }
+                                override fun onError(exception: ImageCaptureException) {
+                                    showFullScreenCamera = false
+                                    isVerifying = false
+                                    result = VerificationResult(pass = false, score = 0f, reason = exception.message ?: "Capture failed")
+                                }
+                            },
+                        )
+                    } catch (e: Exception) {
+                        showFullScreenCamera = false
+                        result = VerificationResult(pass = false, score = 0f, reason = e.message ?: "Capture failed")
+                    }
+                },
+                onClose = { showFullScreenCamera = false },
+            )
+        } else {
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -241,61 +296,6 @@ fun VerifyItemScreen(
                 }
             }
         }
-
-        if (showFullScreenCamera && result == null) {
-            AuraFullScreenCamera(
-                onCapture = { imageCapture ->
-                    try {
-                        val photoFile = java.io.File(context.cacheDir, "verify_${System.currentTimeMillis()}.jpg")
-                        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-                        imageCapture.takePicture(
-                            outputOptions,
-                            ContextCompat.getMainExecutor(context),
-                            object : ImageCapture.OnImageSavedCallback {
-                                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                                    showFullScreenCamera = false
-                                    isVerifying = true
-                                    scope.launch {
-                                        try {
-                                            val bytes = kotlin.runCatching { photoFile.readBytes() }.getOrNull()
-                                            photoFile.delete()
-                                            if (bytes == null || bytes.isEmpty()) {
-                                                result = VerificationResult(pass = false, score = 0f, reason = "Photo could not be read.")
-                                                isVerifying = false
-                                                return@launch
-                                            }
-                                            val listingId = session?.listingId?.takeIf { it.isNotBlank() } ?: run {
-                                                result = VerificationResult(pass = false, score = 0f, reason = "No trade session.")
-                                                isVerifying = false
-                                                return@launch
-                                            }
-                                            result = AuraRepository.verifyPhoto(listingId, bytes)
-                                            if (result?.pass == true) {
-                                                AuraRepository.updateTradeState(TradeState.VERIFIED_PASS)
-                                            } else {
-                                                AuraRepository.updateTradeState(TradeState.VERIFIED_FAIL)
-                                            }
-                                        } catch (e: Exception) {
-                                            result = VerificationResult(pass = false, score = 0f, reason = e.message ?: "Verification failed.")
-                                        } finally {
-                                            isVerifying = false
-                                        }
-                                    }
-                                }
-                                override fun onError(exception: ImageCaptureException) {
-                                    showFullScreenCamera = false
-                                    isVerifying = false
-                                    result = VerificationResult(pass = false, score = 0f, reason = exception.message ?: "Capture failed")
-                                }
-                            },
-                        )
-                    } catch (e: Exception) {
-                        showFullScreenCamera = false
-                        result = VerificationResult(pass = false, score = 0f, reason = e.message ?: "Capture failed")
-                    }
-                },
-                onClose = { showFullScreenCamera = false },
-            )
         }
 
         if (isVerifying) {
