@@ -98,10 +98,10 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
     var receiveAmount by remember { mutableStateOf("") }
     var isLivenessVerifying by remember { mutableStateOf(false) }
     var isLivenessVerified by remember { mutableStateOf(false) }
-    val walletAddress by WalletConnectionState.walletAddress.collectAsState()
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     
     // Send state
-    val nfcState by NfcHandoverManager.state.collectAsState()
+    val nfcState by NfcHandoverManager.state.collectAsState(initial = com.aura.app.util.NfcHandshakeResult.Idle)
     val scope = rememberCoroutineScope()
     var isProcessingTx by remember { mutableStateOf(false) }
     var txSignature by remember { mutableStateOf<String?>(null) }

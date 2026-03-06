@@ -13,7 +13,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.Serializable
 
 private val Context.listingCacheStore by preferencesDataStore("listing_cache")
-private val CACHE_KEY = stringPreferencesKey("cached_listings_json")
+private val CACHE_KEY = stringPreferencesKey("cached_listings_json_v2")
 
 @Serializable
 data class CachedListing(
@@ -30,6 +30,7 @@ data class CachedListing(
     val createdAt: Long = 0L,
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val location: String? = null,
     val emirate: String? = null,
     val sellerAuraScore: Int = 50,
 )
@@ -78,6 +79,7 @@ object ListingCache {
         createdAt = createdAt,
         latitude = latitude,
         longitude = longitude,
+        location = location,
         emirate = emirate,
         sellerAuraScore = sellerAuraScore
     )
@@ -96,6 +98,7 @@ object ListingCache {
         createdAt = createdAt,
         latitude = latitude,
         longitude = longitude,
+        location = location,
         emirate = emirate,
         sellerAuraScore = sellerAuraScore
     )

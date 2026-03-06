@@ -13,6 +13,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,6 +32,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -73,7 +78,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -95,8 +102,10 @@ import com.aura.app.ui.theme.SuccessGreen
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.util.springScale
 import com.aura.app.util.CryptoPriceFormatter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.animation.AnimatedVisibility
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -106,8 +115,8 @@ fun HomeScreen(
     onNavigate: (String) -> Unit,
 ) {
     val listings by AuraRepository.listings.collectAsState(initial = emptyList())
-    val profile by AuraRepository.currentProfile.collectAsState()
-    val walletAddress by com.aura.app.wallet.WalletConnectionState.walletAddress.collectAsState()
+    val profile by AuraRepository.currentProfile.collectAsState(initial = null)
+    val walletAddress by com.aura.app.wallet.WalletConnectionState.walletAddress.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(false) }
 
@@ -115,12 +124,24 @@ fun HomeScreen(
     LaunchedEffect(walletAddress) {
         walletAddress?.let { AuraRepository.loadProfile(it) }
     }
+    // Refresh listings when HomeScreen appears — load all from Supabase so Global shows everything
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            AuraRepository.refreshListingsAwait()
+        }
+    }
+
+    val configuration = LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp
+    val isCompact = screenWidthDp < 360
+    val contentPaddingHorizontal = if (isCompact) 12.dp else 16.dp
+    val gridMinCellSize = 140.dp
 
     Scaffold(
         topBar = {
             MainTopBar(
                 title = "Aura",
-                logoSize = 44.dp,
+                logoSize = if (isCompact) 36.dp else 44.dp,
                 onZoneResourceClick = { onNavigate(com.aura.app.navigation.Routes.ZONE_REFINEMENT) },
             )
         },
@@ -137,8 +158,11 @@ fun HomeScreen(
             onRefresh = {
                 scope.launch {
                     isRefreshing = true
-                    AuraRepository.refreshListingsAwait()
-                    isRefreshing = false
+                    try {
+                        AuraRepository.refreshListingsAwait()
+                    } finally {
+                        isRefreshing = false
+                    }
                 }
             },
             modifier = Modifier.fillMaxSize()
@@ -152,7 +176,10 @@ fun HomeScreen(
         val conditions = listOf("All", "New", "Like New", "Good", "Fair")
 
         var sortOrder by remember { mutableStateOf("Newest") }
-        val sortOptions = listOf("Newest", "Oldest", "Price ↑", "Price ↓")
+        val sortOptions = listOf("Newest", "Oldest", "Price↑", "Price↓")
+
+        var showFilterSheet by remember { mutableStateOf(false) }
+        val filterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
         // ── Derive filtered + sorted listings ──
         val filteredListings = remember(listings, searchQuery, selectedScope, selectedCondition, sortOrder) {
@@ -166,10 +193,10 @@ fun HomeScreen(
                 }
             }
 
-            // Distance filter
+            // Distance filter — include listings with unknown distance (no lat/lng or no user location)
             result = when (selectedScope) {
-                "Nearby" -> result.filter { (it.distanceMeters ?: Int.MAX_VALUE) < 5_000 }
-                "Explore" -> result.filter { (it.distanceMeters ?: Int.MAX_VALUE) < 50_000 }
+                "Nearby" -> result.filter { it.distanceMeters == null || it.distanceMeters < 5_000 }
+                "Explore" -> result.filter { it.distanceMeters == null || it.distanceMeters < 50_000 }
                 else -> result // Global = all
             }
 
@@ -182,8 +209,8 @@ fun HomeScreen(
             result = when (sortOrder) {
                 "Newest" -> result.sortedByDescending { it.createdAt }
                 "Oldest" -> result.sortedBy { it.createdAt }
-                "Price ↑" -> result.sortedBy { it.priceLamports }
-                "Price ↓" -> result.sortedByDescending { it.priceLamports }
+                "Price↑" -> result.sortedBy { it.priceLamports }
+                "Price↓" -> result.sortedByDescending { it.priceLamports }
                 else -> result
             }
 
@@ -192,35 +219,37 @@ fun HomeScreen(
 
         LazyVerticalGrid(
             state = listState,
-            columns = GridCells.Fixed(2),
+            columns = GridCells.Adaptive(minSize = gridMinCellSize),
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(start = contentPaddingHorizontal, end = contentPaddingHorizontal, top = contentPaddingHorizontal, bottom = 100.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (isCompact) 8.dp else 12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isCompact) 12.dp else 16.dp),
         ) {
             // Hero Banner Card — show loading state when profile not yet loaded
-            item(span = { GridItemSpan(2) }) {
+            item(span = { GridItemSpan(maxCurrentLineSpan) }) {
                 val p = profile
                 if (p != null) {
                     HeroBannerCard(
                         auraScore = p.auraScore,
                         streakDays = p.streakDays,
                         listingsCount = listings.size,
+                        compact = isCompact,
                     )
                 } else if (walletAddress != null) {
-                    HeroBannerCardSkeleton()
+                    HeroBannerCardSkeleton(compact = isCompact)
                 }
             }
 
             // Premium search bar
-            item(span = { GridItemSpan(2) }) {
+            item(span = { GridItemSpan(maxCurrentLineSpan) }) {
+                Spacer(modifier = Modifier.height(4.dp))
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
                         .background(SlateElevated)
                         .border(0.5.dp, SlateLight.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                        .padding(horizontal = if (isCompact) 12.dp else 14.dp, vertical = if (isCompact) 10.dp else 12.dp),
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -258,20 +287,25 @@ fun HomeScreen(
                 }
             }
 
-            // Location scope + Filters row
-            item(span = { GridItemSpan(2) }) {
-                var showFilterSheet by remember { mutableStateOf(false) }
-                val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            // Location scope + Filters row (sheet state hoisted so it survives scroll/recomposition)
+            item(span = { GridItemSpan(maxCurrentLineSpan) }) {
+                val scopeTabPaddingH = if (isCompact) 10.dp else 16.dp
+                val scopeTabPaddingV = if (isCompact) 8.dp else 10.dp
 
+                Spacer(modifier = Modifier.height(if (isCompact) 8.dp else 12.dp))
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(if (isCompact) 8.dp else 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Location tabs
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Location tabs — take remaining space and scroll horizontally on small screens
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(if (isCompact) 6.dp else 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         scopes.forEach { scope ->
                             val isSelected = scope == selectedScope
                             Box(
@@ -287,7 +321,7 @@ fun HomeScreen(
                                         RoundedCornerShape(12.dp),
                                     )
                                     .clickable { selectedScope = scope }
-                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    .padding(horizontal = scopeTabPaddingH, vertical = scopeTabPaddingV),
                             ) {
                                 Text(
                                     scope,
@@ -298,14 +332,15 @@ fun HomeScreen(
                             }
                         }
                     }
-                    // Filters button
+                    // Filters button — fixed size range so layout is stable on all devices
                     Box(
                         modifier = Modifier
+                            .widthIn(min = if (isCompact) 72.dp else 80.dp, max = 96.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(GlassSurface)
                             .border(0.5.dp, SlateLight.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
                             .clickable { showFilterSheet = true }
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                            .padding(horizontal = if (isCompact) 10.dp else 14.dp, vertical = scopeTabPaddingV),
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -313,7 +348,7 @@ fun HomeScreen(
                         ) {
                             Icon(
                                 Icons.Filled.FilterList,
-                                contentDescription = null,
+                                contentDescription = "Filters",
                                 tint = Orange500,
                                 modifier = Modifier.size(18.dp),
                             )
@@ -322,6 +357,7 @@ fun HomeScreen(
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
                             )
                             if (selectedCondition != "All") {
                                 Box(
@@ -334,76 +370,28 @@ fun HomeScreen(
                         }
                     }
                 }
-
-                if (showFilterSheet) {
-                    ModalBottomSheet(
-                        onDismissRequest = { showFilterSheet = false },
-                        sheetState = sheetState,
-                        containerColor = SlateElevated,
-                        contentColor = MaterialTheme.colorScheme.onSurface,
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp)
-                                .padding(bottom = 32.dp),
-                        ) {
-                            Text(
-                                "Condition",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            conditions.forEach { cond ->
-                                val isSelected = cond == selectedCondition
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(
-                                            if (isSelected) Orange500.copy(alpha = 0.2f)
-                                            else Color.Transparent
-                                        )
-                                        .clickable { selectedCondition = cond; showFilterSheet = false }
-                                        .padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        cond,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    if (isSelected) {
-                                        Icon(
-                                            Icons.Filled.Check,
-                                            contentDescription = null,
-                                            tint = Orange500,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
             }
 
             // Sort + header row
-            item(span = { GridItemSpan(2) }) {
+            item(span = { GridItemSpan(maxCurrentLineSpan) }) {
+                Spacer(modifier = Modifier.height(if (isCompact) 4.dp else 8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         "Marketplace",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Spacer(modifier = Modifier.width(if (isCompact) 8.dp else 12.dp))
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         sortOptions.forEach { opt ->
                             val isSelected = opt == sortOrder
                             Text(
@@ -414,7 +402,7 @@ fun HomeScreen(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
                                     .clickable { sortOrder = opt }
-                                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
                             )
                         }
                     }
@@ -444,16 +432,18 @@ fun HomeScreen(
                         priceSol = listing.priceLamports / 1_000_000_000.0,
                         status = listing.mintedStatus,
                         imageUrl = listing.images.firstOrNull()?.takeIf { it.isNotBlank() },
+                        location = listing.location ?: listing.emirate,
                         onClick = { onListingClick(listing.id) },
+                        compact = isCompact,
                     )
                 }
             }
 
             // Empty state
             if (filteredListings.isEmpty() && listings.isNotEmpty()) {
-                item(span = { GridItemSpan(2) }) {
+                item(span = { GridItemSpan(maxCurrentLineSpan) }) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(40.dp),
+                        modifier = Modifier.fillMaxWidth().padding(if (isCompact) 24.dp else 40.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Icon(
@@ -474,15 +464,15 @@ fun HomeScreen(
 
             // First-run empty state with CTA
             if (listings.isEmpty()) {
-                item(span = { GridItemSpan(2) }) {
+                item(span = { GridItemSpan(maxCurrentLineSpan) }) {
                     var ctaVisible by remember { mutableStateOf(false) }
                     LaunchedEffect(Unit) {
-                        delay(2000)
+                        delay(800)
                         ctaVisible = true
                     }
                     if (!ctaVisible) {
                         Box(
-                            modifier = Modifier.fillMaxWidth().padding(60.dp),
+                            modifier = Modifier.fillMaxWidth().padding(if (isCompact) 32.dp else 60.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             CircularProgressIndicator(color = Orange500)
@@ -490,7 +480,7 @@ fun HomeScreen(
                     }
                     AnimatedVisibility(
                         visible = ctaVisible,
-                        enter = fadeIn(tween(500)) + slideInVertically(
+                        enter = fadeIn(tween(400)) + slideInVertically(
                             initialOffsetY = { 60 },
                             animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
                         ),
@@ -498,7 +488,7 @@ fun HomeScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 32.dp, horizontal = 16.dp),
+                                .padding(vertical = if (isCompact) 24.dp else 32.dp, horizontal = contentPaddingHorizontal),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Icon(
@@ -512,8 +502,9 @@ fun HomeScreen(
                                 "Your marketplace is empty",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 "List your first item and let the Aura ecosystem verify it on-chain.",
                                 style = MaterialTheme.typography.bodyMedium,
@@ -536,7 +527,65 @@ fun HomeScreen(
                 }
             }
         } // end LazyVerticalGrid
+
+        // Filter bottom sheet — inside PullToRefreshBox so filter state is in scope
+        if (showFilterSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showFilterSheet = false },
+                sheetState = filterSheetState,
+                containerColor = SlateElevated,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = if (isCompact) 16.dp else 24.dp)
+                        .padding(bottom = 32.dp)
+                        .windowInsetsPadding(WindowInsets.navigationBars),
+                ) {
+                    Text(
+                        "Condition",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    conditions.forEach { cond ->
+                        val isSelected = cond == selectedCondition
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (isSelected) Orange500.copy(alpha = 0.2f)
+                                    else Color.Transparent
+                                )
+                                .clickable { selectedCondition = cond; showFilterSheet = false }
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                cond,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (isSelected) {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = Orange500,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
         } // end PullToRefreshBox
+
         // Fade below Aura top bar — only when scrolled
         AnimatedVisibility(
             visible = showTopFade,
@@ -564,7 +613,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun HeroBannerCardSkeleton() {
+private fun HeroBannerCardSkeleton(compact: Boolean = false) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -585,10 +634,10 @@ private fun HeroBannerCardSkeleton() {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f, fill = false)) {
                 Box(
                     modifier = Modifier
-                        .width(80.dp)
+                        .width(if (compact) 60.dp else 80.dp)
                         .height(12.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(GlassSurface)
@@ -596,15 +645,15 @@ private fun HeroBannerCardSkeleton() {
                 Spacer(modifier = Modifier.height(8.dp))
                 Box(
                     modifier = Modifier
-                        .width(100.dp)
-                        .height(32.dp)
+                        .width(if (compact) 80.dp else 100.dp)
+                        .height(if (compact) 28.dp else 32.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(Orange500.copy(alpha = 0.3f))
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Box(
                     modifier = Modifier
-                        .width(120.dp)
+                        .width(if (compact) 90.dp else 120.dp)
                         .height(14.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(GlassSurface)
@@ -612,7 +661,7 @@ private fun HeroBannerCardSkeleton() {
             }
             Box(
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(if (compact) 44.dp else 56.dp)
                     .clip(CircleShape)
                     .background(GlassSurface),
             )
@@ -632,15 +681,19 @@ private fun HeroBannerCard(
     auraScore: Int,
     streakDays: Int,
     listingsCount: Int,
+    compact: Boolean = false,
 ) {
     val animatedScore by animateIntAsState(targetValue = auraScore, animationSpec = tween(1800, easing = FastOutSlowInEasing), label = "score")
     val animatedStreak by animateIntAsState(targetValue = streakDays, animationSpec = tween(1200, easing = FastOutSlowInEasing), label = "streak")
     val animatedListings by animateIntAsState(targetValue = listingsCount, animationSpec = tween(1000, easing = LinearOutSlowInEasing), label = "listings")
+    val pad = if (compact) 12.dp else 20.dp
+    val iconSize = if (compact) 44.dp else 56.dp
+    val starIconSize = if (compact) 22.dp else 28.dp
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(if (compact) 16.dp else 20.dp))
             .background(
                 Brush.linearGradient(
                     listOf(
@@ -650,15 +703,15 @@ private fun HeroBannerCard(
                     ),
                 ),
             )
-            .border(1.dp, GlassBorder, RoundedCornerShape(20.dp))
-            .padding(20.dp),
+            .border(1.dp, GlassBorder, RoundedCornerShape(if (compact) 16.dp else 20.dp))
+            .padding(pad),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f, fill = false)) {
                 Text(
                     "Your Aura",
                     style = MaterialTheme.typography.labelMedium,
@@ -694,10 +747,10 @@ private fun HeroBannerCard(
                     )
                 }
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(start = 8.dp)) {
                 Box(
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(iconSize)
                         .clip(CircleShape)
                         .background(GlassSurface)
                         .border(2.dp, Orange500.copy(alpha = 0.5f), CircleShape),
@@ -707,7 +760,7 @@ private fun HeroBannerCard(
                         Icons.Default.Star,
                         contentDescription = null,
                         tint = Gold500,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier.size(starIconSize),
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
@@ -727,7 +780,9 @@ private fun ListingCard(
     priceSol: Double,
     status: MintedStatus,
     imageUrl: String?,
+    location: String? = null,
     onClick: () -> Unit,
+    compact: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -852,15 +907,25 @@ private fun ListingCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp),
+                    .padding(if (compact) 8.dp else 12.dp),
             ) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
+                if (!location.isNullOrBlank()) {
+                    Text(
+                        text = location,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
                     text = CryptoPriceFormatter.formatSol(priceSol),
                     style = MaterialTheme.typography.titleMedium,

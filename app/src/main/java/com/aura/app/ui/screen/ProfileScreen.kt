@@ -92,8 +92,8 @@ fun ProfileScreen(
     onVerifyIdentity: () -> Unit,
     onNavigate: (String) -> Unit = {},
 ) {
-    val pubkey by WalletConnectionState.walletAddress.collectAsState()
-    val profile by AuraRepository.currentProfile.collectAsState()
+    val pubkey by WalletConnectionState.walletAddress.collectAsState(initial = null)
+    val profile by AuraRepository.currentProfile.collectAsState(initial = null)
 
     LaunchedEffect(pubkey) {
         pubkey?.let { AuraRepository.loadProfile(it) }
@@ -142,8 +142,8 @@ fun ProfileScreen(
     val daysToNext = if (nftStageIndex < 3) (nextThreshold - streakRaw).coerceAtLeast(0) else 0
 
     // Profile customization state
-    val displayName by com.aura.app.data.AuraPreferences.displayName.collectAsState()
-    val userBio by com.aura.app.data.AuraPreferences.bio.collectAsState()
+    val displayName by com.aura.app.data.AuraPreferences.displayName.collectAsState(initial = "")
+    val userBio by com.aura.app.data.AuraPreferences.bio.collectAsState(initial = "")
     val avatarConfig by AvatarPreferences.avatarConfigFlow(LocalContext.current).collectAsState(initial = com.aura.app.model.AvatarConfig())
     val creditsBalance by AvatarPreferences.creditsFlow(LocalContext.current).collectAsState(initial = 0)
     var showNameDialog by remember { mutableStateOf(false) }
@@ -365,7 +365,7 @@ fun ProfileScreen(
             }
 
             val context = androidx.compose.ui.platform.LocalContext.current
-            val isVerified by com.aura.app.data.AuraPreferences.identityVerified.collectAsState()
+            val isVerified by com.aura.app.data.AuraPreferences.identityVerified.collectAsState(initial = false)
 
             if (isVerified) {
                 Box(

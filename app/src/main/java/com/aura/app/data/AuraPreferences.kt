@@ -62,65 +62,67 @@ object AuraPreferences {
         _avatarColorIndex.value = prefs.getInt("avatar_color_index", 0)
     }
 
+    private fun isInitialized(): Boolean = ::prefs.isInitialized
+
     fun setDarkMode(enabled: Boolean) {
         _isDarkMode.value = enabled
-        prefs.edit().putBoolean("dark_mode", enabled).apply()
+        if (isInitialized()) prefs.edit().putBoolean("dark_mode", enabled).apply()
     }
 
     fun setNotifications(enabled: Boolean) {
         _notificationsEnabled.value = enabled
-        prefs.edit().putBoolean("notifications", enabled).apply()
+        if (isInitialized()) prefs.edit().putBoolean("notifications", enabled).apply()
     }
 
     fun setTransactionAlerts(enabled: Boolean) {
         _transactionAlerts.value = enabled
-        prefs.edit().putBoolean("transaction_alerts", enabled).apply()
+        if (isInitialized()) prefs.edit().putBoolean("transaction_alerts", enabled).apply()
     }
 
     fun setBiometrics(enabled: Boolean) {
         _biometricsEnabled.value = enabled
-        prefs.edit().putBoolean("biometrics", enabled).apply()
+        if (isInitialized()) prefs.edit().putBoolean("biometrics", enabled).apply()
     }
 
     fun setSeedBackedUp(enabled: Boolean) {
         _seedBackedUp.value = enabled
-        prefs.edit().putBoolean("seed_backed_up", enabled).apply()
+        if (isInitialized()) prefs.edit().putBoolean("seed_backed_up", enabled).apply()
     }
 
     fun setPublicProfile(enabled: Boolean) {
         _publicProfile.value = enabled
-        prefs.edit().putBoolean("public_profile", enabled).apply()
+        if (isInitialized()) prefs.edit().putBoolean("public_profile", enabled).apply()
     }
 
     fun setIdentityVerified(verified: Boolean) {
         _identityVerified.value = verified
-        prefs.edit().putBoolean("identity_verified", verified).apply()
+        if (isInitialized()) prefs.edit().putBoolean("identity_verified", verified).apply()
     }
 
     fun addAuraReward(amount: Int) {
         val newTotal = _totalAuraEarned.value + amount
         _totalAuraEarned.value = newTotal
-        prefs.edit().putInt("total_aura_earned", newTotal).apply()
+        if (isInitialized()) prefs.edit().putInt("total_aura_earned", newTotal).apply()
     }
 
     fun setDisplayName(name: String) {
         _displayName.value = name
-        prefs.edit().putString("display_name", name).apply()
+        if (isInitialized()) prefs.edit().putString("display_name", name).apply()
     }
 
     fun setBio(bio: String) {
         _bio.value = bio
-        prefs.edit().putString("bio", bio).apply()
+        if (isInitialized()) prefs.edit().putString("bio", bio).apply()
     }
 
     fun setAvatarColorIndex(index: Int) {
         _avatarColorIndex.value = index
-        prefs.edit().putInt("avatar_color_index", index).apply()
+        if (isInitialized()) prefs.edit().putInt("avatar_color_index", index).apply()
     }
 
     fun setWalletInfo(address: String?, authToken: String?) {
         _walletAddress.value = address
-        prefs.edit().apply {
+        if (isInitialized()) prefs.edit().apply {
             putString("wallet_address", address)
             putString("auth_token", authToken)
             apply()
@@ -128,6 +130,6 @@ object AuraPreferences {
     }
 
     fun getAuthToken(): String? {
-        return prefs.getString("auth_token", null)
+        return if (isInitialized()) prefs.getString("auth_token", null) else null
     }
 }

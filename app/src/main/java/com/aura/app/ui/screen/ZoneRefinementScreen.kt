@@ -1,8 +1,11 @@
 package com.aura.app.ui.screen
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.util.Log
 import android.view.ViewGroup
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -74,12 +77,33 @@ import com.aura.app.ui.theme.Orange500
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 enum class ZoneState { MAP, SCANNING, RESULT }
 
-data class TurfZone(val id: String, val name: String, val distanceMeters: Int, val isRefined: Boolean, val ownerHash: String? = null, val gravity: Double = 0.0)
+data class TurfZone(
+    val id: String,
+    val name: String,
+    val lat: Double,
+    val lng: Double,
+    val distanceMeters: Int,
+    val isRefined: Boolean,
+    val ownerHash: String? = null,
+    val gravity: Double = 0.0
+)
+
+/** Bearing in radians from point 1 to point 2 (0 = North). */
+private fun bearingRad(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
+    val dLng = Math.toRadians(lng2 - lng1)
+    val phi1 = Math.toRadians(lat1)
+    val phi2 = Math.toRadians(lat2)
+    val y = Math.sin(dLng) * Math.cos(phi2)
+    val x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLng)
+    return Math.atan2(y, x)
+}
 
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -87,30 +111,45 @@ fun ZoneRefinementScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
+    val locationPermissionGranted = remember {
+        mutableStateOf(context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+    }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        locationPermissionGranted.value = granted
+        if (granted) com.aura.app.data.HotzoneManager.refreshLocation()
+    }
     
     var currentState by remember { mutableStateOf(ZoneState.MAP) }
     var selectedZone by remember { mutableStateOf<TurfZone?>(null) }
     var scanProgress by remember { mutableStateOf(0f) }
     var proofHash by remember { mutableStateOf<String?>(null) }
     
-    // Pull zones from HotzoneManager (live GPS data with fallback to demo)
-    val hotzones by com.aura.app.data.HotzoneManager.nearbyZones.collectAsState()
-    val turfZones = remember(hotzones) {
-        if (hotzones.isNotEmpty()) {
-            hotzones.map { hz: com.aura.app.model.Hotzone -> TurfZone(hz.id, hz.name, hz.distanceMeters ?: 0, hz.isRefined, hz.apexWallet, hz.gravity) }
-        } else {
-            listOf(
-                TurfZone("z1", "Central Park Coffee", 45, false),
-                TurfZone("z2", "Tech Hub Lobby", 120, true, "AuRaVa...9821", 336.0),
-                TurfZone("z3", "University Library", 310, false),
-                TurfZone("z4", "Downtown Train Station", 890, true, "XyZ12...ABcD", 4140.0)
+    val hotzones by com.aura.app.data.HotzoneManager.nearbyZones.collectAsState(initial = emptyList())
+    val currentLocation by com.aura.app.data.HotzoneManager.currentLocation.collectAsState(initial = null)
+    val locallyClaimed by com.aura.app.data.HotzoneManager.locallyClaimedZones.collectAsState(initial = emptySet())
+    val isLoading by com.aura.app.data.HotzoneManager.isLoading.collectAsState(initial = false)
+    val walletAddress by com.aura.app.data.AuraPreferences.walletAddress.collectAsState(initial = null)
+    
+    val turfZones = remember(hotzones, locallyClaimed, walletAddress) {
+        hotzones.map { hz ->
+            val claimed = locallyClaimed.contains(hz.id)
+            TurfZone(
+                id = hz.id,
+                name = hz.name,
+                lat = hz.lat,
+                lng = hz.lng,
+                distanceMeters = hz.distanceMeters ?: 0,
+                isRefined = hz.isRefined || claimed,
+                ownerHash = if (claimed) (walletAddress?.take(6) + "..." + walletAddress?.takeLast(4)) ?: "You" else hz.apexWallet,
+                gravity = if (claimed) 1.0 else hz.gravity
             )
         }
     }
 
-    // Refresh GPS location on compose
-    LaunchedEffect(Unit) {
-        com.aura.app.data.HotzoneManager.refreshLocation()
+    LaunchedEffect(locationPermissionGranted.value) {
+        if (locationPermissionGranted.value) {
+            com.aura.app.data.HotzoneManager.refreshLocation()
+        }
     }
 
     Scaffold(
@@ -150,7 +189,7 @@ fun ZoneRefinementScreen(onBack: () -> Unit) {
                         
                         Spacer(modifier = Modifier.height(24.dp))
                         
-                        // Radar/Map Mock
+                        // Location-based radar
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -159,28 +198,36 @@ fun ZoneRefinementScreen(onBack: () -> Unit) {
                                 .background(Color(0xFF1E1E1E))
                                 .border(1.dp, Gold500.copy(alpha=0.5f), RoundedCornerShape(16.dp))
                         ) {
+                            val userLoc = currentLocation
+                            val maxDist = turfZones.maxOfOrNull { it.distanceMeters }?.coerceAtLeast(500) ?: 500
                             Canvas(modifier = Modifier.fillMaxSize()) {
+                                val cx = size.width / 2
+                                val cy = size.height / 2
+                                val radarRadius = (size.minDimension / 2 - 16.dp.toPx()).coerceAtLeast(40f)
                                 drawCircle(
                                     color = Orange500.copy(alpha = 0.2f),
-                                    radius = size.width / 3,
-                                    center = Offset(size.width / 2, size.height / 2),
+                                    radius = radarRadius,
+                                    center = Offset(cx, cy),
                                     style = Stroke(width = 2.dp.toPx())
                                 )
                                 drawCircle(
                                     color = Orange500.copy(alpha = 0.4f),
-                                    radius = size.width / 6,
-                                    center = Offset(size.width / 2, size.height / 2),
+                                    radius = radarRadius / 2,
+                                    center = Offset(cx, cy),
                                     style = Stroke(width = 2.dp.toPx())
                                 )
-                                drawCircle(
-                                    color = Gold500,
-                                    radius = 8.dp.toPx(),
-                                    center = Offset(size.width / 2, size.height / 2)
-                                )
-                                
-                                // Draw a couple of dots around
-                                drawCircle(color = Color.Green, radius = 6.dp.toPx(), center = Offset(size.width / 2 + 100, size.height / 2 - 50))
-                                drawCircle(color = Color.Red, radius = 6.dp.toPx(), center = Offset(size.width / 2 - 80, size.height / 2 + 60))
+                                drawCircle(color = Gold500, radius = 8.dp.toPx(), center = Offset(cx, cy))
+                                if (userLoc != null && turfZones.isNotEmpty()) {
+                                    turfZones.forEach { z ->
+                                        val distRatio = (z.distanceMeters.toFloat() / maxDist).coerceIn(0f, 1f)
+                                        val r = distRatio * radarRadius
+                                        val bear = bearingRad(userLoc.latitude, userLoc.longitude, z.lat, z.lng)
+                                        val px = cx + r * kotlin.math.sin(bear).toFloat()
+                                        val py = cy - r * kotlin.math.cos(bear).toFloat()
+                                        val dotColor = if (z.isRefined && z.ownerHash != null) Color.Red else Color.Green
+                                        drawCircle(color = dotColor, radius = 6.dp.toPx(), center = Offset(px, py))
+                                    }
+                                }
                             }
                             Column(modifier = Modifier.align(Alignment.BottomStart).padding(8.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -198,8 +245,50 @@ fun ZoneRefinementScreen(onBack: () -> Unit) {
                         
                         Spacer(modifier = Modifier.height(24.dp))
                         
-                        Text("Nearby Zones", style = MaterialTheme.typography.titleLarge)
-                        Spacer(modifier = Modifier.height(8.dp))
+                        if (!locationPermissionGranted.value) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                                onClick = { locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.MyLocation, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
+                                    Spacer(modifier = Modifier.size(12.dp))
+                                    Column {
+                                        Text("Location required", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onErrorContainer)
+                                        Text("Tap to enable GPS — zones are shown by your actual position.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                                    }
+                                }
+                            }
+                        } else if (isLoading && turfZones.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = Orange500)
+                            }
+                        } else if (turfZones.isEmpty()) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(Icons.Default.Warning, contentDescription = null, tint = Orange500, modifier = Modifier.size(48.dp))
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("No zones nearby", fontWeight = FontWeight.SemiBold)
+                                    Text("Move around or enable GPS to discover Hotzones within 8km.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Button(onClick = { com.aura.app.data.HotzoneManager.refreshLocation() }, colors = ButtonDefaults.buttonColors(containerColor = Orange500)) {
+                                        Text("Refresh location")
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (turfZones.isNotEmpty()) {
+                            Text("Nearby Zones", style = MaterialTheme.typography.titleLarge)
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
                         
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(turfZones) { zone ->
@@ -241,7 +330,9 @@ fun ZoneRefinementScreen(onBack: () -> Unit) {
                         
                         Button(
                             onClick = {
-                                if (!cameraPermissionState.status.isGranted) {
+                                if (!locationPermissionGranted.value) {
+                                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                                } else if (!cameraPermissionState.status.isGranted) {
                                     cameraPermissionState.launchPermissionRequest()
                                 } else {
                                     scanProgress = 0f
@@ -249,7 +340,7 @@ fun ZoneRefinementScreen(onBack: () -> Unit) {
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = selectedZone != null,
+                            enabled = selectedZone != null && turfZones.isNotEmpty(),
                             colors = ButtonDefaults.buttonColors(containerColor = Orange500)
                         ) {
                             Icon(Icons.Default.CameraAlt, contentDescription = null)
@@ -306,13 +397,25 @@ fun ZoneRefinementScreen(onBack: () -> Unit) {
                             }
                         }
                         
-                        LaunchedEffect(Unit) {
+                        LaunchedEffect(selectedZone) {
                             while (scanProgress < 1f) {
                                 delay(30)
                                 scanProgress += 0.01f
                             }
-                            // Generate deterministic hash
                             proofHash = "0x" + UUID.randomUUID().toString().replace("-", "").take(16)
+                            selectedZone?.let { zone ->
+                                val wallet = walletAddress
+                                val claimed = withContext(Dispatchers.IO) {
+                                    if (wallet != null) {
+                                        try {
+                                            com.aura.app.data.HotzoneManager.claimZone(zone.id, wallet, proofHash ?: "")
+                                        } catch (_: Exception) { false }
+                                    } else false
+                                }
+                                if (!claimed) {
+                                    com.aura.app.data.HotzoneManager.markLocallyClaimed(zone.id)
+                                }
+                            }
                             currentState = ZoneState.RESULT
                         }
                     }

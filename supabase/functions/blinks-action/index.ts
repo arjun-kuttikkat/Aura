@@ -36,7 +36,7 @@ serve(async (req: Request) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
     const { data: listing, error } = await supabase
-        .from("listings")
+        .from("marketplace_listings")
         .select("*")
         .eq("id", listingId)
         .single()

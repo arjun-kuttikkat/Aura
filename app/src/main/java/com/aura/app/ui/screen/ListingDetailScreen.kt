@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -37,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -46,7 +48,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -80,8 +84,14 @@ fun ListingDetailScreen(
     onBack: () -> Unit,
     onChatClicked: () -> Unit = {},
 ) {
-    val listing = AuraRepository.getListing(listingId)
-    val walletAddress by WalletConnectionState.walletAddress.collectAsState()
+    val listings by AuraRepository.listings.collectAsState(initial = emptyList())
+    val listing = listings.find { it.id == listingId }
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
+
+    // Refresh when entering — fixes "Listing not found" for newly created listings
+    LaunchedEffect(listingId) {
+        if (listing == null) AuraRepository.refreshListingsAwait()
+    }
 
     Scaffold(
         topBar = {
@@ -123,6 +133,10 @@ fun ListingDetailScreen(
             }
             return@Scaffold
         }
+
+        val configuration = LocalConfiguration.current
+        val isCompact = configuration.screenWidthDp < 360
+        val contentPadding = if (isCompact) 16.dp else 24.dp
 
         Column(
             modifier = Modifier
@@ -191,7 +205,7 @@ fun ListingDetailScreen(
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(16.dp)
+                        .padding(if (isCompact) 12.dp else 16.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(
                             when (listing.mintedStatus) {
@@ -226,20 +240,22 @@ fun ListingDetailScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .offset(0.dp, (-24).dp)
-                    .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                    .offset(0.dp, if (isCompact) (-16).dp else (-24).dp)
+                    .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                     .background(SlateElevated)
-                    .border(0.5.dp, GlassBorder, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                    .border(0.5.dp, GlassBorder, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                    .padding(contentPadding),
+                verticalArrangement = Arrangement.spacedBy(if (isCompact) 16.dp else 20.dp),
             ) {
                 // Title + Price
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         listing.title,
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = if (isCompact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -264,6 +280,34 @@ fun ListingDetailScreen(
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+                    val locationText = listing.location ?: listing.emirate
+                    if (!locationText.isNullOrBlank()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.LocationOn,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = SlateLight,
+                            )
+                            Text(
+                                buildString {
+                                    append(locationText)
+                                    listing.distanceMeters?.let { m ->
+                                        when {
+                                            m < 1000 -> append(" · $m m away")
+                                            else -> append(" · ${m / 1000} km away")
+                                        }
+                                    }
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -381,11 +425,14 @@ fun ListingDetailScreen(
 
                 // ── Description (minimal) ───────────────────────────────────
                 if (listing.description.isNotBlank()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(
+                        modifier = Modifier.padding(bottom = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         Text(
                             "Details",
                             style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
@@ -434,7 +481,7 @@ fun ListingDetailScreen(
                         Text(
                             riskAssessment.recommendation,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.colorScheme.onSurface,
                             lineHeight = MaterialTheme.typography.bodySmall.lineHeight * 1.3f,
                         )
                         if (riskAssessment.flags.isNotEmpty()) {

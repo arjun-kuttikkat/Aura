@@ -38,10 +38,14 @@ import com.aura.app.ui.screen.EscrowPayScreen
 import com.aura.app.ui.screen.FaceVerificationScreen
 import com.aura.app.ui.screen.HomeScreen
 import com.aura.app.ui.screen.ListingDetailScreen
+import com.aura.app.ui.screen.MeetLocationScreen
 import com.aura.app.ui.screen.MeetSessionScreen
 import com.aura.app.ui.screen.OnboardingScreen
 import com.aura.app.ui.screen.ProfileScreen
 import com.aura.app.ui.screen.RewardsScreen
+import com.aura.app.ui.screen.NotificationsScreen
+import com.aura.app.ui.screen.PrivacyScreen
+import com.aura.app.ui.screen.SecurityScreen
 import com.aura.app.ui.screen.SettingsScreen
 import com.aura.app.ui.screen.TradeCompleteScreen
 import com.aura.app.ui.screen.VerifyItemScreen
@@ -138,12 +142,25 @@ fun NavGraph(
             }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onNotificationsClick = { navController.navigate(Routes.SETTINGS_NOTIFICATIONS) },
+                    onSecurityClick = { navController.navigate(Routes.SETTINGS_SECURITY) },
+                    onPrivacyClick = { navController.navigate(Routes.SETTINGS_PRIVACY) },
                     onLogout = {
                         navController.navigate(Routes.ONBOARDING) {
                             popUpTo(0) { inclusive = true }
                         }
                     },
                 )
+            }
+            composable(Routes.SETTINGS_NOTIFICATIONS) {
+                NotificationsScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Routes.SETTINGS_SECURITY) {
+                SecurityScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Routes.SETTINGS_PRIVACY) {
+                PrivacyScreen(onBack = { navController.popBackStack() })
             }
             composable(Routes.CREATE_LISTING) {
                 CreateListingScreen(
@@ -177,21 +194,41 @@ fun NavGraph(
                 )
             }
             composable(Routes.LISTING_DETAIL) { backStackEntry ->
-            val listingId = backStackEntry.arguments?.getString("listingId") ?: return@composable
+            val listingId = backStackEntry.arguments?.getString("listingId")
+            if (listingId.isNullOrBlank()) {
+                androidx.compose.runtime.LaunchedEffect(Unit) { navController.popBackStack() }
+                return@composable
+            }
             val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
             ListingDetailScreen(
                 listingId = listingId,
                 tradeSession = session,
-                onStartMeetup = { navController.navigate(Routes.MEET_SESSION) },
+                onStartMeetup = { navController.navigate(Routes.meetLocation(listingId)) },
                 onBack = { navController.popBackStack() },
                 onChatClicked = { navController.navigate(Routes.chatDetail(listingId)) }
             )
         }
         composable(Routes.CHAT_DETAIL) { backStackEntry ->
-            val listingId = backStackEntry.arguments?.getString("listingId") ?: return@composable
+            val listingId = backStackEntry.arguments?.getString("listingId")
+            if (listingId.isNullOrBlank()) {
+                androidx.compose.runtime.LaunchedEffect(Unit) { navController.popBackStack() }
+                return@composable
+            }
             com.aura.app.ui.screen.ChatDetailScreen(
                 listingId = listingId,
                 onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.MEET_LOCATION) { backStackEntry ->
+            val lid = backStackEntry.arguments?.getString("listingId")
+            if (lid.isNullOrBlank()) {
+                androidx.compose.runtime.LaunchedEffect(Unit) { navController.popBackStack() }
+                return@composable
+            }
+            MeetLocationScreen(
+                listingId = lid,
+                onContinue = { navController.navigate(Routes.MEET_SESSION) },
+                onBack = { navController.popBackStack() },
             )
         }
         composable(Routes.MEET_SESSION) {

@@ -132,7 +132,7 @@ fun EscrowPayScreen(
                                     onSuccess = { isLoading = false },
                                     onError = { 
                                         isLoading = false 
-                                        errorMsg = it.message
+                                        errorMsg = it.message ?: "Connection failed"
                                     }
                                 )
                             },
@@ -236,7 +236,20 @@ fun EscrowPayScreen(
                 }
             }
             
-            errorMsg?.let { Text(it, color = com.aura.app.ui.theme.RadicalRed) }
+            errorMsg?.let { msg ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                ) {
+                    Text(
+                        msg,
+                        modifier = Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
             
             if (status == EscrowState.LOCKED || txSig != null) {
                 var showConfirmRelease by remember { mutableStateOf(false) }

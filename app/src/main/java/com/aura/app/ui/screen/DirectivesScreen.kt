@@ -78,7 +78,7 @@ private data class ActiveMission(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DirectivesScreen(onBack: () -> Unit) {
-    val walletAddress by WalletConnectionState.walletAddress.collectAsState()
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()

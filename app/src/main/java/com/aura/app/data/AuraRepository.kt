@@ -68,13 +68,15 @@ data class ListingRow(
     @SerialName("mint_address") val mintAddress: String? = null,
     @SerialName("fingerprint_hash") val fingerprintHash: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
-    // ── Regional Marketplace & Permanent Listings ──
     val latitude: Double? = null,
     val longitude: Double? = null,
+    @EncodeDefault val location: String? = null,
     @SerialName("sold_at") val soldAt: String? = null,
     @SerialName("buyer_wallet") val buyerWallet: String? = null,
     @SerialName("seller_aura_score") val sellerAuraScore: Int = 50,
     val emirate: String? = null,
+    @EncodeDefault @SerialName("is_active") val isActive: Boolean = true,
+    @EncodeDefault @SerialName("is_published") val isPublished: Boolean = true,
 )
 
 @Serializable
@@ -119,10 +121,12 @@ object AuraRepository {
             while (true) {
                 kotlinx.coroutines.delay(60_000)
                 try {
-                    val rows = db.from("listings").select {
+                    val rows = db.from("marketplace_listings").select {
                         limit(count = 1000)
                     }.decodeList<ListingRow>()
-                    _listings.value = rows.map { it.toDomain() }
+                    _listings.value = rows
+                        .filter { it.soldAt == null && it.isActive && it.isPublished }
+                        .map { it.toDomain() }
                 } catch (e: Exception) {
                     Log.w(TAG, "Background refresh failed: ${e.message}")
                 }
@@ -286,15 +290,7 @@ object AuraRepository {
     }
 
     suspend fun refreshListingsAwait() {
-        // 1. Instantly load from cache if context is available
-        appContext?.let { ctx ->
-            val cached = ListingCache.load(ctx)
-            if (cached.isNotEmpty()) {
-                _listings.value = cached
-            }
-        }
-
-        // 2. Get user location once for Nearby / Explore distance stamps (best-effort)
+        // 1. Get user location once for Nearby / Explore distance stamps (best-effort)
         var userLat: Double? = null
         var userLng: Double? = null
         try {
@@ -307,20 +303,29 @@ object AuraRepository {
             }
         } catch (_: Exception) {}
 
-        // 3. Fetch fresh from network (same table "listings" as insert)
+        // 2. Fetch active listings from network — single source of truth; published = globally available
+        //    Only active listings (sold_at IS NULL); local filters (Nearby/Explore) applied in UI
         try {
-            val rows = db.from("listings").select {
+            val rows = db.from("marketplace_listings").select {
                 limit(count = 1000)
             }.decodeList<ListingRow>()
-            val domainListings = rows.map { it.toDomain(userLat, userLng) }
+            val domainListings = rows
+                .filter { it.soldAt == null && it.isActive && it.isPublished }
+                .map { it.toDomain(userLat, userLng) }
             _listings.value = domainListings
-            Log.d(TAG, "Loaded ${rows.size} listings from Supabase (table: listings)")
-            // Cache to disk for offline use
+            Log.d(TAG, "Loaded ${domainListings.size} active listings from Supabase (marketplace_listings)")
             appContext?.let { ctx ->
                 ListingCache.save(ctx, domainListings)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load listings from network", e)
+            appContext?.let { ctx ->
+                val cached = ListingCache.load(ctx)
+                if (cached.isNotEmpty()) {
+                    _listings.value = cached
+                    Log.d(TAG, "Using ${cached.size} listings from cache (network failed)")
+                }
+            }
         }
     }
 
@@ -337,7 +342,10 @@ object AuraRepository {
         imageRefs: List<String>,
         condition: String,
         textureHash: String? = null,
-        emirate: String? = null
+        emirate: String? = null,
+        location: String? = null,
+        latitude: Double? = null,
+        longitude: Double? = null
     ): Listing {
         // Ensure seller profile exists (required by FK: seller_wallet REFERENCES profiles)
         loadProfile(sellerWallet)
@@ -402,10 +410,15 @@ object AuraRepository {
             mintedStatus = "PENDING",
             fingerprintHash = fingerprint,
             emirate = emirate,
+            location = location ?: emirate,
+            latitude = latitude,
+            longitude = longitude,
+            isActive = true,
+            isPublished = true,
         )
         try {
-            db.from("listings").insert(row)
-            Log.d(TAG, "Inserted listing $listingId (table: listings) into Supabase")
+            db.from("marketplace_listings").insert(row)
+            Log.d(TAG, "Inserted listing $listingId (marketplace_listings)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create PostgreSQL listing row", e)
             throw e
@@ -414,7 +427,7 @@ object AuraRepository {
         _listings.value = _listings.value + listing
         // Persist to cache so it survives app restart before next network fetch
         appContext?.let { ctx -> ListingCache.save(ctx, _listings.value) }
-        // Re-fetch from DB to confirm round-trip (insert + select both hit public.listings)
+        // Re-fetch from DB to confirm round-trip (insert + select both hit marketplace_listings)
         try {
             refreshListingsAwait()
             Log.d(TAG, "Re-fetched listings from Supabase after create; count=${_listings.value.size}")
@@ -448,15 +461,19 @@ object AuraRepository {
                 setBody(reqBody.toString())
                 contentType(ContentType.Application.Json)
             }
-            // Parse the real mint address from the Edge Function response
             val responseText = response.bodyAsText()
             val jsonElement = kotlinx.serialization.json.Json.parseToJsonElement(responseText).jsonObject
-            val mintAddr = jsonElement["mintAddress"]?.jsonPrimitive?.content ?: "MintPending"
+            // Edge Function returns { error: "..." } on failure; { success, mintAddress } on success
+            val errorMsg = jsonElement["error"]?.jsonPrimitive?.content
+            val mintAddr = jsonElement["mintAddress"]?.jsonPrimitive?.content
+            if (!errorMsg.isNullOrBlank() || mintAddr.isNullOrBlank()) {
+                Log.w(TAG, "Mint response error or missing mintAddress: $errorMsg")
+                return@mintListing listing
+            }
             val updated = listing.copy(mintedStatus = MintedStatus.MINTED, mintAddress = mintAddr)
             _listings.value = _listings.value.map { if (it.id == listingId) updated else it }
-            // Also persist the mint address back to Supabase (Edge Function does this too, belt-and-suspenders)
             try {
-                db.from("listings").update({
+                db.from("marketplace_listings").update({
                     set("mint_address", mintAddr)
                     set("minted_status", "MINTED")
                 }) { filter { eq("id", listingId) } }
@@ -464,17 +481,25 @@ object AuraRepository {
             updated
         } catch (e: Exception) {
             Log.w(TAG, "Minting Edge Function failed (non-fatal) — listing is saved: ${e.message}")
-            // Return un-minted listing so the publish flow continues without crashing
             listing
         }
     }
 
-    suspend fun verifyPhoto(listingId: String, photoBytes: ByteArray): VerificationResult {
+    /**
+     * Verify a photo against the listing (item match) or for Aura Check.
+     * @param listingId Required for item_match; used to fetch listing reference image server-side.
+     * @param checkType "item_match" for trade verify screen (match item to listing); "aura_check" for Aura Check flow.
+     */
+    suspend fun verifyPhoto(listingId: String, photoBytes: ByteArray, checkType: String = "item_match"): VerificationResult {
+        if (photoBytes.isEmpty()) {
+            return VerificationResult(score = 0f, pass = false, reason = "No photo provided.")
+        }
         try {
             val base64Photo = android.util.Base64.encodeToString(photoBytes, android.util.Base64.NO_WRAP)
             val reqBody = buildJsonObject {
                 put("listingId", listingId)
                 put("photoBase64", base64Photo)
+                put("checkType", checkType)
             }
             val response = db.functions.invoke("verify-photo") {
                 setBody(reqBody.toString())
@@ -500,6 +525,10 @@ object AuraRepository {
     // ── Trade Sessions ───────────────────────────────────────────────────────
 
     fun createTradeSession(listingId: String, buyerWallet: String, sellerWallet: String): TradeSession {
+        if (listingId.isBlank() || buyerWallet.isBlank() || sellerWallet.isBlank()) {
+            Log.e(TAG, "createTradeSession: missing required field (listingId, buyerWallet, or sellerWallet)")
+            throw IllegalArgumentException("Missing required fields to start trade.")
+        }
         val session = TradeSession(
             id = UUID.randomUUID().toString(),
             listingId = listingId,
@@ -727,6 +756,7 @@ object AuraRepository {
         }.getOrDefault(System.currentTimeMillis()),
         latitude = latitude,
         longitude = longitude,
+        location = location,
         soldAt = soldAt?.let { try { java.time.OffsetDateTime.parse(it).toEpochSecond() * 1000 } catch (_: Exception) { null } },
         buyerWallet = buyerWallet,
         distanceMeters = if (userLat != null && userLng != null && latitude != null && longitude != null)

@@ -42,6 +42,14 @@ object HotzoneManager {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    /** Zones claimed locally this session (persists until app restart). Used when Supabase schema mismatch. */
+    private val _locallyClaimedZones = MutableStateFlow<Set<String>>(emptySet())
+    val locallyClaimedZones: StateFlow<Set<String>> = _locallyClaimedZones.asStateFlow()
+
+    fun markLocallyClaimed(zoneId: String) {
+        _locallyClaimedZones.value = _locallyClaimedZones.value + zoneId
+    }
+
     // ── Initialization ───────────────────────────────────────────────
     fun init(context: Context) {
         fusedClient = LocationServices.getFusedLocationProviderClient(context)
@@ -61,6 +69,8 @@ object HotzoneManager {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Location fetch failed", e)
+                // Still attempt fetch with null so downstream can show appropriate UI
+                _nearbyZones.value = emptyList()
             }
         }
     }

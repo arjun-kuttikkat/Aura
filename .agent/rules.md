@@ -23,7 +23,7 @@
 2. **State management** uses `StateFlow` and `collectAsState()` in composables.
 3. **Navigation** uses `NavGraph.kt` and `Routes.kt` — all routes defined in `Routes` object.
 4. **Colors** use the project theme (`ui/theme/Color.kt`, `Theme.kt`, `Type.kt`).
-5. **Data layer**: Currently using `MockBackend.kt` — being migrated to Supabase.
+5. **Data layer**: Supabase (AuraRepository). MockBackend.kt exists but is unused; can be removed.
 6. **Package structure**: `com.aura.app` with subdirectories: `data/`, `model/`, `navigation/`, `ui/screen/`, `ui/components/`, `ui/theme/`, `wallet/`, `util/`.
 7. **Dependencies** are managed in `gradle/libs.versions.toml` using version catalogs.
 

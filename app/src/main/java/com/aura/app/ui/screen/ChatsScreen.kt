@@ -54,7 +54,7 @@ fun ChatsScreen(
     onNavigateToChat: (String) -> Unit = {},
     onNavigateToHome: () -> Unit = {},
 ) {
-    val walletAddress by WalletConnectionState.walletAddress.collectAsState()
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     var activeChats by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
 
     var isLoading by remember { mutableStateOf(true) }
@@ -105,7 +105,7 @@ fun ChatsScreen(
 @Composable
 fun ChatInboxRow(chatMessage: ChatMessage, onClick: () -> Unit) {
     val listing = AuraRepository.getListing(chatMessage.listingId)
-    val walletAddress by WalletConnectionState.walletAddress.collectAsState()
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     val isMine = chatMessage.senderWallet == walletAddress
 
     Row(
