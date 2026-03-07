@@ -4,6 +4,9 @@ use anchor_lang::solana_program::{program::invoke_signed, system_instruction};
 
 declare_id!("BMKWLYrXtuuxp4TA4yNhrs9LbomR1fMdbrko6R7Qj5WM");
 
+/// Hostage exploit mitigation: buyer can refund after REFUND_TIMEOUT_SECS if seller never released.
+const REFUND_TIMEOUT_SECS: i64 = 24 * 60 * 60; // 24 hours
+
 #[program]
 pub mod aura_escrow {
     use super::*;
@@ -26,9 +29,12 @@ pub mod aura_escrow {
         escrow.fee_bps = fee_bps;
         escrow.treasury_wallet = treasury_wallet;
         escrow.fee_exempt = fee_exempt;
+        escrow.created_at = ctx.clock.unix_timestamp;
 
         if ctx.accounts.vault_pda.lamports() == 0 {
-            let rent_lamports = Rent::get()?.minimum_balance(0);
+            // Rent exemption for 0-byte system account; add buffer for network variations
+            let base_rent = Rent::get()?.minimum_balance(0);
+            let rent_lamports = base_rent.saturating_add(1_000);
             let escrow_key = escrow.key();
             let vault_bump = ctx.bumps.vault_pda;
             let vault_seeds: &[&[u8]] = &[
@@ -130,6 +136,45 @@ pub mod aura_escrow {
 
         Ok(())
     }
+
+    /// Hostage exploit fix: buyer can reclaim SOL if seller never released after REFUND_TIMEOUT_SECS.
+    /// Protects buyers when seller ghosts; does not reward hostage-taking (seller should not hand over
+    /// item until NFC tap completes).
+    pub fn cancel_and_refund(ctx: Context<CancelAndRefund>) -> Result<()> {
+        let escrow = &mut ctx.accounts.escrow_pda;
+        require!(!escrow.is_released, EscrowError::AlreadyReleased);
+        require!(escrow.buyer == ctx.accounts.buyer.key(), EscrowError::UnauthorizedBuyer);
+
+        let now = ctx.clock.unix_timestamp;
+        let elapsed = now.saturating_sub(escrow.created_at);
+        require!(elapsed >= REFUND_TIMEOUT_SECS, EscrowError::RefundTooEarly);
+
+        let vault = &ctx.accounts.vault_pda;
+        let escrow_key = escrow.key();
+        let vault_bump = ctx.bumps.vault_pda;
+        let seeds = &[
+            b"vault",
+            escrow_key.as_ref(),
+            &[vault_bump],
+        ];
+        let signer = &[&seeds[..]];
+
+        let cpi_context = CpiContext::new_with_signer(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: vault.to_account_info(),
+                to: ctx.accounts.buyer.to_account_info(),
+            },
+            signer,
+        );
+        // Refund full vault balance (amount + rent) to buyer
+        let balance = vault.lamports();
+        system_program::transfer(cpi_context, balance)?;
+
+        escrow.is_released = true;
+
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -141,7 +186,7 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = buyer,
-        space = 8 + 32 + 32 + 4 + listing_id.len() + 8 + 1 + 2 + 32 + 1,
+        space = 8 + 32 + 32 + 4 + listing_id.len() + 8 + 1 + 2 + 32 + 1 + 8, // +8 for created_at
         seeds = [b"escrow", listing_id.as_bytes()],
         bump
     )]
@@ -197,12 +242,41 @@ pub struct EscrowState {
     pub fee_bps: u16,
     pub treasury_wallet: Pubkey,
     pub fee_exempt: bool,
+    pub created_at: i64,
+}
+
+#[derive(Accounts)]
+pub struct CancelAndRefund<'info> {
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"escrow", escrow_pda.listing_id.as_bytes()],
+        bump,
+        constraint = escrow_pda.buyer == buyer.key() @ EscrowError::UnauthorizedBuyer,
+    )]
+    pub escrow_pda: Account<'info, EscrowState>,
+
+    #[account(
+        mut,
+        seeds = [b"vault", escrow_pda.key().as_ref()],
+        bump
+    )]
+    /// CHECK: Vault PDA
+    pub vault_pda: AccountInfo<'info>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[error_code]
 pub enum EscrowError {
     #[msg("Escrow has already been released")]
     AlreadyReleased,
+    #[msg("Only the buyer can cancel and refund")]
+    UnauthorizedBuyer,
+    #[msg("Refund available only after 24 hours")]
+    RefundTooEarly,
     #[msg("Unauthorized: seller does not match escrow record")]
     UnauthorizedSeller,
     #[msg("Unauthorized treasury account")]

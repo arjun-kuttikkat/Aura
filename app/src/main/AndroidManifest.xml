@@ -3,10 +3,14 @@
 
     <!-- Network for Solana RPC and MWA -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Camera for face verification -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- Haptics for shutter, NFC, etc. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- NFC for NTAG 424 DNA chip reading -->
     <uses-permission android:name="android.permission.NFC" />
@@ -38,6 +42,19 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Prevent NFC hijacking: handle aura: and solana: deep links so Aura opens instead of Google Wallet / Samsung Pay when tapping -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="aura" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="solana" />
             </intent-filter>
         </activity>
         <!-- Phase 9: HCE App-less Escrow Service -->

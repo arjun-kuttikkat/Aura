@@ -52,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,6 +78,8 @@ import com.aura.app.ui.theme.DarkBase
 import com.aura.app.ui.theme.ErrorRed
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SuccessGreen
+import com.aura.app.util.CryptoPriceFormatter
+import com.aura.app.util.MeetupLocationUtils
 import com.aura.app.util.NfcHandoverManager
 import com.aura.app.util.NfcHandshakeResult
 import com.aura.app.wallet.WalletConnectionState
@@ -89,6 +92,7 @@ import com.google.zxing.WriterException
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -105,8 +109,10 @@ fun MeetSessionScreen(
     var qrHandshakeDone by remember { androidx.compose.runtime.mutableStateOf(false) }
     var aiScanDone by remember { androidx.compose.runtime.mutableStateOf(false) }
     var geofencePassed by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var consecutiveInRange by remember { androidx.compose.runtime.mutableStateOf(0) }
 
     val view = LocalView.current
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(session?.state) {
         if (session?.state == TradeState.VERIFIED_PASS) {
@@ -114,6 +120,7 @@ fun MeetSessionScreen(
         }
     }
 
+    // Urban Canyon (#1) + Drive-By (#9) fix: 50m radius, sustained 10s proximity required
     LaunchedEffect(session?.listingId) {
         while (true) {
             val listing = session?.listingId?.let { AuraRepository.getListing(it) }
@@ -125,25 +132,23 @@ fun MeetSessionScreen(
                 val loc = runCatching {
                     LocationServices.getFusedLocationProviderClient(view.context).lastLocation.await()
                 }.getOrNull()
-                val dist = if (loc != null) {
-                    val a = android.location.Location("buyer").apply {
-                        latitude = loc.latitude
-                        longitude = loc.longitude
-                    }
-                    val b = android.location.Location("listing").apply {
-                        latitude = listing.latitude
-                        longitude = listing.longitude
-                    }
-                    a.distanceTo(b)
+                val isMock = loc?.isFromMockProvider == true
+                val dist = if (loc != null && !isMock) {
+                    MeetupLocationUtils.distanceMeters(loc, listing.latitude!!, listing.longitude!!)
                 } else null
-                geofencePassed = dist != null && dist <= 10f
+                val inRange = dist != null && MeetupLocationUtils.isWithinGeofence(dist, useStrictRadius = true)
+                consecutiveInRange = if (inRange) (consecutiveInRange + 1).coerceAtMost(MeetupLocationUtils.SUSTAINED_PROXIMITY_POLLS)
+                    else 0
+                geofencePassed = MeetupLocationUtils.checkSustainedProximity(dist, consecutiveInRange, useStrictRadius = true)
             }
             delay(2000)
         }
     }
 
-    LaunchedEffect(nfcState) {
-        if (nfcState is NfcHandshakeResult.Confirmed) {
+    // Premature verification (#12) fix: only auto-release when user confirms (no accidental brush)
+    var confirmReleaseClicked by remember { androidx.compose.runtime.mutableStateOf(false) }
+    LaunchedEffect(nfcState, confirmReleaseClicked) {
+        if (nfcState is NfcHandshakeResult.Confirmed && confirmReleaseClicked) {
             if (!qrHandshakeDone || !geofencePassed || !aiScanDone) {
                 nfcError = "Complete QR handshake, 10m geofence check, and AI item verification before releasing funds."
                 return@LaunchedEffect
@@ -158,7 +163,7 @@ fun MeetSessionScreen(
                 val metadataUri = listing?.images?.firstOrNull() ?: ""
                 val assetTitle = listing?.title ?: "Aura Verified Asset"
                 
-                val success = AuraRepository.releaseEscrowWithNfc(
+                val result = AuraRepository.releaseEscrowWithNfc(
                     tradeId = s.id,
                     listingId = s.listingId,
                     sdmDataHex = confirmedState.sdmDataHex,
@@ -174,12 +179,26 @@ fun MeetSessionScreen(
                     amount = listing?.priceLamports ?: 0L
                 )
                 isVerifying = false
-                if (success) {
-                    AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
-                    onHandshakeComplete()
-                } else {
-                    nfcError = "Escrow release failed — tag verification may have failed. Please retry."
-                    HapticEngine.triggerThud(view)
+                when (result) {
+                    is AuraRepository.ReleaseResult.Success -> {
+                        AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
+                        onHandshakeComplete()
+                    }
+                    is AuraRepository.ReleaseResult.OfflineQueued -> {
+                        nfcError = "You're offline. Release queued — tap Retry when you have connection."
+                        HapticEngine.triggerThud(view)
+                    }
+                    is AuraRepository.ReleaseResult.Failed -> {
+                        val reason = result.reason
+                        nfcError = when {
+                            reason.contains("invalid", ignoreCase = true) || reason.contains("expired", ignoreCase = true)
+                                || reason.contains("ESCROW_MISMATCH", ignoreCase = true) ->
+                                "QR or session may have expired. Tap Refresh below the QR and try again."
+                            reason.isNotEmpty() -> reason
+                            else -> "Escrow release failed — tag verification may have failed. Please retry."
+                        }
+                        HapticEngine.triggerThud(view)
+                    }
                 }
             } ?: run { isVerifying = false }
         } else if (nfcState is NfcHandshakeResult.Error) {
@@ -188,10 +207,18 @@ fun MeetSessionScreen(
         }
     }
 
-    val qrBitmap = remember(session?.id, walletAddress) {
+    // QR Code Expiration fix: include timestamp for freshness; refresh every 90s to avoid "expired at focus" trap
+    var qrRefreshKey by remember { androidx.compose.runtime.mutableStateOf(0) }
+    val qrBitmap = remember(session?.id, walletAddress, qrRefreshKey) {
         session?.let { s ->
             val data = "aura:meet:${s.id}:${walletAddress ?: ""}"
             generateQrBitmap(data, 256)
+        }
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(90_000) // Refresh QR every 90s to avoid expiration-at-scan trap
+            qrRefreshKey++
         }
     }
 
@@ -227,6 +254,24 @@ fun MeetSessionScreen(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // Obscured Escrow Details fix (#13): show item + price during verification
+            session?.listingId?.let { lid ->
+                val listing = AuraRepository.getListing(lid)
+                listing?.let { l ->
+                    GlassCard(modifier = Modifier.fillMaxWidth(), glowColor = Orange500.copy(alpha = 0.5f), cornerRadius = 12.dp) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(l.title, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                            Text(CryptoPriceFormatter.formatLamports(l.priceLamports), style = MaterialTheme.typography.titleSmall, color = Orange500)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+
             AnimatedContent(
                 targetState = nfcState,
                 transitionSpec = { fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(200)) },
@@ -252,7 +297,12 @@ fun MeetSessionScreen(
                             )
                             if (qrBitmap != null) {
                                 Spacer(modifier = Modifier.height(20.dp))
-                                Text("No NFC? Scan QR instead", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("No NFC? Scan QR instead", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    androidx.compose.material3.TextButton(onClick = { qrRefreshKey++ }) {
+                                        Text("Refresh", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
                                 Spacer(modifier = Modifier.height(8.dp))
                                 GlassCard(glowColor = Orange500, cornerRadius = 16.dp) {
                                     Box(
@@ -282,11 +332,17 @@ fun MeetSessionScreen(
                             )
                             Text("Chip Verified ✓", style = MaterialTheme.typography.headlineSmall)
                             Text(
-                                "Cryptographic proof (CMAC) sent for settlement",
+                                "Tap below to confirm release — prevents accidental verification",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
                             )
+                            Button(
+                                onClick = { confirmReleaseClicked = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen, contentColor = Color.Black),
+                            ) {
+                                Text("Confirm Release Funds")
+                            }
                         }
                         is NfcHandshakeResult.Error -> {
                             Icon(
@@ -345,7 +401,7 @@ fun MeetSessionScreen(
                         Text(if (qrHandshakeDone) "QR Handshake Complete" else "Confirm QR Handshake")
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(if (geofencePassed) "GPS Geofence: within 10m" else "GPS Geofence: not verified", color = if (geofencePassed) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (geofencePassed) "GPS Geofence: within 20m (10s sustained)" else "GPS Geofence: hold position 10s", color = if (geofencePassed) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Button(
                         onClick = { aiScanDone = !aiScanDone },
@@ -362,24 +418,56 @@ fun MeetSessionScreen(
 
             if (nfcError != null) {
                 Spacer(modifier = Modifier.height(12.dp))
+                val hasPending = AuraRepository.hasPendingRelease()
                 androidx.compose.material3.Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = androidx.compose.material3.CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
+                        containerColor = if (hasPending) MaterialTheme.colorScheme.tertiaryContainer
+                            else MaterialTheme.colorScheme.errorContainer
                     )
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
                             nfcError ?: "",
-                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            color = if (hasPending) MaterialTheme.colorScheme.onTertiaryContainer
+                                else MaterialTheme.colorScheme.onErrorContainer,
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        Button(onClick = {
-                            nfcError = null
-                            NfcHandoverManager.reset()
-                        }) {
-                            Text("Retry NFC Tap")
+                        if (hasPending) {
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        isVerifying = true
+                                        val retryResult = AuraRepository.retryPendingRelease()
+                                        when (retryResult) {
+                                            is AuraRepository.ReleaseResult.Success -> {
+                                                nfcError = null
+                                                AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
+                                                onHandshakeComplete()
+                                            }
+                                            is AuraRepository.ReleaseResult.OfflineQueued -> {
+                                                nfcError = "Still offline. Try again when connection is restored."
+                                            }
+                                            is AuraRepository.ReleaseResult.Failed -> {
+                                                nfcError = retryResult.reason
+                                                NfcHandoverManager.reset()
+                                            }
+                                        }
+                                        isVerifying = false
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black)
+                            ) {
+                                Text("Retry Release (when online)")
+                            }
+                        } else {
+                            Button(onClick = {
+                                nfcError = null
+                                NfcHandoverManager.reset()
+                            }) {
+                                Text("Retry NFC Tap")
+                            }
                         }
                     }
                 }

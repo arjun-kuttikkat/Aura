@@ -91,11 +91,12 @@ serve(async (req: any) => {
             }
 
             systemPrompt = `You are an item-matching inspector for the Aura marketplace.
-Image 1: The buyer's photo of the physical item in front of them.
+Image 1: The buyer's photo of the physical item in front of them (may have different lighting, be in a bag/plastic wrap, or different angle).
 Image 2: The listing's reference photo (what the seller listed).
 
-Question: Does Image 1 show the SAME physical item as Image 2? Consider only whether it is the same product/item (model, condition, key features). Ignore background, lighting, angle differences.
-Respond ONLY with valid JSON: {"rating": <0-100 where 70+ means same item>, "pass": <true only if same item>, "feedback": "<1-2 sentence: same item or why not>"}`;
+Question: Does Image 1 show the SAME physical item as Image 2? Consider only whether it is the same product (model, key features, condition).
+DO NOT reject for: different lighting, item inside plastic bag or packaging, slight angle difference, indoor vs outdoor, shadows. Pass if the same item is clearly visible.
+Respond ONLY with valid JSON: {"rating": <0-100 where 70+ means same item>, "pass": <true if same item>, "feedback": "<1-2 sentence>"}`;
 
             content[0].text = systemPrompt;
             content.push({ type: "image_url", image_url: { url: refImageForGroq } });

@@ -24,6 +24,8 @@ data class Listing(
     val isPromoted: Boolean = false,
     val promotedUntil: Long? = null,
     val promotedAt: Long? = null,
+    /** SUN URL from NFC tap at publish; used to verify same physical tag at meetup. */
+    val nfcSunUrl: String? = null,
 )
 
 enum class MintedStatus {

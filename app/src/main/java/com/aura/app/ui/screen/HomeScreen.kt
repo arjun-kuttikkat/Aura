@@ -79,6 +79,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.shadow
@@ -91,6 +92,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.aura.app.data.AuraRepository
 import com.aura.app.model.MintedStatus
+import com.aura.app.ui.components.AuraHaptics
 import com.aura.app.ui.components.MainTopBar
 import com.aura.app.ui.theme.DarkVoid
 import com.aura.app.ui.theme.SlateElevated
@@ -98,7 +100,6 @@ import com.aura.app.ui.theme.GlassBorder
 import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.SlateLight
 import com.aura.app.ui.theme.Orange500
-import com.aura.app.ui.theme.SuccessGreen
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.util.springScale
 import com.aura.app.util.CryptoPriceFormatter
@@ -135,6 +136,7 @@ fun HomeScreen(
         }
     }
 
+    val haptic = LocalHapticFeedback.current
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
     val isCompact = screenWidthDp < 380
@@ -146,7 +148,7 @@ fun HomeScreen(
             MainTopBar(
                 title = "Aura",
                 logoSize = if (isCompact) 36.dp else 44.dp,
-                onZoneResourceClick = { onNavigate(com.aura.app.navigation.Routes.ZONE_REFINEMENT) },
+                onZoneResourceClick = { AuraHaptics.subtleTap(haptic); onNavigate(com.aura.app.navigation.Routes.ZONE_REFINEMENT) },
             )
         },
     ) { padding ->
@@ -332,6 +334,7 @@ fun HomeScreen(
                                         RoundedCornerShape(10.dp),
                                     )
                                     .clickable {
+                                        AuraHaptics.subtleTap(haptic)
                                         selectedScope = scopeLabel
                                         if ((scopeLabel == "Nearby" || scopeLabel == "Explore") && !locationPermissionState.status.isGranted) {
                                             locationPermissionState.launchPermissionRequest()
@@ -358,7 +361,7 @@ fun HomeScreen(
                             .clip(RoundedCornerShape(10.dp))
                             .background(GlassSurface)
                             .border(0.5.dp, SlateLight.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
-                            .clickable { showFilterSheet = true }
+                            .clickable { AuraHaptics.subtleTap(haptic); showFilterSheet = true }
                             .padding(
                                 horizontal = if (isCompact) 12.dp else 14.dp,
                                 vertical = scopeTabPaddingV,
@@ -424,7 +427,7 @@ fun HomeScreen(
                                 color = if (isSelected) Orange500 else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .clickable { sortOrder = opt }
+                                    .clickable { AuraHaptics.subtleTap(haptic); sortOrder = opt }
                                     .padding(horizontal = if (isCompact) 6.dp else 8.dp, vertical = 6.dp),
                             )
                         }
@@ -456,7 +459,7 @@ fun HomeScreen(
                         status = listing.mintedStatus,
                         imageUrl = listing.images.firstOrNull()?.takeIf { it.isNotBlank() },
                         location = listing.location ?: listing.emirate,
-                        onClick = { onListingClick(listing.id) },
+                        onClick = { AuraHaptics.subtleTap(haptic); onListingClick(listing.id) },
                         compact = isCompact,
                     )
                 }
@@ -536,7 +539,7 @@ fun HomeScreen(
                             )
                             Spacer(modifier = Modifier.height(20.dp))
                             Button(
-                                onClick = { onNavigate(com.aura.app.navigation.Routes.CREATE_LISTING) },
+                                onClick = { AuraHaptics.lightTap(haptic); onNavigate(com.aura.app.navigation.Routes.CREATE_LISTING) },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = com.aura.app.ui.theme.SolanaGreen,
                                     contentColor = com.aura.app.ui.theme.DarkVoid,
@@ -583,7 +586,7 @@ fun HomeScreen(
                                     if (isSelected) Orange500.copy(alpha = 0.2f)
                                     else Color.Transparent
                                 )
-                                .clickable { selectedCondition = cond; showFilterSheet = false }
+                                .clickable { AuraHaptics.subtleTap(haptic); selectedCondition = cond; showFilterSheet = false }
                                 .padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -898,29 +901,23 @@ private fun ListingCard(
                         )
                     }
                 }
-                // Status badge
+                // Status badge — Pending / Minted / Verified / Sold (must have sufficient contrast)
+                val (bgColor, label) = when (status) {
+                    MintedStatus.PENDING -> SlateLight.copy(alpha = 0.95f) to "Pending"
+                    MintedStatus.MINTED -> Gold500 to "Minted"
+                    MintedStatus.VERIFIED -> Orange500 to "✓ Verified"
+                    MintedStatus.SOLD -> SlateLight.copy(alpha = 0.95f) to "Sold"
+                }
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            when (status) {
-                                MintedStatus.VERIFIED -> SuccessGreen
-                                MintedStatus.MINTED -> Gold500
-                                MintedStatus.PENDING -> Color.Gray.copy(alpha = 0.8f)
-                                MintedStatus.SOLD -> com.aura.app.ui.theme.Orange500
-                            },
-                        )
+                        .background(bgColor)
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 ) {
                     Text(
-                        text = when (status) {
-                            MintedStatus.PENDING -> "Pending"
-                            MintedStatus.MINTED -> "Minted"
-                            MintedStatus.VERIFIED -> "✓ Verified"
-                            MintedStatus.SOLD -> "Sold"
-                        },
+                        text = label,
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White,
                         fontWeight = FontWeight.Bold,

@@ -55,10 +55,16 @@ object NfcHandoverManager {
 
     private var nfcAdapter: NfcAdapter? = null
 
+    /** NFC Hardware Check Crash fix (#9): never throw; gracefully set NoNfcSupport and rely on QR fallback. */
     fun init(activity: Activity) {
-        nfcAdapter = NfcAdapter.getDefaultAdapter(activity)
-        if (nfcAdapter == null) {
-            Log.w(TAG, "No NFC hardware on this device")
+        try {
+            nfcAdapter = NfcAdapter.getDefaultAdapter(activity)
+            if (nfcAdapter == null) {
+                Log.w(TAG, "No NFC hardware on this device")
+                _state.value = NfcHandshakeResult.NoNfcSupport
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "NFC init failed", e)
             _state.value = NfcHandshakeResult.NoNfcSupport
         }
     }
@@ -73,9 +79,11 @@ object NfcHandoverManager {
             return
         }
         _state.value = NfcHandshakeResult.Waiting
+        // FLAG_READER_NO_PLATFORM_SOUNDS: avoid triggering Google Wallet / Samsung Pay sounds/dialogs
         val flags = NfcAdapter.FLAG_READER_NFC_A or
                 NfcAdapter.FLAG_READER_NFC_B or
-                NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK // we read via IsoDep manually
+                NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or
+                NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
 
         adapter.enableReaderMode(activity, ::onTagDiscovered, flags, null)
         Log.d(TAG, "NFC reader mode enabled")

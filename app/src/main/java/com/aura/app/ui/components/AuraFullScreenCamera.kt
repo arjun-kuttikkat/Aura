@@ -46,6 +46,8 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import android.Manifest
+import android.content.pm.PackageManager
 import com.aura.app.ui.theme.AuraAnimations
 import com.aura.app.ui.theme.DarkCard
 import com.aura.app.ui.theme.Gold500
@@ -88,9 +90,13 @@ fun AuraFullScreenCamera(
                 val previewView = PreviewView(ctx).apply {
                     scaleType = PreviewView.ScaleType.FILL_CENTER
                 }
+                if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                    return@AndroidView previewView
+                }
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                 cameraProviderFuture.addListener({
                     try {
+                        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return@addListener
                         val provider = cameraProviderFuture.get()
                         val preview = Preview.Builder().build().apply {
                             setSurfaceProvider(previewView.surfaceProvider)

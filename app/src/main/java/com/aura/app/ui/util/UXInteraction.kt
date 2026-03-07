@@ -25,22 +25,22 @@ import androidx.compose.ui.graphics.graphicsLayer
 object HapticEngine {
     /** Heavy thud for physical errors or financial confirmations */
     fun triggerThud(view: View) {
-        view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+        try { view.performHapticFeedback(HapticFeedbackConstants.REJECT) } catch (_: Exception) { }
     }
 
     /** Sharp, precise tick for interactive component states */
     fun triggerClick(view: View) {
-        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_PRESS)
+        try { view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_PRESS) } catch (_: Exception) { }
     }
 
     /** Satisfying confirmation ramp for successful verifications */
     fun triggerSuccess(view: View) {
-        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        try { view.performHapticFeedback(HapticFeedbackConstants.CONFIRM) } catch (_: Exception) { }
     }
 
-    /** Light tick for progress pulses (e.g. NFC scanning) */
+    /** Light tick for progress pulses (e.g. NFC scanning) — subtle but noticeable */
     fun triggerLight(view: View) {
-        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        try { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) } catch (_: Exception) { }
     }
 }
 
