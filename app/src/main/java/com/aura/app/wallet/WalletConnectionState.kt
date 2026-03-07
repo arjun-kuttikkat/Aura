@@ -40,6 +40,10 @@ object WalletConnectionState {
 
     private val _authToken = MutableStateFlow<String?>(null)
 
+    /** Shown as overlay while waiting for wallet (Solflare, Phantom, etc.). Null when idle. */
+    private val _walletPendingMessage = MutableStateFlow<String?>(null)
+    val walletPendingMessage: StateFlow<String?> = _walletPendingMessage.asStateFlow()
+
     // Supabase JWT obtained from wallet-auth Edge Function
     private val _supabaseJwt = MutableStateFlow<String?>(null)
     val supabaseJwt: StateFlow<String?> = _supabaseJwt.asStateFlow()
@@ -66,6 +70,7 @@ object WalletConnectionState {
         scope.launch {
             try {
                 if (_walletAddress.value == null || _authToken.value == null) {
+                    _walletPendingMessage.value = "Opening wallet…"
                     // Step 1: Fetch nonce from wallet-auth Edge Function
                     val address: String
                     val mwaToken: String
@@ -107,6 +112,8 @@ object WalletConnectionState {
             } catch (e: Exception) {
                 Log.e(TAG, "Connection failed", e)
                 onError(e)
+            } finally {
+                _walletPendingMessage.value = null
             }
         }
     }
@@ -273,6 +280,7 @@ object WalletConnectionState {
     ) {
         scope.launch {
             try {
+                _walletPendingMessage.value = "Please approve in your wallet"
                 val txSignature = withContext(Dispatchers.IO) {
                     performTransaction(base64EncodedTx)
                 }
@@ -280,6 +288,8 @@ object WalletConnectionState {
             } catch (e: Exception) {
                 Log.e(TAG, "Transaction failed", e)
                 onError(e)
+            } finally {
+                _walletPendingMessage.value = null
             }
         }
     }
@@ -306,15 +316,26 @@ object WalletConnectionState {
                 as MobileWalletAdapterClient
 
             try {
-                // Re-authorize with stored token if available
+                // Re-authorize with stored token if available; fallback to full authorize on failure
                 val token = _authToken.value
-                if (token != null) {
-                    client.reauthorize(
-                        Uri.parse("https://aura.app"),
-                        Uri.parse("favicon.ico"),
-                        "Aura",
-                        token
-                    ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                val authResult = if (token != null) {
+                    try {
+                        client.reauthorize(
+                            Uri.parse("https://aura.app"),
+                            Uri.parse("favicon.ico"),
+                            "Aura",
+                            token
+                        ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Reauthorize failed, falling back to authorize: ${e.message}")
+                        _authToken.value = null
+                        client.authorize(
+                            Uri.parse("https://aura.app"),
+                            Uri.parse("favicon.ico"),
+                            "Aura",
+                            "mainnet-beta"
+                        ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    }
                 } else {
                     client.authorize(
                         Uri.parse("https://aura.app"),
@@ -323,8 +344,13 @@ object WalletConnectionState {
                         "mainnet-beta"
                     ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
                 }
+                // Update stored token if we got a new one from full authorize
+                authResult.authToken?.let { newToken ->
+                    _authToken.value = newToken
+                    com.aura.app.data.AuraPreferences.setWalletInfo(_walletAddress.value, newToken)
+                }
 
-                // Decode the serialized transaction built by the Repository / Edge Function
+                // Decode the serialized transaction (full Transaction format: signatures + message)
                 val txPayload = android.util.Base64.decode(base64EncodedTx, android.util.Base64.NO_WRAP)
                 
                 val result = client.signAndSendTransactions(

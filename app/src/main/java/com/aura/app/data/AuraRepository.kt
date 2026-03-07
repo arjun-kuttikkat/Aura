@@ -10,6 +10,7 @@ import com.aura.app.model.ProfileDto
 import com.aura.app.model.TradeSession
 import com.aura.app.model.TradeState
 import com.aura.app.model.VerificationResult
+import com.aura.app.util.MeetupLocationUtils
 import io.github.jan.supabase.functions.functions
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -36,7 +37,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import android.annotation.SuppressLint
 import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.serialization.EncodeDefault
@@ -80,6 +80,28 @@ data class ListingRow(
     @EncodeDefault @SerialName("is_promoted") val isPromoted: Boolean = false,
     @SerialName("promoted_until") val promotedUntil: String? = null,
     @SerialName("promoted_at") val promotedAt: String? = null,
+    @SerialName("nfc_sun_url") val nfcSunUrl: String? = null,
+)
+
+/** Insert DTO; is_promoted, promoted_*, nfc_sun_url optional for backward compatibility. */
+@Serializable
+private data class ListingRowInsert(
+    val id: String = "",
+    @SerialName("seller_wallet") val sellerWallet: String = "",
+    val title: String = "",
+    @EncodeDefault val description: String = "",
+    @SerialName("price_lamports") val priceLamports: Long = 0,
+    @EncodeDefault val images: List<String> = emptyList(),
+    @EncodeDefault val condition: String = "Good",
+    @EncodeDefault @SerialName("minted_status") val mintedStatus: String = "PENDING",
+    @SerialName("fingerprint_hash") val fingerprintHash: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    @EncodeDefault val location: String? = null,
+    val emirate: String? = null,
+    @EncodeDefault @SerialName("is_active") val isActive: Boolean = true,
+    @EncodeDefault @SerialName("is_published") val isPublished: Boolean = true,
+    @SerialName("nfc_sun_url") val nfcSunUrl: String? = null,
 )
 
 @Serializable
@@ -400,6 +422,17 @@ object AuraRepository {
 
     // ── Context for offline cache (set from Application or MainActivity) ──
     var appContext: android.content.Context? = null
+        set(value) {
+            field = value
+            // Phantom Meetup State fix (#13): restore trade session when app resumes after Maps handoff
+            value?.let { ctx ->
+                val restored = TradeSessionStore.load(ctx)
+                if (restored != null && _currentTradeSession.value == null) {
+                    _currentTradeSession.value = restored
+                    observeTradeSession(restored.id)
+                }
+            }
+        }
 
     suspend fun createListing(
         sellerWallet: String,
@@ -412,7 +445,8 @@ object AuraRepository {
         emirate: String? = null,
         location: String? = null,
         latitude: Double? = null,
-        longitude: Double? = null
+        longitude: Double? = null,
+        nfcSunUrl: String? = null,
     ): Listing {
         // Ensure seller profile exists (required by FK: seller_wallet REFERENCES profiles)
         loadProfile(sellerWallet)
@@ -466,7 +500,21 @@ object AuraRepository {
             }
         }
 
-        val row = ListingRow(
+        // Step 2: Upload metadata.json for NFT minting (Metaplex metadata standard)
+        val metadataJson = buildString {
+            append("""{"name":"Aura Verified: ${title.replace("\"", "\\\"")}","symbol":"AURA","description":"${description.replace("\"", "\\\"")}","image":"${uploadedUrls.firstOrNull()?.replace("\\", "\\\\")?.replace("\"", "\\\"") ?: ""}"}""")
+        }
+        try {
+            bucket.upload("$listingId/metadata.json", metadataJson.toByteArray(Charsets.UTF_8)) {
+                upsert = true
+                contentType = ContentType.Application.Json
+            }
+            Log.d(TAG, "Uploaded metadata.json for listing $listingId")
+        } catch (e: Exception) {
+            Log.w(TAG, "Metadata upload failed (mint may use image fallback): ${e.message}")
+        }
+
+        val row = ListingRowInsert(
             id = listingId,
             sellerWallet = sellerWallet,
             title = title,
@@ -482,7 +530,7 @@ object AuraRepository {
             longitude = longitude,
             isActive = true,
             isPublished = true,
-            isPromoted = false,
+            nfcSunUrl = nfcSunUrl,
         )
         try {
             db.from("marketplace_listings").insert(row)
@@ -505,35 +553,51 @@ object AuraRepository {
         return listing
     }
 
-    suspend fun promoteListing(listingId: String, durationHours: Int = 24): Boolean {
-        val listing = getListing(listingId) ?: return false
-        val wallet = com.aura.app.wallet.WalletConnectionState.walletAddress.value ?: return false
-        if (listing.sellerWallet != wallet) return false
+    /** Promotion fee: 10 SOL. Must be paid to treasury before promoting. */
+    val PROMOTE_FEE_LAMPORTS: Long = 10L * 1_000_000_000
 
-        val promotedUntilTs = OffsetDateTime.now().plusHours(durationHours.toLong()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-        val promotedAtTs = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+    /**
+     * Promote listing after payment is verified. Call this only after the user has successfully
+     * sent 10 SOL to the treasury; pass the transaction signature.
+     */
+    suspend fun promoteListing(listingId: String, txSignature: String): Result<Unit> {
+        val listing = getListing(listingId)
+            ?: return Result.failure(Exception("Listing not found. Pull to refresh and try again."))
+        val wallet = com.aura.app.wallet.WalletConnectionState.walletAddress.value
+            ?: return Result.failure(Exception("Wallet not connected. Connect your wallet first."))
+        if (listing.sellerWallet != wallet)
+            return Result.failure(Exception("Only the seller can promote this listing."))
 
         return try {
-            db.from("marketplace_listings").update({
-                set("is_promoted", true)
-                set("promoted_at", promotedAtTs)
-                set("promoted_until", promotedUntilTs)
-            }) {
-                filter { eq("id", listingId) }
+            val reqBody = buildJsonObject {
+                put("listingId", listingId)
+                put("txSignature", txSignature)
+                put("sellerWallet", wallet)
+            }
+            val response = db.functions.invoke("promote-listing") {
+                setBody(reqBody.toString())
+                contentType(ContentType.Application.Json)
+            }
+            val text = response.bodyAsText()
+            val json = kotlinx.serialization.json.Json.parseToJsonElement(text).jsonObject
+            val error = json["error"]?.jsonPrimitive?.content
+            if (!error.isNullOrBlank()) {
+                return Result.failure(Exception(error))
             }
             _listings.value = _listings.value.map {
                 if (it.id == listingId) {
                     it.copy(
                         isPromoted = true,
-                        promotedAt = runCatching { OffsetDateTime.parse(promotedAtTs).toInstant().toEpochMilli() }.getOrNull(),
-                        promotedUntil = runCatching { OffsetDateTime.parse(promotedUntilTs).toInstant().toEpochMilli() }.getOrNull(),
+                        promotedAt = System.currentTimeMillis(),
+                        promotedUntil = System.currentTimeMillis() + 24 * 60 * 60 * 1000,
                     )
                 } else it
             }
-            true
+            refreshListingsAwait()
+            Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to promote listing", e)
-            false
+            Result.failure(Exception(e.message ?: "Promotion failed. Check your connection and try again."))
         }
     }
 
@@ -551,11 +615,16 @@ object AuraRepository {
             )
         }
         return try {
+            val firstImage = listing.images.firstOrNull()
+            val metadataUrl = firstImage?.let { url ->
+                val lastSlash = url.lastIndexOf('/')
+                if (lastSlash >= 0) "${url.substring(0, lastSlash + 1)}metadata.json" else "https://aura.so/metadata/${listing.id}.json"
+            } ?: "https://aura.so/metadata/${listing.id}.json"
             val reqBody = buildJsonObject {
                 put("listingId", listing.id)
                 put("title", listing.title)
                 put("sellerWalletBase58", listing.sellerWallet)
-                put("metadataUrl", listing.images.firstOrNull() ?: "https://aura.so/metadata/${listing.id}.json")
+                put("metadataUrl", metadataUrl)
             }
             val response = db.functions.invoke("mint-nft") {
                 setBody(reqBody.toString())
@@ -626,6 +695,26 @@ object AuraRepository {
 
     // ── Trade Sessions ───────────────────────────────────────────────────────
 
+    /**
+     * Cross-Hemisphere fix (#5): Returns false if buyer and listing are >500km apart.
+     * Call before createTradeSession to prevent locking escrow with no physical meetup possible.
+     */
+    suspend fun canStartMeetup(listingId: String): Boolean {
+        val listing = getListing(listingId) ?: return true
+        val lat = listing.latitude ?: return true
+        val lng = listing.longitude ?: return true
+        val buyerLoc = runCatching {
+            appContext?.let { ctx ->
+                @SuppressLint("MissingPermission")
+                LocationServices.getFusedLocationProviderClient(ctx).lastLocation.await()
+            }
+        }.getOrNull() ?: return true
+        return MeetupLocationUtils.isWithinMeetupRange(
+            buyerLoc.latitude, buyerLoc.longitude,
+            lat, lng
+        )
+    }
+
     fun createTradeSession(listingId: String, buyerWallet: String, sellerWallet: String): TradeSession {
         if (listingId.isBlank() || buyerWallet.isBlank() || sellerWallet.isBlank()) {
             Log.e(TAG, "createTradeSession: missing required field (listingId, buyerWallet, or sellerWallet)")
@@ -641,6 +730,7 @@ object AuraRepository {
             lastUpdated = System.currentTimeMillis(),
         )
         _currentTradeSession.value = session
+        appContext?.let { TradeSessionStore.save(it, session) }
         scope.launch {
             try {
                 db.from("trade_sessions").insert(
@@ -664,11 +754,29 @@ object AuraRepository {
         _currentTradeSession.value?.let { session ->
             val updated = session.copy(state = state, lastUpdated = System.currentTimeMillis())
             _currentTradeSession.value = updated
+            appContext?.let { TradeSessionStore.save(it, updated) }
             scope.launch {
                 try {
                     db.from("trade_sessions").update(
                         { set("state", state.name); set("updated_at", "now()") }
                     ) { filter { eq("id", session.id) } }
+                    // Silent Chat State fix: send automated "Payment Secured" message so seller sees it
+                    if (state == TradeState.ESCROW_LOCKED) {
+                        try {
+                            val msg = com.aura.app.model.ChatMessage(
+                                id = UUID.randomUUID().toString(),
+                                listingId = session.listingId,
+                                senderWallet = session.buyerWallet,
+                                receiverWallet = session.sellerWallet,
+                                content = "Payment Secured ✓",
+                                createdAt = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                            )
+                            ChatRepository.sendMessage(msg)
+                            Log.d(TAG, "Sent Payment Secured message for trade ${session.id}")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to send Payment Secured chat message", e)
+                        }
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to update trade session state to ${state.name}", e)
                 }
@@ -676,8 +784,40 @@ object AuraRepository {
         }
     }
 
+    /**
+     * Cancel trade with atomic check to prevent race: if seller already claimed (TRADE_COMPLETE),
+     * cancel is rejected to avoid duplicate payout or trapped funds.
+     */
+    suspend fun cancelTradeSessionIfNotComplete(tradeId: String): Boolean {
+        return try {
+            val session = _currentTradeSession.value ?: return false
+            if (session.id != tradeId) return false
+            val current = db.from("trade_sessions")
+                .select { filter { eq("id", tradeId) } }
+                .decodeList<TradeSessionRow>()
+                .firstOrNull() ?: return false
+            val stateStr = current.state.uppercase().replace("TRADE_", "")
+            val state = runCatching { TradeState.valueOf(stateStr) }.getOrDefault(TradeState.SESSION_CREATED)
+            val isTerminal = state == TradeState.COMPLETE || state == TradeState.CANCELLED
+            if (isTerminal) {
+                Log.w(TAG, "Trade $tradeId cancel skipped - already $state")
+                return false
+            }
+            db.from("trade_sessions").update(
+                { set("state", TradeState.CANCELLED.name); set("updated_at", "now()") }
+            ) { filter { eq("id", tradeId) } }
+            _currentTradeSession.value = session.copy(state = TradeState.CANCELLED, lastUpdated = System.currentTimeMillis())
+            Log.d(TAG, "Trade $tradeId cancelled")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Cancel trade failed", e)
+            false
+        }
+    }
+
     fun clearTradeSession() {
         _currentTradeSession.value = null
+        appContext?.let { TradeSessionStore.save(it, null) }
         _activeTradeChannel?.let { ch ->
             scope.launch {
                 try { ch.unsubscribe() } catch (_: Exception) {}
@@ -742,22 +882,38 @@ object AuraRepository {
      * Build the escrow initialization transaction.
      * NOTE: State is NOT updated here — the caller must update state AFTER
      * the wallet adapter confirms the signature.
+     *
+     * Token mismatch fix (19): Always use listing.priceLamports as source of truth.
+     * Never trust client-passed amount — prevents buyer altering payload to pay wrong token/amount.
+     *
+     * Derank fix (20): fee_exempt is snapshotted at init from listing.sellerAuraScore.
+     * Escrow state is frozen; release uses on-chain fee_exempt, so derank during tx does not affect settlement.
      */
     suspend fun initEscrow(tradeId: String, amount: Long): ByteArray {
-        Log.d(TAG, "Initializing escrow for trade $tradeId, amount: $amount lamports")
         val walletAddr = com.aura.app.wallet.WalletConnectionState.walletAddress.value
             ?: throw IllegalStateException("Wallet not connected")
         val session = _currentTradeSession.value
         val listingId = session?.listingId ?: tradeId
         val sellerWallet = session?.sellerWallet
             ?: throw IllegalStateException("No seller wallet in trade session")
-        val isRadiant = (_currentProfile.value?.auraScore ?: 0) >= 90
+        val listing = getListing(listingId) ?: throw IllegalStateException("Listing not found")
+        // Token mismatch fix: always use listing price from source of truth; ignore client amount
+        val amountLamports = listing.priceLamports.let { raw ->
+            if (raw in 1L..999L) com.aura.app.util.CryptoPriceFormatter.solToLamports(raw.toDouble())
+            else raw
+        }
+        if (amount != amountLamports) {
+            Log.w(TAG, "initEscrow: client amount $amount != listing price $amountLamports; using listing price")
+        }
+        Log.d(TAG, "Initializing escrow for trade $tradeId, amount: $amountLamports lamports (SOL only)")
+        // Derank fix: fee_exempt snapshotted at init; escrow stores it on-chain; release does not re-check rank
+        val isRadiant = (listing.sellerAuraScore.coerceAtLeast(50)) >= 90
         val treasuryWallet = com.aura.app.BuildConfig.TREASURY_WALLET
         val feeBps = if (isRadiant) 0 else DEFAULT_PLATFORM_FEE_BPS
         val releaseAuth = com.aura.app.BuildConfig.RELEASE_AUTHORITY_PUBKEY
         val txBytes = com.aura.app.wallet.AnchorTransactionBuilder.buildInitializeEscrowTx(
             listingId = listingId,
-            amountLamports = amount,
+            amountLamports = amountLamports,
             buyerPubkey = walletAddr,
             sellerPubkey = sellerWallet,
             feeBps = feeBps,
@@ -795,19 +951,53 @@ object AuraRepository {
         return txBytes
     }
 
+    /** Result of release attempt: success, network/offline (queued for retry), or other failure */
+    sealed class ReleaseResult {
+        data object Success : ReleaseResult()
+        data object OfflineQueued : ReleaseResult()
+        data class Failed(val reason: String) : ReleaseResult()
+    }
+
+    private fun isNetworkError(e: Exception): Boolean {
+        val msg = e.message?.lowercase() ?: ""
+        return e is java.io.IOException ||
+                e is java.net.UnknownHostException ||
+                e is java.net.ConnectException ||
+                e is java.net.SocketTimeoutException ||
+                msg.contains("network") || msg.contains("unreachable") || msg.contains("timeout") ||
+                msg.contains("connection") || msg.contains("failed to connect")
+    }
+
     suspend fun releaseEscrowWithNfc(
         tradeId: String,
         sdmDataHex: String,
         receivedCmacHex: String,
         assetUri: String,
         assetTitle: String,
-    ): Boolean {
+        listingId: String? = null,
+        escrowPdaBase58: String? = null,
+        sellerWalletBase58: String? = null,
+        buyerWalletBase58: String? = null,
+        amount: Long = 0L,
+    ): ReleaseResult {
+        val session = _currentTradeSession.value
+        val lid = listingId ?: session?.listingId ?: tradeId
+        val escrowPda = escrowPdaBase58 ?: com.aura.app.wallet.AnchorTransactionBuilder.deriveEscrowPda(lid).let {
+            com.funkatronics.encoders.Base58.encodeToString(it.address)
+        }
+        val sellerWallet = sellerWalletBase58 ?: session?.sellerWallet ?: ""
+        val buyerWallet = buyerWalletBase58 ?: com.aura.app.wallet.WalletConnectionState.walletAddress.value
+        val amt = if (amount > 0) amount else (getListing(lid)?.priceLamports ?: 0L)
         try {
             val reqBody = buildJsonObject {
                 put("sdmDataHex", sdmDataHex)
                 put("receivedCmacHex", receivedCmacHex)
                 put("assetUri", assetUri)
                 put("assetTitle", assetTitle)
+                put("listingId", lid)
+                put("escrowPdaBase58", escrowPda)
+                put("sellerWalletBase58", sellerWallet)
+                put("tradeId", tradeId)
             }
             val response = db.functions.invoke("verify-sun") {
                 setBody(reqBody.toString())
@@ -818,14 +1008,59 @@ object AuraRepository {
             val error = jsonElement["error"]?.jsonPrimitive?.content
             if (!error.isNullOrBlank()) {
                 Log.e(TAG, "verify-sun error: $error")
-                return false
+                return ReleaseResult.Failed(error)
             }
-            Log.d(TAG, "NFC verified and escrow released via Edge Function. Response: $responseText")
-            return true
+            Log.d(TAG, "NFC verified and escrow released via Live Edge Function. Response: $responseText")
+            appContext?.let { PendingReleaseStore.clear(it) }
+            return ReleaseResult.Success
         } catch (e: Exception) {
             Log.e(TAG, "Failed Edge Function verify-sun", e)
-            return false
+            if (isNetworkError(e)) {
+                appContext?.let { ctx ->
+                    PendingReleaseStore.save(ctx, tradeId, lid, sdmDataHex, receivedCmacHex,
+                        escrowPda, sellerWallet, buyerWallet, assetUri, assetTitle, amt)
+                }
+                return ReleaseResult.OfflineQueued
+            }
+            return ReleaseResult.Failed(e.message ?: "Release failed")
         }
+    }
+
+    suspend fun retryPendingRelease(): ReleaseResult {
+        val pending = appContext?.let { PendingReleaseStore.load(it) } ?: return ReleaseResult.Failed("No pending release")
+        return releaseEscrowWithNfc(
+            tradeId = pending.tradeId,
+            listingId = pending.listingId,
+            sdmDataHex = pending.sdmDataHex,
+            receivedCmacHex = pending.receivedCmacHex,
+            escrowPdaBase58 = pending.escrowPdaBase58,
+            sellerWalletBase58 = pending.sellerWalletBase58,
+            buyerWalletBase58 = pending.buyerWalletBase58,
+            assetUri = pending.assetUri,
+            assetTitle = pending.assetTitle,
+            amount = pending.amount
+        )
+    }
+
+    fun hasPendingRelease(): Boolean = appContext?.let { PendingReleaseStore.hasPending(it) } == true
+
+    /**
+     * Hostage fix (18): Build cancel_and_refund tx for buyer to reclaim SOL
+     * after 24h if seller never released. Buyer signs and sends.
+     */
+    suspend fun buildCancelAndRefundTx(tradeId: String): ByteArray {
+        val walletAddr = com.aura.app.wallet.WalletConnectionState.walletAddress.value
+            ?: throw IllegalStateException("Wallet not connected")
+        val session = _currentTradeSession.value ?: throw IllegalStateException("No trade session")
+        if (session.id != tradeId) throw IllegalArgumentException("Trade ID mismatch")
+        val listingId = session.listingId
+        if (session.buyerWallet != walletAddr) {
+            throw IllegalStateException("Only the buyer can request a refund")
+        }
+        return com.aura.app.wallet.AnchorTransactionBuilder.buildCancelAndRefundTx(
+            listingId = listingId,
+            buyerPubkey = walletAddr,
+        )
     }
 
     suspend fun getEscrowStatus(tradeId: String): EscrowStatus {
@@ -851,6 +1086,32 @@ object AuraRepository {
 
     // ── DTO → Domain Mapper ──────────────────────────────────────────────────
 
+    private fun ListingRowInsert.toDomain() = Listing(
+        id = id,
+        sellerWallet = sellerWallet,
+        title = title,
+        description = description,
+        priceLamports = priceLamports,
+        images = images,
+        mintedStatus = parseMintedStatus(mintedStatus),
+        mintAddress = null,
+        fingerprintHash = fingerprintHash ?: "",
+        condition = condition,
+        createdAt = System.currentTimeMillis(),
+        latitude = latitude,
+        longitude = longitude,
+        location = location,
+        soldAt = null,
+        buyerWallet = null,
+        distanceMeters = null,
+        sellerAuraScore = 50,
+        emirate = emirate,
+        isPromoted = false,
+        promotedAt = null,
+        promotedUntil = null,
+        nfcSunUrl = nfcSunUrl,
+    )
+
     private fun ListingRow.toDomain(userLat: Double? = null, userLng: Double? = null) = Listing(
         id = id,
         sellerWallet = sellerWallet,
@@ -858,7 +1119,7 @@ object AuraRepository {
         description = description,
         priceLamports = priceLamports,
         images = images,
-        mintedStatus = runCatching { MintedStatus.valueOf(mintedStatus) }.getOrDefault(MintedStatus.PENDING),
+        mintedStatus = parseMintedStatus(mintedStatus),
         mintAddress = mintAddress,
         fingerprintHash = fingerprintHash ?: "",
         condition = condition,
@@ -878,7 +1139,13 @@ object AuraRepository {
         isPromoted = isPromoted,
         promotedAt = promotedAt?.let { runCatching { OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull() },
         promotedUntil = promotedUntil?.let { runCatching { OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull() },
+        nfcSunUrl = nfcSunUrl,
     )
+
+    private fun parseMintedStatus(s: String?): MintedStatus = runCatching {
+        val trimmed = s?.trim()?.uppercase() ?: "PENDING"
+        MintedStatus.valueOf(trimmed)
+    }.getOrDefault(MintedStatus.PENDING)
 
     private fun haversineMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
         val r = 6_371_000.0

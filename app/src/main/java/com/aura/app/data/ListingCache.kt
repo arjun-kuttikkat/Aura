@@ -33,6 +33,9 @@ data class CachedListing(
     val location: String? = null,
     val emirate: String? = null,
     val sellerAuraScore: Int = 50,
+    val isPromoted: Boolean = false,
+    val promotedAt: Long? = null,
+    val promotedUntil: Long? = null,
 )
 
 object ListingCache {
@@ -81,7 +84,10 @@ object ListingCache {
         longitude = longitude,
         location = location,
         emirate = emirate,
-        sellerAuraScore = sellerAuraScore
+        sellerAuraScore = sellerAuraScore,
+        isPromoted = isPromoted,
+        promotedAt = promotedAt,
+        promotedUntil = promotedUntil
     )
 
     private fun CachedListing.toListing() = Listing(
@@ -92,7 +98,7 @@ object ListingCache {
         priceLamports = priceLamports,
         images = images,
         condition = condition,
-        mintedStatus = runCatching { MintedStatus.valueOf(mintedStatus) }.getOrDefault(MintedStatus.PENDING),
+        mintedStatus = runCatching { MintedStatus.valueOf(mintedStatus.trim().uppercase()) }.getOrDefault(MintedStatus.PENDING),
         mintAddress = mintAddress,
         fingerprintHash = fingerprintHash,
         createdAt = createdAt,
@@ -100,6 +106,9 @@ object ListingCache {
         longitude = longitude,
         location = location,
         emirate = emirate,
-        sellerAuraScore = sellerAuraScore
+        sellerAuraScore = sellerAuraScore,
+        isPromoted = isPromoted,
+        promotedAt = promotedAt,
+        promotedUntil = promotedUntil
     )
 }

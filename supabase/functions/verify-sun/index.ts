@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { CMAC } from "npm:@stablelib/aes-cmac";
 import { Connection, Keypair, Transaction, PublicKey, SystemProgram } from "npm:@solana/web3.js";
-import { createClient } from "npm:@supabase/supabase-js";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import bs58 from "npm:bs58";
 
 const corsHeaders = {
@@ -108,10 +108,14 @@ serve(async (req) => {
             receivedCmacHex, // MAC from the NFC tag URL
             assetUri,
             assetTitle,
+            listingId,
+            escrowPdaBase58,
+            sellerWalletBase58,
+            tradeId,
         } = await req.json();
 
-        if (!sdmDataHex || !receivedCmacHex) {
-            return new Response(JSON.stringify({ valid: false, error: "sdmDataHex and receivedCmacHex are required" }), {
+        if (!sdmDataHex || !receivedCmacHex || !listingId || !escrowPdaBase58 || !sellerWalletBase58 || !tradeId) {
+            return new Response(JSON.stringify({ valid: false, error: "sdmDataHex, receivedCmacHex, listingId, escrowPdaBase58, sellerWalletBase58, and tradeId are required" }), {
                 status: 400,
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
@@ -174,19 +178,157 @@ serve(async (req) => {
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // 3. Solana Escrow Release (CPI via Authority Signer)
+        // 1b. Match tag to listing: if listing has nfc_sun_url from publish, verify same physical tag
+        // ═══════════════════════════════════════════════════════════════
+
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+        const { data: listing } = await supabase
+            .from("marketplace_listings")
+            .select("price_lamports,seller_wallet,nfc_sun_url,mint_address,minted_status")
+            .eq("id", listingId)
+            .single();
+
+        // ═══════════════════════════════════════════════════════════════
+        // 1c. NFT Verification: listing must be minted for escrow release
+        // Ensures the publish flow completed with mint-nft (NFC verification + mint)
+        // ═══════════════════════════════════════════════════════════════
+        if (!listing?.mint_address || listing?.minted_status !== "MINTED") {
+            return new Response(JSON.stringify({
+                valid: false,
+                reason: "NFT_NOT_MINTED",
+                error: "Listing must be NFT-verified before release. Complete the full publish flow (including NFC verification and mint).",
+            }), {
+                status: 403,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+
+        if (listing?.nfc_sun_url) {
+            const piccMatch = listing.nfc_sun_url.match(/picc_data=([0-9A-Fa-f]+)/i);
+            if (piccMatch) {
+                const publishPiccHex = piccMatch[1];
+                const publishDecrypted = await crypto.subtle.decrypt(
+                    { name: "AES-CBC", iv: new Uint8Array(16) },
+                    await crypto.subtle.importKey("raw", sdmFileReadKey, { name: "AES-CBC" }, false, ["decrypt"]),
+                    hexToBytes(publishPiccHex)
+                );
+                const uidPublish = new Uint8Array(publishDecrypted).slice(0, 7);
+                if (bytesToHex(uidPublish) !== bytesToHex(uid)) {
+                    return new Response(JSON.stringify({
+                        valid: false,
+                        reason: "TAG_MISMATCH",
+                        error: "NFC tag does not match the one registered at publish — wrong physical item.",
+                    }), {
+                        status: 403,
+                        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                    });
+                }
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 2. Token Mismatch Fix (19): Verify on-chain escrow holds SOL, matches listing
         // ═══════════════════════════════════════════════════════════════
 
         const rpcUrl = Deno.env.get("HELIUS_RPC_URL");
         if (!rpcUrl) throw new Error("HELIUS_RPC_URL is required — set in Supabase Edge Function secrets");
         const connection = new Connection(rpcUrl, "confirmed");
 
+        const PROGRAM_ID = new PublicKey("BMKWLYrXtuuxp4TA4yNhrs9LbomR1fMdbrko6R7Qj5WM");
+        const [escrowPda] = PublicKey.findProgramAddressSync(
+            [Buffer.from("escrow"), Buffer.from(listingId)],
+            PROGRAM_ID
+        );
+        if (escrowPda.toBase58() !== escrowPdaBase58) {
+            return new Response(JSON.stringify({
+                valid: false,
+                reason: "ESCROW_MISMATCH",
+                error: "Escrow PDA does not match listing — ensure correct trade session.",
+            }), {
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+
+        const escrowInfo = await connection.getAccountInfo(escrowPda);
+        if (!escrowInfo || !escrowInfo.data || escrowInfo.data.length < 100) {
+            return new Response(JSON.stringify({
+                valid: false,
+                reason: "ESCROW_NOT_FOUND",
+                error: "Escrow account not found on-chain — fund escrow before releasing.",
+            }), {
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+        const vaultPda = PublicKey.findProgramAddressSync([Buffer.from("vault"), escrowPda.toBuffer()], PROGRAM_ID)[0];
+        const vaultBalance = await connection.getBalance(vaultPda);
+        const escrowData = escrowInfo.data;
+        const ANCHOR_DISC_LEN = 8;
+        let offset = ANCHOR_DISC_LEN;
+        offset += 32; // buyer
+        offset += 32; // seller
+        const listingIdLen = escrowData.readUInt32LE(offset);
+        offset += 4 + listingIdLen;
+        const escrowAmount = Number(escrowData.readBigUInt64LE(offset));
+        offset += 8;
+        const isReleased = escrowData.readUInt8(offset) !== 0;
+        if (isReleased) {
+            return new Response(JSON.stringify({
+                valid: false,
+                reason: "ALREADY_RELEASED",
+                error: "Escrow has already been released.",
+            }), {
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+        // Airdrop spoofing fix (#17): verify vault holds exactly SOL (system program), not spoofed tokens
+        if (vaultBalance < escrowAmount) {
+            return new Response(JSON.stringify({
+                valid: false,
+                reason: "VAULT_INSUFFICIENT",
+                error: "Vault balance does not match escrow — wrong token or amount.",
+            }), {
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+        // listing already fetched above with price_lamports,seller_wallet,nfc_sun_url
+        const expectedLamports = listing?.price_lamports ?? 0;
+        if (expectedLamports > 0 && Math.abs(escrowAmount - expectedLamports) > 1000) {
+            return new Response(JSON.stringify({
+                valid: false,
+                reason: "AMOUNT_MISMATCH",
+                error: "Escrow amount does not match listing — expected SOL only.",
+            }), {
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+        if (listing?.seller_wallet && listing.seller_wallet !== sellerWalletBase58) {
+            return new Response(JSON.stringify({
+                valid: false,
+                reason: "SELLER_MISMATCH",
+                error: "Seller wallet does not match listing.",
+            }), {
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 3. Solana Escrow Release (CPI via Authority)
+        // Derank fix (20): Do NOT re-check seller rank/privilege here. Escrow state
+        // (fee_exempt) was snapshotted at initialize; release uses on-chain data only.
+        // ═══════════════════════════════════════════════════════════════
+
         const secretKeyStr = Deno.env.get("SOLANA_AUTHORITY_KEY");
         if (!secretKeyStr) throw new Error("SOLANA_AUTHORITY_KEY not configured");
 
         const authorityKeypair = Keypair.fromSecretKey(bs58.decode(secretKeyStr));
-        const PROGRAM_ID = new PublicKey("BMKWLYrXtuuxp4TA4yNhrs9LbomR1fMdbrko6R7Qj5WM");
-        const escrowPda = PublicKey.findProgramAddressSync([Buffer.from("escrow"), Buffer.from(listingId)], PROGRAM_ID)[0];
         const sellerPubkey = new PublicKey(sellerWalletBase58);
         const treasuryWalletStr = Deno.env.get("TREASURY_WALLET");
         if (!treasuryWalletStr) throw new Error("TREASURY_WALLET not configured");
@@ -234,10 +376,11 @@ serve(async (req) => {
         await connection.confirmTransaction(signature, "confirmed");
 
         // Update trade session state to NFC_VERIFIED
+        const tagUidHex = bytesToHex(uid);
         await supabase
             .from("trade_sessions")
             .update({ state: "NFC_VERIFIED", nfc_sun_url: `uid:${tagUidHex}` })
-            .eq("id", tradeSession.id);
+            .eq("id", tradeId);
 
         return new Response(JSON.stringify({
             valid: true,
@@ -245,7 +388,7 @@ serve(async (req) => {
             message: "NFC chip verified (NTAG 424 DNA SUN). Escrow released to seller.",
             txSignature: signature,
             listingId: listingId,
-            tradeSessionId: tradeSession.id,
+            tradeSessionId: tradeId,
             uidHex: bytesToHex(uid),
             readCounter: readCtr[0] | (readCtr[1] << 8) | (readCtr[2] << 16),
         }), {

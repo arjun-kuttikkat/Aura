@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Button
@@ -51,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -69,12 +71,23 @@ import com.aura.app.ui.theme.GlassBorder
 import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
+import com.aura.app.ui.components.AuraHaptics
 import com.aura.app.ui.theme.SlateElevated
 import com.aura.app.ui.theme.SlateLight
 import com.aura.app.util.CryptoPriceFormatter
+import com.aura.app.wallet.AnchorTransactionBuilder
 import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+
+private sealed class PromoteState {
+    data object Idle : PromoteState()
+    data object Loading : PromoteState()
+    data object Success : PromoteState()
+    data class Error(val message: String) : PromoteState()
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,6 +102,7 @@ fun ListingDetailScreen(
     val listing = listings.find { it.id == listingId }
     val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
 
+    val haptic = LocalHapticFeedback.current
     // Refresh when entering — fixes "Listing not found" for newly created listings
     LaunchedEffect(listingId) {
         if (listing == null) AuraRepository.refreshListingsAwait()
@@ -99,7 +113,7 @@ fun ListingDetailScreen(
             TopAppBar(
                 title = { },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = { AuraHaptics.subtleTap(haptic); onBack() }) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -324,7 +338,7 @@ fun ListingDetailScreen(
                 if (!isSeller) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(
-                            onClick = { showBuyConfirm = true },
+                            onClick = { AuraHaptics.lightTap(haptic); showBuyConfirm = true },
                             enabled = walletAddress != null && listing.mintedStatus != MintedStatus.SOLD && !isStartingTrade,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -363,7 +377,7 @@ fun ListingDetailScreen(
                             }
                         }
                         OutlinedButton(
-                            onClick = onChatClicked,
+                            onClick = { AuraHaptics.subtleTap(haptic); onChatClicked() },
                             enabled = walletAddress != null,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -383,6 +397,7 @@ fun ListingDetailScreen(
                             text = { Text("Meet the seller and verify the item before payment.", style = MaterialTheme.typography.bodyMedium) },
                             confirmButton = {
                                 TextButton(onClick = {
+                                    AuraHaptics.lightTap(haptic)
                                     showBuyConfirm = false
                                     walletAddress?.let { wallet ->
                                         isStartingTrade = true
@@ -406,7 +421,7 @@ fun ListingDetailScreen(
                                 }) { Text("Start Meetup", color = Orange500, fontWeight = FontWeight.Bold) }
                             },
                             dismissButton = {
-                                TextButton(onClick = { showBuyConfirm = false }) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                TextButton(onClick = { AuraHaptics.subtleTap(haptic); showBuyConfirm = false }) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             },
                         )
                     }
@@ -414,8 +429,11 @@ fun ListingDetailScreen(
                         Text(it, color = Color.Red, style = MaterialTheme.typography.bodySmall)
                     }
                 } else {
-                    var isPromoting by remember { mutableStateOf(false) }
-                    var promoteMsg by remember { mutableStateOf<String?>(null) }
+                    var promoteState by remember { mutableStateOf<PromoteState>(PromoteState.Idle) }
+                    var showPromoteConfirm by remember { mutableStateOf(false) }
+                    val now = System.currentTimeMillis()
+                    val isCurrentlyPromoted = listing.isPromoted && (listing.promotedUntil ?: 0L) > now
+
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Box(
                             modifier = Modifier
@@ -427,27 +445,149 @@ fun ListingDetailScreen(
                         ) {
                             Text("Your listing", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Button(
-                            onClick = {
-                                isPromoting = true
-                                scope.launch {
-                                    val ok = AuraRepository.promoteListing(listing.id, durationHours = 24)
-                                    promoteMsg = if (ok) "Promoted for 24h and pinned above non-promoted listings." else "Promotion failed. Try again."
-                                    isPromoting = false
+
+                        when (promoteState) {
+                            is PromoteState.Success -> {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(Orange500.copy(alpha = 0.15f))
+                                        .border(1.dp, Orange500.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+                                        .padding(16.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Orange500, modifier = Modifier.size(28.dp))
+                                        Column {
+                                            Text("Promoted!", fontWeight = FontWeight.Bold, color = Orange500, style = MaterialTheme.typography.titleSmall)
+                                            Text("Your listing will appear at the top for 24 hours.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                                        }
+                                    }
                                 }
-                            },
-                            enabled = !isPromoting,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
-                        ) {
-                            if (isPromoting) {
-                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            } else {
-                                Text("Promote Listing (Pay-to-Reach)")
                             }
-                        }
-                        promoteMsg?.let {
-                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            is PromoteState.Error -> {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f))
+                                        .border(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                                        .padding(16.dp),
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        ) {
+                                            Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(28.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text("Promotion failed", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleSmall)
+                                                Text((promoteState as PromoteState.Error).message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                                            }
+                                        }
+                                        OutlinedButton(
+                                            onClick = { AuraHaptics.subtleTap(haptic); promoteState = PromoteState.Idle },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(12.dp),
+                                        ) { Text("Retry") }
+                                    }
+                                }
+                            }
+                            else -> {
+                                if (isCurrentlyPromoted) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(Orange500.copy(alpha = 0.12f))
+                                            .padding(16.dp),
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Orange500, modifier = Modifier.size(24.dp))
+                                            Text("Listing is promoted and pinned at the top.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                                        }
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = {
+                                            AuraHaptics.lightTap(haptic)
+                                            showPromoteConfirm = true
+                                        },
+                                        enabled = promoteState !is PromoteState.Loading,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(14.dp),
+                                    ) {
+                                        Text("Promote Listing — 10 SOL for 24h")
+                                    }
+                                    if (showPromoteConfirm) {
+                                        AlertDialog(
+                                            onDismissRequest = { if (promoteState !is PromoteState.Loading) showPromoteConfirm = false },
+                                            title = { Text("Promote listing", fontWeight = FontWeight.Bold) },
+                                            text = {
+                                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    Text("Pay 10 SOL to pin your listing at the top for 24 hours. Your wallet will open to sign the transaction.", style = MaterialTheme.typography.bodyMedium)
+                                                    Text("Fee: 10 SOL", fontWeight = FontWeight.SemiBold, color = Orange500)
+                                                }
+                                            },
+                                            confirmButton = {
+                                                TextButton(onClick = {
+                                                    AuraHaptics.lightTap(haptic)
+                                                    showPromoteConfirm = false
+                                                    promoteState = PromoteState.Loading
+                                                    val treasury = com.aura.app.BuildConfig.TREASURY_WALLET
+                                                    val wallet = walletAddress
+                                                    if (treasury.isBlank()) {
+                                                        promoteState = PromoteState.Error("Treasury not configured. Contact support.")
+                                                        return@TextButton
+                                                    }
+                                                    if (wallet == null) {
+                                                        promoteState = PromoteState.Error("Wallet not connected")
+                                                        return@TextButton
+                                                    }
+                                                    scope.launch {
+                                                        try {
+                                                            val txBytes = withContext(Dispatchers.IO) {
+                                                                AnchorTransactionBuilder.buildSolTransferTx(
+                                                                    fromPubkey = wallet,
+                                                                    toPubkey = treasury,
+                                                                    lamports = AuraRepository.PROMOTE_FEE_LAMPORTS,
+                                                                )
+                                                            }
+                                                            val base64 = android.util.Base64.encodeToString(txBytes, android.util.Base64.NO_WRAP)
+                                                            WalletConnectionState.signAndSendTransaction(
+                                                                scope = scope,
+                                                                base64EncodedTx = base64,
+                                                                onSuccess = { sig ->
+                                                                    scope.launch {
+                                                                        val result = AuraRepository.promoteListing(listing.id, sig)
+                                                                        promoteState = result.fold(
+                                                                            onSuccess = { PromoteState.Success },
+                                                                            onFailure = { PromoteState.Error(it.message ?: "Promotion failed. Try again.") },
+                                                                        )
+                                                                    }
+                                                                },
+                                                                onError = { e ->
+                                                                    promoteState = PromoteState.Error(e.message ?: "Transaction failed")
+                                                                },
+                                                            )
+                                                        } catch (e: Exception) {
+                                                            promoteState = PromoteState.Error(e.message ?: "Failed to build transaction")
+                                                        }
+                                                    }
+                                                }) { Text("Pay 10 SOL & Promote", color = Orange500, fontWeight = FontWeight.Bold) }
+                                            },
+                                            dismissButton = {
+                                                TextButton(onClick = { AuraHaptics.subtleTap(haptic); showPromoteConfirm = false }) {
+                                                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

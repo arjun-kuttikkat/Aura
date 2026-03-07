@@ -42,6 +42,10 @@ object AnchorTransactionBuilder {
         computeDiscriminator("global:release_funds_and_mint")
     }
 
+    private val CANCEL_REFUND_DISCRIMINATOR: ByteArray by lazy {
+        computeDiscriminator("global:cancel_and_refund")
+    }
+
     /**
      * Compute Anchor 8-byte instruction discriminator.
      * discriminator = SHA-256(namespace:function_name)[0..8]
@@ -210,12 +214,11 @@ object AnchorTransactionBuilder {
         )
         Log.d(TAG, "Derived Escrow PDA: ${Base58.encodeToString(escrowPda.address)}")
 
-        // Fetch recent blockhash
+        // Fetch recent blockhash (tries primary RPC then fallback so user can still pay)
         val blockhash = SolanaRpc.getLatestBlockhash()
-            ?: throw IllegalStateException("Failed to fetch recent blockhash")
+            ?: throw IllegalStateException("Could not reach the network. Check your connection and tap Retry.")
 
-        // Build the serialized transaction message
-        return buildSerializedMessage(
+        val message = buildSerializedMessage(
             recentBlockhash = blockhash,
             feePayer = decodeBase58(buyerPubkey),
             instructions = listOf(
@@ -231,6 +234,7 @@ object AnchorTransactionBuilder {
                 ),
             ),
         )
+        return wrapMessageAsTransaction(message, 1)
     }
 
     /**
@@ -245,9 +249,9 @@ object AnchorTransactionBuilder {
 
         val instructionData = buildSolTransferInstructionData(lamports)
         val blockhash = SolanaRpc.getLatestBlockhash()
-            ?: throw IllegalStateException("Failed to fetch recent blockhash")
+            ?: throw IllegalStateException("Could not reach the network. Check your connection and tap Retry.")
 
-        return buildSerializedMessage(
+        val message = buildSerializedMessage(
             recentBlockhash = blockhash,
             feePayer = decodeBase58(fromPubkey),
             instructions = listOf(
@@ -261,6 +265,48 @@ object AnchorTransactionBuilder {
                 ),
             ),
         )
+        return wrapMessageAsTransaction(message, 1)
+    }
+
+    /**
+     * Build cancel_and_refund instruction data (discriminator only).
+     * Hostage fix (18): buyer reclaims SOL after 24h if seller never released.
+     */
+    fun buildCancelAndRefundInstructionData(): ByteArray {
+        return CANCEL_REFUND_DISCRIMINATOR.copyOf()
+    }
+
+    /**
+     * Construct cancel_and_refund transaction for the buyer to sign.
+     * Callable only after 24h since escrow was initialized.
+     */
+    suspend fun buildCancelAndRefundTx(
+        listingId: String,
+        buyerPubkey: String,
+    ): ByteArray {
+        Log.d(TAG, "Building Cancel & Refund TX: listing=$listingId")
+        val escrowPda = deriveEscrowPda(listingId)
+        val vaultPda = deriveVaultPda(escrowPda.address)
+        val instructionData = buildCancelAndRefundInstructionData()
+        val blockhash = SolanaRpc.getLatestBlockhash()
+            ?: throw IllegalStateException("Could not reach the network. Check your connection and tap Retry.")
+        val message = buildSerializedMessage(
+            recentBlockhash = blockhash,
+            feePayer = decodeBase58(buyerPubkey),
+            instructions = listOf(
+                Instruction(
+                    programId = decodeBase58(PROGRAM_ID),
+                    accounts = listOf(
+                        AccountMeta(decodeBase58(buyerPubkey), isSigner = true, isWritable = true),
+                        AccountMeta(escrowPda.address, isSigner = false, isWritable = true),
+                        AccountMeta(vaultPda.address, isSigner = false, isWritable = true),
+                        AccountMeta(decodeBase58(SYSTEM_PROGRAM), isSigner = false, isWritable = false),
+                    ),
+                    data = instructionData,
+                ),
+            ),
+        )
+        return wrapMessageAsTransaction(message, 1)
     }
 
     /**
@@ -293,9 +339,9 @@ object AnchorTransactionBuilder {
         Log.d(TAG, "Derived Escrow PDA for release: ${Base58.encodeToString(escrowPda.address)}")
 
         val blockhash = SolanaRpc.getLatestBlockhash()
-            ?: throw IllegalStateException("Failed to fetch recent blockhash")
+            ?: throw IllegalStateException("Could not reach the network. Check your connection and tap Retry.")
 
-        return buildSerializedMessage(
+        val message = buildSerializedMessage(
             recentBlockhash = blockhash,
             feePayer = decodeBase58(authorityPubkey),
             instructions = listOf(
@@ -313,6 +359,7 @@ object AnchorTransactionBuilder {
                 ),
             ),
         )
+        return wrapMessageAsTransaction(message, 1)
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -432,6 +479,19 @@ object AnchorTransactionBuilder {
             buf.write(ix.data)
         }
 
+        return buf.toByteArray()
+    }
+
+    /**
+     * Wraps a serialized Message in the full Solana Transaction format expected by MWA/Solflare.
+     * Transaction = [compact-u16 num_sigs][64 bytes per sig (placeholder)][message]
+     * The wallet replaces placeholders with actual signatures.
+     */
+    private fun wrapMessageAsTransaction(messageBytes: ByteArray, numSignatures: Int = 1): ByteArray {
+        val buf = ByteArrayOutputStream()
+        writeCompactU16(buf, numSignatures)
+        repeat(numSignatures) { buf.write(ByteArray(64)) }
+        buf.write(messageBytes)
         return buf.toByteArray()
     }
 

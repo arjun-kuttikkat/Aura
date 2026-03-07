@@ -1,3 +1,4 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
 package com.aura.app.ui.screen
 
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,12 +34,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aura.app.data.AuraRepository
+import com.aura.app.data.PendingEscrowConfirmationStore
 import com.aura.app.model.EscrowState
 import com.aura.app.util.CryptoPriceFormatter
 import com.aura.app.model.TradeState
 import com.aura.app.wallet.WalletConnectionState
 import com.aura.app.wallet.SolanaRpc
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
@@ -65,10 +69,41 @@ fun EscrowPayScreen(
     
     var status by remember { mutableStateOf<EscrowState?>(null) }
     var txSig by remember { mutableStateOf<String?>(null) }
+    var releaseTxSig by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
+    var isReleasing by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var isPendingConfirmation by remember { mutableStateOf(false) }
     var isPaymentVerified by remember { mutableStateOf(false) }
+    val paymentInProgress = remember { AtomicBoolean(false) }
+
+    // Background Process Kill fix: resume confirmation if app was killed during wait
+    LaunchedEffect(session?.id) {
+        val ctx = AuraRepository.appContext ?: return@LaunchedEffect
+        val pending = PendingEscrowConfirmationStore.load(ctx) ?: return@LaunchedEffect
+        if (pending.tradeId != session?.id) return@LaunchedEffect
+        isLoading = true
+        isPendingConfirmation = true
+        txSig = pending.txSignature
+        try {
+            val confirmed = SolanaRpc.waitForSignatureConfirmation(pending.txSignature, timeoutMs = 120_000L)
+            isPendingConfirmation = false
+            if (confirmed) {
+                isPaymentVerified = true
+                status = EscrowState.LOCKED
+                AuraRepository.updateTradeState(TradeState.ESCROW_LOCKED)
+            } else {
+                errorMsg = "Payment still pending on-chain. Please retry status check."
+            }
+        } catch (e: Exception) {
+            isLoading = false
+            isPendingConfirmation = false
+            errorMsg = e.message ?: "Confirmation check failed"
+        } finally {
+            isLoading = false
+            PendingEscrowConfirmationStore.clear(ctx)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -160,8 +195,17 @@ fun EscrowPayScreen(
                         com.aura.app.ui.components.AuraPrimaryButton(
                             text = if (isLoading) "Processing..." else "Confirmed: Pay ${CryptoPriceFormatter.formatLamports(listing?.priceLamports ?: 0L)}",
                             onClick = {
-                                val amount = listing?.priceLamports ?: 0L
-                                val amountSol = amount / 1_000_000_000.0
+                                // Quick-Pay Double Tap fix: prevent double submission
+                                if (!paymentInProgress.compareAndSet(false, true)) return@AuraPrimaryButton
+                                val sid = session?.id ?: return@AuraPrimaryButton
+                                val rawAmount = listing?.priceLamports ?: 0L
+                                // Ensure amount is in lamports: if backend stored price in SOL (e.g. 1 for 1 SOL),
+                                // convert to lamports. Values 1–999 lamports are negligible (< 0.001 SOL).
+                                val amount = if (rawAmount in 1L..999L) {
+                                    CryptoPriceFormatter.solToLamports(rawAmount.toDouble())
+                                } else {
+                                    rawAmount
+                                }
                                 
                                 isLoading = true
                                 errorMsg = null
@@ -172,7 +216,7 @@ fun EscrowPayScreen(
                                         // The backend constructs the message and returns it as a ByteArray, which we encode to Base64
                                         // for safe transport across layers here before the wallet adapter takes it.
                                         val escrowTxBytes = AuraRepository.initEscrow(
-                                            tradeId = session?.id ?: return@launch,
+                                            tradeId = sid,
                                             amount = amount
                                         )
                                         val base64Tx = android.util.Base64.encodeToString(escrowTxBytes, android.util.Base64.NO_WRAP)
@@ -186,24 +230,37 @@ fun EscrowPayScreen(
                                                 isPendingConfirmation = true
                                                 isLoading = false
                                                 AuraRepository.updateTradeState(TradeState.PAYMENT_PENDING)
+                                                // Background Process Kill fix: persist sig so we can resume if app is killed
+                                                AuraRepository.appContext?.let { ctx ->
+                                                    PendingEscrowConfirmationStore.save(ctx, sid, sig)
+                                                }
                                                 scope.launch {
-                                                    val confirmed = SolanaRpc.waitForSignatureConfirmation(sig, timeoutMs = 90_000L)
-                                                    isPendingConfirmation = false
-                                                    if (confirmed) {
-                                                        isPaymentVerified = true
-                                                        status = EscrowState.LOCKED
-                                                        AuraRepository.updateTradeState(TradeState.ESCROW_LOCKED)
-                                                    } else {
-                                                        errorMsg = "Payment still pending on-chain. Please retry status check."
+                                                    try {
+                                                        val confirmed = SolanaRpc.waitForSignatureConfirmation(sig, timeoutMs = 120_000L)
+                                                        isPendingConfirmation = false
+                                                        if (confirmed) {
+                                                            isPaymentVerified = true
+                                                            status = EscrowState.LOCKED
+                                                            AuraRepository.updateTradeState(TradeState.ESCROW_LOCKED)
+                                                        } else {
+                                                            errorMsg = "Payment still pending on-chain. Please retry status check."
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        errorMsg = "Confirmation failed. Tap Retry to check again."
+                                                    } finally {
+                                                        paymentInProgress.set(false)
+                                                        AuraRepository.appContext?.let { PendingEscrowConfirmationStore.clear(it) }
                                                     }
                                                 }
                                             },
                                             onError = { e ->
+                                                paymentInProgress.set(false)
                                                 isLoading = false
                                                 errorMsg = e.message ?: "Transaction failed"
                                             }
                                         )
                                     } catch (e: Exception) {
+                                        paymentInProgress.set(false)
                                         isLoading = false
                                         errorMsg = "Escrow Init Failed: ${e.message}"
                                     }
@@ -261,6 +318,35 @@ fun EscrowPayScreen(
                         }
                     }
                 }
+
+                // Stuck in Pending fix (#20): Retry confirmation when RPC drops or times out
+                if (errorMsg != null && txSig != null && !isPaymentVerified && errorMsg!!.contains("retry", ignoreCase = true)) {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                errorMsg = null
+                                isPendingConfirmation = true
+                                try {
+                                    val confirmed = SolanaRpc.waitForSignatureConfirmation(txSig!!, timeoutMs = 60_000L)
+                                    isPendingConfirmation = false
+                                    if (confirmed) {
+                                        isPaymentVerified = true
+                                        status = EscrowState.LOCKED
+                                        AuraRepository.updateTradeState(TradeState.ESCROW_LOCKED)
+                                    } else {
+                                        errorMsg = "Still pending. Try again or check wallet."
+                                    }
+                                } catch (e: Exception) {
+                                    isPendingConfirmation = false
+                                    errorMsg = "Retry failed: ${e.message}"
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Retry Confirmation Check")
+                    }
+                }
             }
             
             errorMsg?.let { msg ->
@@ -283,24 +369,64 @@ fun EscrowPayScreen(
 
                 Spacer(modifier = Modifier.weight(1f))
                 com.aura.app.ui.components.AuraPrimaryButton(
-                    text = "Complete Trade & Release Goods",
-                    onClick = { showConfirmRelease = true }
+                    text = if (isReleasing) "Releasing…" else "Complete Trade & Release Goods",
+                    onClick = { showConfirmRelease = true },
+                    enabled = !isReleasing
                 )
 
                 if (showConfirmRelease) {
                     androidx.compose.material3.AlertDialog(
-                        onDismissRequest = { showConfirmRelease = false },
+                        onDismissRequest = { if (!isReleasing) showConfirmRelease = false },
                         title = { Text("Release Escrow?") },
-                        text = { Text("This will release SOL to the seller. This action cannot be undone.") },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("The seller must sign to release SOL from escrow to their wallet. This action cannot be undone.")
+                                if (isReleasing) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                }
+                            }
+                        },
                         confirmButton = {
-                            androidx.compose.material3.TextButton(onClick = {
-                                showConfirmRelease = false
-                                AuraRepository.updateTradeState(TradeState.COMPLETE)
-                                onComplete()
-                            }) { Text("Release Funds", color = MaterialTheme.colorScheme.error) }
+                            androidx.compose.material3.TextButton(
+                                onClick = {
+                                    if (isReleasing) return@TextButton
+                                    val tradeId = session?.id ?: return@TextButton
+                                    isReleasing = true
+                                    errorMsg = null
+                                    scope.launch {
+                                        try {
+                                            val releaseTxBytes = AuraRepository.releaseEscrow(tradeId)
+                                            val base64Tx = android.util.Base64.encodeToString(releaseTxBytes, android.util.Base64.NO_WRAP)
+                                            WalletConnectionState.signAndSendTransaction(
+                                                scope = scope,
+                                                base64EncodedTx = base64Tx,
+                                                onSuccess = { sig ->
+                                                    releaseTxSig = sig
+                                                    showConfirmRelease = false
+                                                    isReleasing = false
+                                                    AuraRepository.updateTradeState(TradeState.COMPLETE)
+                                                    onComplete()
+                                                },
+                                                onError = { e ->
+                                                    isReleasing = false
+                                                    errorMsg = "Release failed: ${e.message}"
+                                                }
+                                            )
+                                        } catch (e: Exception) {
+                                            isReleasing = false
+                                            errorMsg = "Release failed: ${e.message}"
+                                        }
+                                    }
+                                },
+                                enabled = !isReleasing
+                            ) { Text("Release Funds", color = MaterialTheme.colorScheme.error) }
                         },
                         dismissButton = {
-                            androidx.compose.material3.TextButton(onClick = { showConfirmRelease = false }) { Text("Cancel") }
+                            androidx.compose.material3.TextButton(
+                                onClick = { showConfirmRelease = false },
+                                enabled = !isReleasing
+                            ) { Text("Cancel") }
                         }
                     )
                 }

@@ -35,6 +35,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.aura.app.data.AuraRepository
 import com.aura.app.ui.components.MainBottomBar
+import com.aura.app.ui.components.WalletLoadingOverlay
 import com.aura.app.ui.screen.CreateListingScreen
 import com.aura.app.ui.screen.EscrowPayScreen
 import com.aura.app.ui.screen.FaceVerificationScreen
@@ -347,5 +348,6 @@ fun NavGraph(
                 )
             }
         }
+        WalletLoadingOverlay()
     }
 }

@@ -150,7 +150,6 @@ Respond in JSON only with this exact format:
             )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to analyze product image", e)
-            // On failure, allow the upload to proceed with blank data
             ListingAnalysis(
                 isRelevant = true,
                 title = "",

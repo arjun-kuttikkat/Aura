@@ -128,7 +128,10 @@ serve(async (req: Request) => {
             offset += 2
             treasuryPubkey.toBuffer().copy(data, offset)
             offset += 32
-            data.writeUInt8(0, offset); offset += 1 // fee_exempt=false
+            // Fee exemption based on SELLER's aura score (Radiant tier bypasses 2% platform fee)
+            const sellerAuraScore = listing.seller_aura_score ?? 50
+            const feeExempt = sellerAuraScore >= 90
+            data.writeUInt8(feeExempt ? 1 : 0, offset); offset += 1
             releaseAuthorityPubkey.toBuffer().copy(data, offset) // release_authority
 
             const tx = new Transaction({
@@ -158,12 +161,13 @@ serve(async (req: Request) => {
                 // Re-return the same transaction without creating a duplicate session
                 // The escrow PDA is deterministic so the tx is the same
             } else {
-                // Record the trade session
+                // Record the trade session — use SESSION_CREATED until tx confirms (avoids desync
+                // where DB says ESCROW_FUNDED but on-chain escrow never initialized, causing release to fail)
                 await supabase.from("trade_sessions").insert({
                     listing_id: listingId,
                     buyer_wallet: buyerPubkey.toBase58(),
                     seller_wallet: listing.seller_wallet,
-                    state: "ESCROW_FUNDED",
+                    state: "SESSION_CREATED",
                 })
             }
 

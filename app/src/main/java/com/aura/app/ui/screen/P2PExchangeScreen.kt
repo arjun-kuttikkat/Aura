@@ -1,6 +1,9 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
 package com.aura.app.ui.screen
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.FastOutLinearInEasing
@@ -48,6 +51,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -77,6 +81,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import java.util.concurrent.Executors
 import com.aura.app.util.FaceAnalyzer
@@ -98,6 +103,10 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
     // Receive state
     var receiveAmount by remember { mutableStateOf("") }
     var isLivenessVerifying by remember { mutableStateOf(false) }
+    val hasCameraPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) isLivenessVerifying = true
+    }
     var isLivenessVerified by remember { mutableStateOf(false) }
     val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     
@@ -138,6 +147,8 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
         if (mode == ExchangeMode.SEND && nfcState is NfcHandshakeResult.Confirmed && !isProcessingTx && txSignature == null) {
             val confirmed = nfcState as NfcHandshakeResult.Confirmed
             if (confirmed.payloadUrl?.startsWith("solana:") == true) {
+                // Quick-Pay Double Tap fix: consume NFC state immediately to prevent double submission
+                NfcHandoverManager.reset()
                 isProcessingTx = true
                 val uri = Uri.parse(confirmed.payloadUrl)
                 // solana:ADDRESS?amount=X
@@ -318,7 +329,11 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                             Button(
                                 onClick = {
                                     if (isValidAmount) {
-                                        isLivenessVerifying = true
+                                        if (hasCameraPermission) {
+                                            isLivenessVerifying = true
+                                        } else {
+                                            permissionLauncher.launch(Manifest.permission.CAMERA)
+                                        }
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
@@ -326,7 +341,7 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                             ) {
                                 Text("Generate Secure Request")
                             }
-                        } else if (isLivenessVerifying) {
+                        } else if (isLivenessVerifying && hasCameraPermission) {
                             val lifecycleOwner = LocalLifecycleOwner.current
                             Box(modifier = Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(16.dp)).breathe()) {
                                 AndroidView(
