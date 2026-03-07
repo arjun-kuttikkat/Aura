@@ -8,11 +8,47 @@
 // 4. Client sends: POST { action: "verify", walletAddress, nonce, signature }
 // 5. Server verifies Ed25519 signature and returns Supabase JWT
 
-import { serve } from "https://deno.land/std@0.177.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import * as jose from "https://deno.land/x/jose@v5.2.0/index.ts"
-import { decode as decodeBase58 } from "npm:bs58"
-import nacl from "npm:tweetnacl"
+
+// ── Base58 decoder (inline, no external dep) ──
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+function decodeBase58(s: string): Uint8Array {
+    const bytes: number[] = [0]
+    for (const c of s) {
+        const carry = BASE58_ALPHABET.indexOf(c)
+        if (carry < 0) throw new Error("Invalid base58 character")
+        for (let j = 0; j < bytes.length; j++) {
+            const x = bytes[j] * 58 + carry
+            bytes[j] = x & 0xff
+            if (j + 1 === bytes.length) { if (x >> 8) bytes.push(x >> 8) }
+            else bytes[j + 1] += x >> 8
+        }
+    }
+    // leading zeros
+    for (const c of s) { if (c !== "1") break; bytes.push(0) }
+    return new Uint8Array(bytes.reverse())
+}
+
+// ── Ed25519 verify via Web Crypto ──
+async function ed25519Verify(message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): Promise<boolean> {
+    const key = await crypto.subtle.importKey(
+        "raw", publicKey, { name: "Ed25519" }, false, ["verify"]
+    )
+    return crypto.subtle.verify("Ed25519", key, signature, message)
+}
+
+// ── Minimal HS256 JWT (no jose dep) ──
+function base64url(buf: Uint8Array): string {
+    return btoa(String.fromCharCode(...buf)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_")
+}
+async function signJwt(payload: Record<string, unknown>, secret: string): Promise<string> {
+    const header = base64url(new TextEncoder().encode(JSON.stringify({ alg: "HS256", typ: "JWT" })))
+    const body = base64url(new TextEncoder().encode(JSON.stringify(payload)))
+    const data = new TextEncoder().encode(`${header}.${body}`)
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+    const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, data))
+    return `${header}.${body}.${base64url(sig)}`
+}
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
@@ -25,7 +61,7 @@ const corsHeaders = {
     "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey, x-client-info",
 }
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
     if (req.method === "OPTIONS") {
         return new Response(null, { headers: corsHeaders })
     }
@@ -118,7 +154,7 @@ serve(async (req: Request) => {
             const signatureBytes = decodeBase58(signature)
             const publicKeyBytes = decodeBase58(walletAddress)
 
-            const isValid = nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes)
+            const isValid = await ed25519Verify(messageBytes, signatureBytes, publicKeyBytes)
 
             if (!isValid) {
                 return new Response(JSON.stringify({ error: "Invalid signature." }), {
@@ -143,20 +179,17 @@ serve(async (req: Request) => {
                 .single()
 
             // Build a Supabase-compatible JWT with wallet_address in app_metadata
-            const secret = new TextEncoder().encode(JWT_SECRET)
             const now = Math.floor(Date.now() / 1000)
-            const jwt = await new jose.SignJWT({
+            const jwt = await signJwt({
                 aud: "authenticated",
                 role: "authenticated",
                 sub: profile?.id || walletAddress,
                 wallet_address: walletAddress,
                 app_metadata: { wallet_address: walletAddress },
                 user_metadata: { wallet_address: walletAddress },
-            })
-                .setProtectedHeader({ alg: "HS256", typ: "JWT" })
-                .setIssuedAt(now)
-                .setExpirationTime(now + 60 * 60 * 24) // 24 hours
-                .sign(secret)
+                iat: now,
+                exp: now + 60 * 60 * 24, // 24 hours
+            }, JWT_SECRET)
 
             return new Response(JSON.stringify({
                 access_token: jwt,
