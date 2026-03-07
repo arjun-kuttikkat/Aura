@@ -216,37 +216,39 @@ fun ListingDetailScreen(
                         Icon(Icons.Default.BrokenImage, null, modifier = Modifier.size(48.dp), tint = Orange500.copy(alpha = 0.5f))
                     }
                 }
-                // Status badge
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(if (isCompact) 12.dp else 16.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(
-                            when (listing.mintedStatus) {
-                                MintedStatus.VERIFIED -> Orange500
-                                MintedStatus.MINTED -> Gold500
-                                MintedStatus.PENDING -> SlateLight.copy(alpha = 0.9f)
-                                MintedStatus.SOLD -> SlateLight.copy(alpha = 0.9f)
-                            },
-                        )
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (listing.mintedStatus == MintedStatus.VERIFIED) {
-                            Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(14.dp), tint = Color.White)
+                // Status badge (no badge for Pending)
+                if (listing.mintedStatus != MintedStatus.PENDING) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(if (isCompact) 12.dp else 16.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                when (listing.mintedStatus) {
+                                    MintedStatus.VERIFIED -> Orange500
+                                    MintedStatus.MINTED -> Gold500
+                                    MintedStatus.SOLD -> SlateLight.copy(alpha = 0.9f)
+                                    MintedStatus.PENDING -> SlateLight.copy(alpha = 0.9f)
+                                },
+                            )
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (listing.mintedStatus == MintedStatus.VERIFIED) {
+                                Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(14.dp), tint = Color.White)
+                            }
+                            Text(
+                                when (listing.mintedStatus) {
+                                    MintedStatus.MINTED -> "Minted"
+                                    MintedStatus.VERIFIED -> "Verified"
+                                    MintedStatus.SOLD -> "Sold"
+                                    MintedStatus.PENDING -> "Pending"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold,
+                            )
                         }
-                        Text(
-                            when (listing.mintedStatus) {
-                                MintedStatus.PENDING -> "Pending"
-                                MintedStatus.MINTED -> "Minted"
-                                MintedStatus.VERIFIED -> "Verified"
-                                MintedStatus.SOLD -> "Sold"
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold,
-                        )
                     }
                 }
             }

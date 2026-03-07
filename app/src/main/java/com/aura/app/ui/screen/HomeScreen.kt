@@ -901,27 +901,29 @@ private fun ListingCard(
                         )
                     }
                 }
-                // Status badge — Pending / Minted / Verified / Sold (must have sufficient contrast)
-                val (bgColor, label) = when (status) {
-                    MintedStatus.PENDING -> SlateLight.copy(alpha = 0.95f) to "Pending"
-                    MintedStatus.MINTED -> Gold500 to "Minted"
-                    MintedStatus.VERIFIED -> Orange500 to "✓ Verified"
-                    MintedStatus.SOLD -> SlateLight.copy(alpha = 0.95f) to "Sold"
-                }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(bgColor)
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                ) {
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                    )
+                // Status badge — Minted / Verified / Sold (no badge for Pending)
+                if (status != MintedStatus.PENDING) {
+                    val (bgColor, label) = when (status) {
+                        MintedStatus.PENDING -> SlateLight.copy(alpha = 0.95f) to "Pending"
+                        MintedStatus.MINTED -> Gold500 to "Minted"
+                        MintedStatus.VERIFIED -> Orange500 to "✓ Verified"
+                        MintedStatus.SOLD -> SlateLight.copy(alpha = 0.95f) to "Sold"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(bgColor)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
             }
             Column(

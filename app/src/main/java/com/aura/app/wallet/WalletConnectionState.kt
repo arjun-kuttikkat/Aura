@@ -9,6 +9,7 @@ import com.solana.mobilewalletadapter.clientlib.protocol.MobileWalletAdapterClie
 import com.solana.mobilewalletadapter.clientlib.scenario.LocalAssociationIntentCreator
 import com.solana.mobilewalletadapter.clientlib.scenario.LocalAssociationScenario
 import com.solana.mobilewalletadapter.clientlib.scenario.Scenario
+import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.functions.functions
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -265,7 +266,7 @@ object WalletConnectionState {
             val supabase = com.aura.app.data.SupabaseClient.client
             // Use Auth.importAuthToken for custom JWTs
             kotlinx.coroutines.runBlocking {
-                supabase.auth.importAuthToken(jwt)
+                supabase.pluginManager.getPlugin(Auth).importAuthToken(jwt)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to import JWT into Supabase (non-fatal): ${e.message}")
