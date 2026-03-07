@@ -39,8 +39,46 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
+      - name: Create local.properties
+        run: |
+          echo "HELIUS_API_KEY=${{ secrets.HELIUS_API_KEY }}" > local.properties
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> local.properties
+          echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> local.properties
+          echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> local.properties
+          echo "GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct" >> local.properties
+          echo "TREASURY_WALLET=${{ secrets.TREASURY_WALLET }}" >> local.properties
+          echo "RELEASE_AUTHORITY_PUBKEY=${{ secrets.RELEASE_AUTHORITY_PUBKEY }}" >> local.properties
+
       - name: Build with Gradle
         run: ./gradlew build --no-daemon --stacktrace
 
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
+
       - name: Lint check
         run: ./gradlew lintDebug --no-daemon
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: app/build/reports/tests/
+
+      - name: Upload lint results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-results
+          path: app/build/reports/lint-results-debug.html
+
+      - name: Build release APK
+        if: github.ref == 'refs/heads/main'
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Upload APK artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk
+          path: app/build/outputs/apk/release/*.apk

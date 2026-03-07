@@ -93,7 +93,7 @@ object AnchorTransactionBuilder {
      * Build the `initialize` instruction data (Borsh-serialized).
      *
      * Instruction layout:
-     * [8 disc][8 amount][4+N listing_id][32 seller_wallet][2 fee_bps][32 treasury_wallet][1 fee_exempt]
+     * [8 disc][8 amount][4+N listing_id][32 seller_wallet][2 fee_bps][32 treasury_wallet][1 fee_exempt][32 release_authority]
      */
     fun buildInitializeInstructionData(
         amount: Long,
@@ -102,6 +102,7 @@ object AnchorTransactionBuilder {
         feeBps: Int,
         treasuryWallet: ByteArray,
         feeExempt: Boolean,
+        releaseAuthority: ByteArray,
     ): ByteArray {
         val buf = ByteArrayOutputStream()
         buf.write(INITIALIZE_DISCRIMINATOR)
@@ -127,6 +128,9 @@ object AnchorTransactionBuilder {
 
         // fee_exempt: bool
         buf.write(if (feeExempt) 1 else 0)
+
+        // release_authority: Pubkey (32 bytes, raw)
+        buf.write(releaseAuthority)
 
         return buf.toByteArray()
     }
@@ -190,6 +194,7 @@ object AnchorTransactionBuilder {
         feeBps: Int,
         treasuryWallet: String,
         feeExempt: Boolean,
+        releaseAuthority: String,
     ): ByteArray {
         Log.d(TAG, "Building Initialize TX: listing=$listingId, amount=$amountLamports")
 
@@ -197,6 +202,7 @@ object AnchorTransactionBuilder {
         val vaultPda = deriveVaultPda(escrowPda.address)
         val sellerBytes = decodeBase58(sellerPubkey)
         val treasuryBytes = decodeBase58(treasuryWallet)
+        val authorityBytes = decodeBase58(releaseAuthority)
         val instructionData = buildInitializeInstructionData(
             amount = amountLamports,
             listingId = listingId,
@@ -204,6 +210,7 @@ object AnchorTransactionBuilder {
             feeBps = feeBps,
             treasuryWallet = treasuryBytes,
             feeExempt = feeExempt,
+            releaseAuthority = authorityBytes,
         )
         Log.d(TAG, "Derived Escrow PDA: ${Base58.encodeToString(escrowPda.address)}")
 
@@ -305,22 +312,21 @@ object AnchorTransactionBuilder {
     /**
      * Construct a full transaction for the release_funds_and_mint instruction.
      *
-     * This is a client-side transaction that the BUYER signs.
-     * The authority signer is handled server-side by the Edge Function.
+     * In production, release is triggered server-side via verify-sun Edge Function
+     * which signs as the authority. This method exists for the non-NFC fallback path.
      *
      * Account metas for ReleaseFunds:
-     * 0. seller (writable)
-     * 1. escrow PDA (writable)
-     * 2. vault PDA (writable)
-     * 3. system_program
-     *
-     * NOTE: In production, release is triggered server-side via verify-sun Edge Function.
-     * This method exists for the non-NFC fallback path only.
+     * 0. authority (signer) — the release authority
+     * 1. seller (writable)
+     * 2. escrow PDA (writable)
+     * 3. vault PDA (writable)
+     * 4. treasury_wallet (writable)
+     * 5. system_program
      */
     suspend fun buildReleaseEscrowTx(
         listingId: String,
         sellerPubkey: String,
-        signerPubkey: String,
+        authorityPubkey: String,
         assetUri: String,
         assetTitle: String,
         treasuryWallet: String,
@@ -337,11 +343,12 @@ object AnchorTransactionBuilder {
 
         val message = buildSerializedMessage(
             recentBlockhash = blockhash,
-            feePayer = decodeBase58(signerPubkey),
+            feePayer = decodeBase58(authorityPubkey),
             instructions = listOf(
                 Instruction(
                     programId = decodeBase58(PROGRAM_ID),
                     accounts = listOf(
+                        AccountMeta(decodeBase58(authorityPubkey), isSigner = true, isWritable = true),
                         AccountMeta(decodeBase58(sellerPubkey), isSigner = false, isWritable = true),
                         AccountMeta(escrowPda.address, isSigner = false, isWritable = true),
                         AccountMeta(vaultPda.address, isSigner = false, isWritable = true),

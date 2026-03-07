@@ -18,6 +18,37 @@ serve(async (req) => {
     try {
         const { listingId, title, sellerWalletBase58, metadataUrl } = await req.json();
 
+        if (!listingId || !sellerWalletBase58) {
+            throw new Error("listingId and sellerWalletBase58 are required");
+        }
+
+        // Authorization: Verify an active trade session exists in VERIFIED/NFC_VERIFIED state
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        const { data: session, error: sessionErr } = await supabase
+            .from('trade_sessions')
+            .select('id, state, seller_wallet')
+            .eq('listing_id', listingId)
+            .in('state', ['NFC_VERIFIED', 'ITEM_VERIFIED', 'ESCROW_RELEASED'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (sessionErr || !session) {
+            return new Response(JSON.stringify({ error: 'No verified trade session found for this listing. Complete NFC verification first.' }), {
+                status: 403,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+
+        if (session.seller_wallet !== sellerWalletBase58) {
+            return new Response(JSON.stringify({ error: 'Seller wallet does not match trade session.' }), {
+                status: 403,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
         // 1. Umi Setup for Solana Mainnet via Helius
         const rpcUrl = Deno.env.get("HELIUS_RPC_URL");
         if (!rpcUrl) throw new Error("HELIUS_RPC_URL is required — set in Supabase Edge Function secrets");
@@ -43,10 +74,6 @@ serve(async (req) => {
         }).sendAndConfirm(umi);
 
         // 5. Update Supabase with Mint Address
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!; // Note: Service Role needed to bypass RLS
-        const supabase = createClient(supabaseUrl, supabaseKey);
-
         const mintAddressBase58 = asset.publicKey.toString();
 
         const { error: dbError } = await supabase

@@ -19,6 +19,7 @@ pub mod aura_escrow {
         fee_bps: u16,
         treasury_wallet: Pubkey,
         fee_exempt: bool,
+        release_authority: Pubkey,
     ) -> Result<()> {
         let escrow = &mut ctx.accounts.escrow_pda;
         escrow.buyer = ctx.accounts.buyer.key();
@@ -30,6 +31,7 @@ pub mod aura_escrow {
         escrow.treasury_wallet = treasury_wallet;
         escrow.fee_exempt = fee_exempt;
         escrow.created_at = ctx.clock.unix_timestamp;
+        escrow.release_authority = release_authority;
 
         if ctx.accounts.vault_pda.lamports() == 0 {
             // Rent exemption for 0-byte system account; add buffer for network variations
@@ -178,7 +180,7 @@ pub mod aura_escrow {
 }
 
 #[derive(Accounts)]
-#[instruction(amount: u64, listing_id: String, seller_wallet: Pubkey, fee_bps: u16, treasury_wallet: Pubkey, fee_exempt: bool)]
+#[instruction(amount: u64, listing_id: String, seller_wallet: Pubkey, fee_bps: u16, treasury_wallet: Pubkey, fee_exempt: bool, release_authority: Pubkey)]
 pub struct Initialize<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
@@ -186,7 +188,7 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = buyer,
-        space = 8 + 32 + 32 + 4 + listing_id.len() + 8 + 1 + 2 + 32 + 1 + 8, // +8 for created_at
+        space = 8 + 32 + 32 + 4 + listing_id.len() + 8 + 1 + 2 + 32 + 1 + 8 + 32, // +8 created_at, +32 release_authority
         seeds = [b"escrow", listing_id.as_bytes()],
         bump
     )]
@@ -205,6 +207,9 @@ pub struct Initialize<'info> {
 
 #[derive(Accounts)]
 pub struct ReleaseFunds<'info> {
+    /// The authorized release signer — must match escrow_pda.release_authority
+    pub authority: Signer<'info>,
+
     #[account(mut)]
     /// CHECK: The seller receiving the funds — verified against escrow_pda.seller
     pub seller: AccountInfo<'info>,
@@ -214,6 +219,7 @@ pub struct ReleaseFunds<'info> {
         seeds = [b"escrow", escrow_pda.listing_id.as_bytes()],
         bump,
         constraint = escrow_pda.seller == seller.key() @ EscrowError::UnauthorizedSeller,
+        constraint = escrow_pda.release_authority == authority.key() @ EscrowError::UnauthorizedAuthority,
     )]
     pub escrow_pda: Account<'info, EscrowState>,
 
@@ -243,6 +249,7 @@ pub struct EscrowState {
     pub treasury_wallet: Pubkey,
     pub fee_exempt: bool,
     pub created_at: i64,
+    pub release_authority: Pubkey,
 }
 
 #[derive(Accounts)]
@@ -281,6 +288,8 @@ pub enum EscrowError {
     UnauthorizedSeller,
     #[msg("Unauthorized treasury account")]
     UnauthorizedTreasury,
+    #[msg("Unauthorized release authority")]
+    UnauthorizedAuthority,
     #[msg("Math overflow")]
     MathOverflow,
 }

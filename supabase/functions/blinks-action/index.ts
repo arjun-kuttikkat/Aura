@@ -108,9 +108,14 @@ serve(async (req: Request) => {
                 .digest()
                 .slice(0, 8)
 
-            // Borsh-serialize: [8 disc][8 amount LE][4+N listing_id][32 seller_wallet][2 fee_bps][32 treasury_wallet][1 fee_exempt]
+            // Borsh-serialize: [8 disc][8 amount LE][4+N listing_id][32 seller_wallet][2 fee_bps][32 treasury_wallet][1 fee_exempt][32 release_authority]
             const listingIdBytes = Buffer.from(listingId)
-            const dataLen = 8 + 8 + 4 + listingIdBytes.length + 32 + 2 + 32 + 1
+
+            // Derive the release authority from env (the server-side signer for verify-sun)
+            const RELEASE_AUTHORITY = Deno.env.get("RELEASE_AUTHORITY_PUBKEY") || ""
+            const releaseAuthorityPubkey = new PublicKey(RELEASE_AUTHORITY)
+
+            const dataLen = 8 + 8 + 4 + listingIdBytes.length + 32 + 2 + 32 + 1 + 32
             const data = Buffer.alloc(dataLen)
             let offset = 0
             discriminator.copy(data, offset); offset += 8
@@ -126,7 +131,8 @@ serve(async (req: Request) => {
             // Fee exemption based on SELLER's aura score (Radiant tier bypasses 2% platform fee)
             const sellerAuraScore = listing.seller_aura_score ?? 50
             const feeExempt = sellerAuraScore >= 90
-            data.writeUInt8(feeExempt ? 1 : 0, offset)
+            data.writeUInt8(feeExempt ? 1 : 0, offset); offset += 1
+            releaseAuthorityPubkey.toBuffer().copy(data, offset) // release_authority
 
             const tx = new Transaction({
                 recentBlockhash: latestBlockhash.blockhash,

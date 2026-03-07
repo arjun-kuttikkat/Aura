@@ -85,3 +85,7 @@ codebase_summary*.md
 
 # Kotlin caches
 .kotlin/
+
+# Rust/Anchor build artifacts
+target/
+Cargo.lock

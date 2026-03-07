@@ -104,16 +104,22 @@ serve(async (req) => {
 
     try {
         const {
-            listingId,
             sdmDataHex,      // Encrypted PICCData from the NFC tag URL
             receivedCmacHex, // MAC from the NFC tag URL
-            escrowPdaBase58,
-            sellerWalletBase58,
-            buyerWalletBase58,
             assetUri,
             assetTitle,
-            amount
+            listingId,
+            escrowPdaBase58,
+            sellerWalletBase58,
+            tradeId,
         } = await req.json();
+
+        if (!sdmDataHex || !receivedCmacHex || !listingId || !escrowPdaBase58 || !sellerWalletBase58 || !tradeId) {
+            return new Response(JSON.stringify({ valid: false, error: "sdmDataHex, receivedCmacHex, listingId, escrowPdaBase58, sellerWalletBase58, and tradeId are required" }), {
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
 
         // ═══════════════════════════════════════════════════════════════
         // 1. NFC NTAG 424 DNA SUN Verification
@@ -324,9 +330,9 @@ serve(async (req) => {
 
         const authorityKeypair = Keypair.fromSecretKey(bs58.decode(secretKeyStr));
         const sellerPubkey = new PublicKey(sellerWalletBase58);
-        const treasuryWalletBase58 = Deno.env.get("TREASURY_WALLET");
-        if (!treasuryWalletBase58) throw new Error("TREASURY_WALLET not configured");
-        const treasuryPubkey = new PublicKey(treasuryWalletBase58);
+        const treasuryWalletStr = Deno.env.get("TREASURY_WALLET");
+        if (!treasuryWalletStr) throw new Error("TREASURY_WALLET not configured");
+        const treasuryPubkey = new PublicKey(treasuryWalletStr);
         const vaultPda = PublicKey.findProgramAddressSync([Buffer.from("vault"), escrowPda.toBuffer()], PROGRAM_ID)[0];
 
         // Build release_funds_and_mint instruction with Borsh-encoded args
@@ -352,6 +358,7 @@ serve(async (req) => {
         tx.add({
             programId: PROGRAM_ID,
             keys: [
+                { pubkey: authorityKeypair.publicKey, isSigner: true, isWritable: true },
                 { pubkey: sellerPubkey, isSigner: false, isWritable: true },
                 { pubkey: escrowPda, isSigner: false, isWritable: true },
                 { pubkey: vaultPda, isSigner: false, isWritable: true },
@@ -368,11 +375,20 @@ serve(async (req) => {
         const signature = await connection.sendRawTransaction(tx.serialize());
         await connection.confirmTransaction(signature, "confirmed");
 
+        // Update trade session state to NFC_VERIFIED
+        const tagUidHex = bytesToHex(uid);
+        await supabase
+            .from("trade_sessions")
+            .update({ state: "NFC_VERIFIED", nfc_sun_url: `uid:${tagUidHex}` })
+            .eq("id", tradeId);
+
         return new Response(JSON.stringify({
             valid: true,
             success: true,
             message: "NFC chip verified (NTAG 424 DNA SUN). Escrow released to seller.",
             txSignature: signature,
+            listingId: listingId,
+            tradeSessionId: tradeId,
             uidHex: bytesToHex(uid),
             readCounter: readCtr[0] | (readCtr[1] << 8) | (readCtr[2] << 16),
         }), {

@@ -38,7 +38,7 @@ serve(async (req: Request) => {
     }
 
     try {
-        const { action, buyerWallet, sellerWallet, walletAddress, streakMultiplier } = await req.json()
+        const { action, buyerWallet, sellerWallet, walletAddress, streakMultiplier, tradeSessionId } = await req.json()
 
         const connection = new Connection(SOLANA_RPC)
         const authority = Keypair.fromSecretKey(new Uint8Array(AUTHORITY_KEY))
@@ -47,13 +47,59 @@ serve(async (req: Request) => {
         const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
         if (action === "trade_reward") {
-            // Airdrop $AURA to both buyer and seller for completing a verified trade
+            // Authorization: Verify trade session exists and is completed
             if (!buyerWallet || !sellerWallet) {
                 return new Response(JSON.stringify({ error: "buyerWallet and sellerWallet required" }), {
                     status: 400,
                     headers: { ...corsHeaders, "Content-Type": "application/json" },
                 })
             }
+
+            if (!tradeSessionId) {
+                return new Response(JSON.stringify({ error: "tradeSessionId required for trade rewards" }), {
+                    status: 400,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" },
+                })
+            }
+
+            const { data: session, error: sessionErr } = await supabase
+                .from("trade_sessions")
+                .select("id, state, buyer_wallet, seller_wallet, aura_tokens_awarded")
+                .eq("id", tradeSessionId)
+                .single()
+
+            if (sessionErr || !session) {
+                return new Response(JSON.stringify({ error: "Trade session not found" }), {
+                    status: 404,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" },
+                })
+            }
+
+            // Verify wallets match the session and state is terminal
+            if (session.buyer_wallet !== buyerWallet || session.seller_wallet !== sellerWallet) {
+                return new Response(JSON.stringify({ error: "Wallet mismatch with trade session" }), {
+                    status: 403,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" },
+                })
+            }
+
+            const validStates = ["NFC_VERIFIED", "ESCROW_RELEASED", "COMPLETED"]
+            if (!validStates.includes(session.state)) {
+                return new Response(JSON.stringify({ error: "Trade session not in a verified/completed state" }), {
+                    status: 403,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" },
+                })
+            }
+
+            // Prevent double-minting: check if tokens already awarded
+            if (session.aura_tokens_awarded && session.aura_tokens_awarded > 0) {
+                return new Response(JSON.stringify({ error: "Tokens already awarded for this trade" }), {
+                    status: 409,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" },
+                })
+            }
+
+            // Airdrop $AURA to both buyer and seller for completing a verified trade
 
             const buyer = new PublicKey(buyerWallet)
             const seller = new PublicKey(sellerWallet)
@@ -87,6 +133,12 @@ serve(async (req: Request) => {
 
             const sig = await connection.sendRawTransaction(tx.serialize())
             await connection.confirmTransaction(sig)
+
+            // Mark tokens as awarded to prevent double-minting
+            await supabase
+                .from("trade_sessions")
+                .update({ aura_tokens_awarded: TRADE_REWARD * 2 })
+                .eq("id", tradeSessionId)
 
             return new Response(
                 JSON.stringify({

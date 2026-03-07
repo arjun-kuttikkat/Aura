@@ -2,13 +2,18 @@ package com.aura.app.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 object AuraPreferences {
     private const val PREFS_NAME = "aura_prefs"
+    private const val SECURE_PREFS_NAME = "aura_secure_prefs"
     private lateinit var prefs: SharedPreferences
+    private var securePrefs: SharedPreferences? = null
 
     private val _isDarkMode = MutableStateFlow(true)
     val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
@@ -48,6 +53,22 @@ object AuraPreferences {
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        // Encrypted prefs for sensitive auth tokens
+        try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            securePrefs = EncryptedSharedPreferences.create(
+                context,
+                SECURE_PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (e: Exception) {
+            Log.w("AuraPrefs", "EncryptedSharedPreferences unavailable, falling back to standard prefs", e)
+            securePrefs = null
+        }
         _isDarkMode.value = prefs.getBoolean("dark_mode", true)
         _notificationsEnabled.value = prefs.getBoolean("notifications", true)
         _transactionAlerts.value = prefs.getBoolean("transaction_alerts", true)
@@ -122,14 +143,29 @@ object AuraPreferences {
 
     fun setWalletInfo(address: String?, authToken: String?) {
         _walletAddress.value = address
-        if (isInitialized()) prefs.edit().apply {
-            putString("wallet_address", address)
-            putString("auth_token", authToken)
-            apply()
+        if (isInitialized()) {
+            prefs.edit().putString("wallet_address", address).apply()
+            val sp = securePrefs ?: prefs
+            sp.edit().putString("auth_token", authToken).apply()
         }
     }
 
     fun getAuthToken(): String? {
-        return if (isInitialized()) prefs.getString("auth_token", null) else null
+        if (!isInitialized()) return null
+        val sp = securePrefs ?: prefs
+        return sp.getString("auth_token", null)
+    }
+
+    fun setSupabaseJwt(jwt: String?) {
+        if (isInitialized()) {
+            val sp = securePrefs ?: prefs
+            sp.edit().putString("supabase_jwt", jwt).apply()
+        }
+    }
+
+    fun getSupabaseJwt(): String? {
+        if (!isInitialized()) return null
+        val sp = securePrefs ?: prefs
+        return sp.getString("supabase_jwt", null)
     }
 }
