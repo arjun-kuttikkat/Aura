@@ -11,6 +11,9 @@ if (!SOLANA_RPC) throw new Error("SOLANA_RPC_URL env var is required — set in 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 const APP_URL = Deno.env.get("APP_URL") || "https://aura.so"
+const TREASURY_WALLET = Deno.env.get("TREASURY_WALLET") || ""
+const PLATFORM_FEE_BPS = Number(Deno.env.get("PLATFORM_FEE_BPS") || "200")
+if (!TREASURY_WALLET) throw new Error("TREASURY_WALLET env var is required")
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -82,6 +85,7 @@ serve(async (req: Request) => {
             const body = await req.json()
             const buyerPubkey = new PublicKey(body.account)
             const sellerPubkey = new PublicKey(listing.seller_wallet)
+            const treasuryPubkey = new PublicKey(TREASURY_WALLET)
 
             const connection = new Connection(SOLANA_RPC)
             const latestBlockhash = await connection.getLatestBlockhash()
@@ -104,9 +108,9 @@ serve(async (req: Request) => {
                 .digest()
                 .slice(0, 8)
 
-            // Borsh-serialize: [8 disc][8 amount LE][4+N listing_id string][32 seller_wallet]
+            // Borsh-serialize: [8 disc][8 amount LE][4+N listing_id][32 seller_wallet][2 fee_bps][32 treasury_wallet][1 fee_exempt]
             const listingIdBytes = Buffer.from(listingId)
-            const dataLen = 8 + 8 + 4 + listingIdBytes.length + 32
+            const dataLen = 8 + 8 + 4 + listingIdBytes.length + 32 + 2 + 32 + 1
             const data = Buffer.alloc(dataLen)
             let offset = 0
             discriminator.copy(data, offset); offset += 8
@@ -114,6 +118,12 @@ serve(async (req: Request) => {
             data.writeUInt32LE(listingIdBytes.length, offset); offset += 4
             listingIdBytes.copy(data, offset); offset += listingIdBytes.length
             sellerPubkey.toBuffer().copy(data, offset)
+            offset += 32
+            data.writeUInt16LE(PLATFORM_FEE_BPS, offset)
+            offset += 2
+            treasuryPubkey.toBuffer().copy(data, offset)
+            offset += 32
+            data.writeUInt8(0, offset) // fee_exempt=false for action-initiated purchases
 
             const tx = new Transaction({
                 recentBlockhash: latestBlockhash.blockhash,

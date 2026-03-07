@@ -1,6 +1,8 @@
 package com.aura.app.ui.screen
 
 import android.graphics.Bitmap
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
@@ -29,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
@@ -84,6 +87,9 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.WriterException
 import com.google.zxing.qrcode.QRCodeWriter
+import com.google.android.gms.location.LocationServices
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,11 +102,52 @@ fun MeetSessionScreen(
     val nfcState by NfcHandoverManager.state.collectAsState(initial = com.aura.app.util.NfcHandshakeResult.Idle)
     var nfcError by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     var isVerifying by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var qrHandshakeDone by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var aiScanDone by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var geofencePassed by remember { androidx.compose.runtime.mutableStateOf(false) }
 
     val view = LocalView.current
 
+    LaunchedEffect(session?.state) {
+        if (session?.state == TradeState.VERIFIED_PASS) {
+            aiScanDone = true
+        }
+    }
+
+    LaunchedEffect(session?.listingId) {
+        while (true) {
+            val listing = session?.listingId?.let { AuraRepository.getListing(it) }
+            val hasLocationPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                view.context,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (hasLocationPermission && listing?.latitude != null && listing.longitude != null) {
+                val loc = runCatching {
+                    LocationServices.getFusedLocationProviderClient(view.context).lastLocation.await()
+                }.getOrNull()
+                val dist = if (loc != null) {
+                    val a = android.location.Location("buyer").apply {
+                        latitude = loc.latitude
+                        longitude = loc.longitude
+                    }
+                    val b = android.location.Location("listing").apply {
+                        latitude = listing.latitude
+                        longitude = listing.longitude
+                    }
+                    a.distanceTo(b)
+                } else null
+                geofencePassed = dist != null && dist <= 10f
+            }
+            delay(2000)
+        }
+    }
+
     LaunchedEffect(nfcState) {
         if (nfcState is NfcHandshakeResult.Confirmed) {
+            if (!qrHandshakeDone || !geofencePassed || !aiScanDone) {
+                nfcError = "Complete QR handshake, 10m geofence check, and AI item verification before releasing funds."
+                return@LaunchedEffect
+            }
             val confirmedState = nfcState as NfcHandshakeResult.Confirmed
             HapticEngine.triggerSuccess(view)
             nfcError = null
@@ -283,6 +330,36 @@ fun MeetSessionScreen(
             }
 
             // NFC error / verification failure feedback
+            Spacer(modifier = Modifier.height(14.dp))
+            GlassCard(modifier = Modifier.fillMaxWidth(), glowColor = Orange500, cornerRadius = 14.dp) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Meetup Security Checklist", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Button(
+                        onClick = { qrHandshakeDone = !qrHandshakeDone },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (qrHandshakeDone) SuccessGreen else Orange500,
+                            contentColor = Color.Black,
+                        ),
+                    ) {
+                        Text(if (qrHandshakeDone) "QR Handshake Complete" else "Confirm QR Handshake")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(if (geofencePassed) "GPS Geofence: within 10m" else "GPS Geofence: not verified", color = if (geofencePassed) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Button(
+                        onClick = { aiScanDone = !aiScanDone },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (aiScanDone) SuccessGreen else Orange500,
+                            contentColor = Color.Black,
+                        ),
+                    ) {
+                        Text(if (aiScanDone) "AI Item Verification Complete" else "Confirm AI Item Verification")
+                    }
+                }
+            }
+
             if (nfcError != null) {
                 Spacer(modifier = Modifier.height(12.dp))
                 androidx.compose.material3.Card(

@@ -414,15 +414,41 @@ fun ListingDetailScreen(
                         Text(it, color = Color.Red, style = MaterialTheme.typography.bodySmall)
                     }
                 } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(GlassSurface)
-                            .padding(16.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("Your listing", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    var isPromoting by remember { mutableStateOf(false) }
+                    var promoteMsg by remember { mutableStateOf<String?>(null) }
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(GlassSurface)
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("Your listing", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Button(
+                            onClick = {
+                                isPromoting = true
+                                scope.launch {
+                                    val ok = AuraRepository.promoteListing(listing.id, durationHours = 24)
+                                    promoteMsg = if (ok) "Promoted for 24h and pinned above non-promoted listings." else "Promotion failed. Try again."
+                                    isPromoting = false
+                                }
+                            },
+                            enabled = !isPromoting,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                        ) {
+                            if (isPromoting) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("Promote Listing (Pay-to-Reach)")
+                            }
+                        }
+                        promoteMsg?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
 

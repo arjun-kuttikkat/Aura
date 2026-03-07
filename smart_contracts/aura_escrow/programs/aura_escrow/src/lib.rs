@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
+use anchor_lang::solana_program::{program::invoke_signed, system_instruction};
 
 declare_id!("BMKWLYrXtuuxp4TA4yNhrs9LbomR1fMdbrko6R7Qj5WM");
 
@@ -7,13 +8,53 @@ declare_id!("BMKWLYrXtuuxp4TA4yNhrs9LbomR1fMdbrko6R7Qj5WM");
 pub mod aura_escrow {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>, amount: u64, listing_id: String, seller_wallet: Pubkey) -> Result<()> {
+    pub fn initialize(
+        ctx: Context<Initialize>,
+        amount: u64,
+        listing_id: String,
+        seller_wallet: Pubkey,
+        fee_bps: u16,
+        treasury_wallet: Pubkey,
+        fee_exempt: bool,
+    ) -> Result<()> {
         let escrow = &mut ctx.accounts.escrow_pda;
         escrow.buyer = ctx.accounts.buyer.key();
         escrow.seller = seller_wallet;
         escrow.listing_id = listing_id.clone();
         escrow.amount = amount;
         escrow.is_released = false;
+        escrow.fee_bps = fee_bps;
+        escrow.treasury_wallet = treasury_wallet;
+        escrow.fee_exempt = fee_exempt;
+
+        if ctx.accounts.vault_pda.lamports() == 0 {
+            let rent_lamports = Rent::get()?.minimum_balance(0);
+            let escrow_key = escrow.key();
+            let vault_bump = ctx.bumps.vault_pda;
+            let vault_seeds: &[&[u8]] = &[
+                b"vault",
+                escrow_key.as_ref(),
+                &[vault_bump],
+            ];
+
+            let create_ix = system_instruction::create_account(
+                &ctx.accounts.buyer.key(),
+                &ctx.accounts.vault_pda.key(),
+                rent_lamports,
+                0,
+                &system_program::ID,
+            );
+
+            invoke_signed(
+                &create_ix,
+                &[
+                    ctx.accounts.buyer.to_account_info(),
+                    ctx.accounts.vault_pda.to_account_info(),
+                    ctx.accounts.system_program.to_account_info(),
+                ],
+                &[vault_seeds],
+            )?;
+        }
 
         let cpi_context = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
@@ -34,9 +75,25 @@ pub mod aura_escrow {
             escrow.seller == ctx.accounts.seller.key(),
             EscrowError::UnauthorizedSeller
         );
+        require!(
+            escrow.treasury_wallet == ctx.accounts.treasury_wallet.key(),
+            EscrowError::UnauthorizedTreasury
+        );
 
         let amount = escrow.amount;
         let vault = &ctx.accounts.vault_pda;
+        let fee_amount: u64 = if escrow.fee_exempt {
+            0
+        } else {
+            amount
+                .checked_mul(escrow.fee_bps as u64)
+                .ok_or(EscrowError::MathOverflow)?
+                .checked_div(10_000)
+                .ok_or(EscrowError::MathOverflow)?
+        };
+        let seller_amount = amount
+            .checked_sub(fee_amount)
+            .ok_or(EscrowError::MathOverflow)?;
 
         let escrow_key = escrow.key();
         let vault_bump = ctx.bumps.vault_pda;
@@ -55,7 +112,19 @@ pub mod aura_escrow {
             },
             signer,
         );
-        system_program::transfer(cpi_context, amount)?;
+        system_program::transfer(cpi_context, seller_amount)?;
+
+        if fee_amount > 0 {
+            let fee_cpi = CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: vault.to_account_info(),
+                    to: ctx.accounts.treasury_wallet.to_account_info(),
+                },
+                signer,
+            );
+            system_program::transfer(fee_cpi, fee_amount)?;
+        }
 
         escrow.is_released = true;
 
@@ -64,7 +133,7 @@ pub mod aura_escrow {
 }
 
 #[derive(Accounts)]
-#[instruction(amount: u64, listing_id: String, seller_wallet: Pubkey)]
+#[instruction(amount: u64, listing_id: String, seller_wallet: Pubkey, fee_bps: u16, treasury_wallet: Pubkey, fee_exempt: bool)]
 pub struct Initialize<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
@@ -72,7 +141,7 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = buyer,
-        space = 8 + 32 + 32 + 4 + listing_id.len() + 8 + 1,
+        space = 8 + 32 + 32 + 4 + listing_id.len() + 8 + 1 + 2 + 32 + 1,
         seeds = [b"escrow", listing_id.as_bytes()],
         bump
     )]
@@ -83,7 +152,7 @@ pub struct Initialize<'info> {
         seeds = [b"vault", escrow_pda.key().as_ref()],
         bump
     )]
-    /// CHECK: Vault is a PDA storing SOL securely
+    /// CHECK: PDA system account used as SOL vault and created on initialize when missing.
     pub vault_pda: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
@@ -111,6 +180,10 @@ pub struct ReleaseFunds<'info> {
     /// CHECK: Vault PDA
     pub vault_pda: AccountInfo<'info>,
 
+    #[account(mut)]
+    /// CHECK: Platform treasury for marketplace fees, matched against escrow state.
+    pub treasury_wallet: AccountInfo<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -121,6 +194,9 @@ pub struct EscrowState {
     pub listing_id: String,
     pub amount: u64,
     pub is_released: bool,
+    pub fee_bps: u16,
+    pub treasury_wallet: Pubkey,
+    pub fee_exempt: bool,
 }
 
 #[error_code]
@@ -129,4 +205,8 @@ pub enum EscrowError {
     AlreadyReleased,
     #[msg("Unauthorized: seller does not match escrow record")]
     UnauthorizedSeller,
+    #[msg("Unauthorized treasury account")]
+    UnauthorizedTreasury,
+    #[msg("Math overflow")]
+    MathOverflow,
 }

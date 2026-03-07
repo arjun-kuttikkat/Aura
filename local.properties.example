@@ -13,3 +13,4 @@ GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 HELIUS_API_KEY=
 CEREBRAS_API_KEY=
 MAPS_API_KEY=
+TREASURY_WALLET=

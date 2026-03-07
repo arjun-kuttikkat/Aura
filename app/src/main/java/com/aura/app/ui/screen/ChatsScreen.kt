@@ -47,6 +47,8 @@ import com.aura.app.ui.theme.GlassBorder
 import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -107,6 +109,10 @@ fun ChatInboxRow(chatMessage: ChatMessage, onClick: () -> Unit) {
     val listing = AuraRepository.getListing(chatMessage.listingId)
     val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     val isMine = chatMessage.senderWallet == walletAddress
+    val role = when {
+        listing != null && chatMessage.senderWallet == listing.sellerWallet -> "Seller"
+        else -> "Buyer"
+    }
 
     Row(
         modifier = Modifier
@@ -140,17 +146,32 @@ fun ChatInboxRow(chatMessage: ChatMessage, onClick: () -> Unit) {
         
         // Content
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = listing?.title ?: "Listing Item",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = listing?.title ?: "Listing Item",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = runCatching {
+                        OffsetDateTime.parse(chatMessage.createdAt).format(DateTimeFormatter.ofPattern("HH:mm"))
+                    }.getOrDefault(""),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = if (isMine) "You: ${chatMessage.content}" else chatMessage.content,
+                text = buildString {
+                    append("$role")
+                    append(" • ")
+                    if (isMine) append("You: ")
+                    append(chatMessage.content)
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

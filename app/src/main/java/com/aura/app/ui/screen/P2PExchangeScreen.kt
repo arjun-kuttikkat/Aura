@@ -68,6 +68,7 @@ import com.aura.app.data.AuraRepository
 import com.aura.app.util.NfcHandoverManager
 import com.aura.app.util.NfcHandshakeResult
 import com.aura.app.wallet.WalletConnectionState
+import com.aura.app.wallet.SolanaRpc
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.camera.core.CameraSelector
@@ -104,7 +105,9 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
     val nfcState by NfcHandoverManager.state.collectAsState(initial = com.aura.app.util.NfcHandshakeResult.Idle)
     val scope = rememberCoroutineScope()
     var isProcessingTx by remember { mutableStateOf(false) }
+    var isVerifyingSettlement by remember { mutableStateOf(false) }
     var txSignature by remember { mutableStateOf<String?>(null) }
+    var txVerified by remember { mutableStateOf(false) }
     var txError by remember { mutableStateOf<String?>(null) }
     
     // Handle NFC Reader state based on mode
@@ -141,6 +144,7 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                 val recipient = uri.schemeSpecificPart.substringBefore("?")
                 val amount = uri.getQueryParameter("amount")?.toDoubleOrNull() ?: 0.0
                 val lamports = (amount * 1_000_000_000).toLong()
+                            val recipientBalanceBefore = SolanaRpc.getBalance(recipient) ?: 0L
                 
                 // Build real SOL transfer transaction
                 scope.launch {
@@ -160,6 +164,16 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                                 HapticEngine.triggerSuccess(view)
                                 txSignature = sig
                                 isProcessingTx = false
+                                isVerifyingSettlement = true
+                                scope.launch {
+                                    val sigConfirmed = SolanaRpc.waitForSignatureConfirmation(sig, timeoutMs = 60_000L)
+                                    val recipientBalanceAfter = SolanaRpc.getBalance(recipient) ?: recipientBalanceBefore
+                                    txVerified = sigConfirmed && recipientBalanceAfter >= (recipientBalanceBefore + lamports)
+                                    isVerifyingSettlement = false
+                                    if (!txVerified) {
+                                        txError = "Transfer submitted but settlement not verified yet."
+                                    }
+                                }
                             },
                             onError = { e ->
                                 txError = e.message ?: "Transaction failed"
@@ -202,6 +216,8 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                     onClick = { 
                         mode = ExchangeMode.SEND 
                         txSignature = null
+                        txVerified = false
+                        isVerifyingSettlement = false
                         txError = null
                     },
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
@@ -231,11 +247,17 @@ fun P2PExchangeScreen(onBack: () -> Unit) {
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        if (txSignature != null) {
+                        if (txSignature != null && txVerified) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.Green, modifier = Modifier.size(64.dp))
-                            Text("Transaction Sent Successfully!", style = MaterialTheme.typography.titleLarge)
+                            Text("Transaction Verified On-Chain", style = MaterialTheme.typography.titleLarge)
                             Text("Signature: ${txSignature?.take(8)}...${txSignature?.takeLast(8)}")
                             Button(onClick = onBack) { Text("Done") }
+                        } else if (isVerifyingSettlement && txSignature != null) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator()
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Payment pending... verifying recipient wallet update")
+                            }
                         } else if (txError != null) {
                             Text("Error: $txError", color = MaterialTheme.colorScheme.error)
                             Button(onClick = { 

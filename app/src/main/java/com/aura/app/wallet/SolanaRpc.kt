@@ -69,6 +69,32 @@ object SolanaRpc {
             ?.toLongOrNull()
     }
 
+    /**
+     * Returns true when signature has reached at least confirmed/finalized commitment.
+     */
+    suspend fun isSignatureConfirmed(signature: String): Boolean = withRetry {
+        val body = """{"jsonrpc":"2.0","id":1,"method":"getSignatureStatuses","params":[["$signature"],{"searchTransactionHistory":true}]}"""
+        val response = rpcPost(body) ?: return@withRetry null
+        val status = Regex(""""confirmationStatus"\s*:\s*"(processed|confirmed|finalized)"""")
+            .find(response)
+            ?.groupValues
+            ?.get(1)
+            ?: return@withRetry false
+        status == "confirmed" || status == "finalized"
+    } ?: false
+
+    /**
+     * Poll transaction status until confirmed/finalized or timeout.
+     */
+    suspend fun waitForSignatureConfirmation(signature: String, timeoutMs: Long = 60_000L, pollMs: Long = 1_500L): Boolean {
+        val startedAt = System.currentTimeMillis()
+        while (System.currentTimeMillis() - startedAt < timeoutMs) {
+            if (isSignatureConfirmed(signature)) return true
+            kotlinx.coroutines.delay(pollMs)
+        }
+        return false
+    }
+
     // ── Internal RPC Call ─────────────────────────────────────────
 
     private suspend fun rpcPost(body: String): String? = withContext(Dispatchers.IO) {

@@ -77,6 +77,9 @@ data class ListingRow(
     val emirate: String? = null,
     @EncodeDefault @SerialName("is_active") val isActive: Boolean = true,
     @EncodeDefault @SerialName("is_published") val isPublished: Boolean = true,
+    @EncodeDefault @SerialName("is_promoted") val isPromoted: Boolean = false,
+    @SerialName("promoted_until") val promotedUntil: String? = null,
+    @SerialName("promoted_at") val promotedAt: String? = null,
 )
 
 @Serializable
@@ -99,6 +102,7 @@ data class TradeSessionRow(
 object AuraRepository {
 
     private const val TAG = "AuraRepository"
+    private const val DEFAULT_PLATFORM_FEE_BPS = 200 // 2%
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val supabase get() = SupabaseClient.client
     private val db get() = supabase
@@ -415,6 +419,7 @@ object AuraRepository {
             longitude = longitude,
             isActive = true,
             isPublished = true,
+            isPromoted = false,
         )
         try {
             db.from("marketplace_listings").insert(row)
@@ -435,6 +440,38 @@ object AuraRepository {
             Log.w(TAG, "Re-fetch after create failed (listing still in local state): ${e.message}")
         }
         return listing
+    }
+
+    suspend fun promoteListing(listingId: String, durationHours: Int = 24): Boolean {
+        val listing = getListing(listingId) ?: return false
+        val wallet = com.aura.app.wallet.WalletConnectionState.walletAddress.value ?: return false
+        if (listing.sellerWallet != wallet) return false
+
+        val promotedUntilTs = OffsetDateTime.now().plusHours(durationHours.toLong()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        val promotedAtTs = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+        return try {
+            db.from("marketplace_listings").update({
+                set("is_promoted", true)
+                set("promoted_at", promotedAtTs)
+                set("promoted_until", promotedUntilTs)
+            }) {
+                filter { eq("id", listingId) }
+            }
+            _listings.value = _listings.value.map {
+                if (it.id == listingId) {
+                    it.copy(
+                        isPromoted = true,
+                        promotedAt = runCatching { OffsetDateTime.parse(promotedAtTs).toInstant().toEpochMilli() }.getOrNull(),
+                        promotedUntil = runCatching { OffsetDateTime.parse(promotedUntilTs).toInstant().toEpochMilli() }.getOrNull(),
+                    )
+                } else it
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to promote listing", e)
+            false
+        }
     }
 
     suspend fun mintListing(listingId: String): Listing {
@@ -645,11 +682,17 @@ object AuraRepository {
         val listingId = session?.listingId ?: tradeId
         val sellerWallet = session?.sellerWallet
             ?: throw IllegalStateException("No seller wallet in trade session")
+        val isRadiant = (_currentProfile.value?.auraScore ?: 0) >= 90
+        val treasuryWallet = com.aura.app.BuildConfig.TREASURY_WALLET
+        val feeBps = if (isRadiant) 0 else DEFAULT_PLATFORM_FEE_BPS
         val txBytes = com.aura.app.wallet.AnchorTransactionBuilder.buildInitializeEscrowTx(
             listingId = listingId,
             amountLamports = amount,
             buyerPubkey = walletAddr,
             sellerPubkey = sellerWallet,
+            feeBps = feeBps,
+            treasuryWallet = treasuryWallet,
+            feeExempt = isRadiant,
         )
         // Do NOT call updateTradeState here — wait for wallet signing confirmation
         return txBytes
@@ -675,6 +718,7 @@ object AuraRepository {
             signerPubkey = walletAddr,
             assetUri = listing?.images?.firstOrNull() ?: "",
             assetTitle = listing?.title ?: "Aura Verified Asset",
+            treasuryWallet = com.aura.app.BuildConfig.TREASURY_WALLET,
         )
         // Do NOT call updateTradeState here — wait for wallet signing confirmation
         return txBytes
@@ -764,6 +808,9 @@ object AuraRepository {
         else null,
         sellerAuraScore = sellerAuraScore,
         emirate = emirate,
+        isPromoted = isPromoted,
+        promotedAt = promotedAt?.let { runCatching { OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull() },
+        promotedUntil = promotedUntil?.let { runCatching { OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull() },
     )
 
     private fun haversineMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {

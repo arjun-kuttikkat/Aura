@@ -89,9 +89,16 @@ object AnchorTransactionBuilder {
      * Build the `initialize` instruction data (Borsh-serialized).
      *
      * Instruction layout:
-     * [8 bytes discriminator][8 bytes amount (u64 LE)][variable listing_id (borsh string)][32 bytes seller_wallet (Pubkey)]
+     * [8 disc][8 amount][4+N listing_id][32 seller_wallet][2 fee_bps][32 treasury_wallet][1 fee_exempt]
      */
-    fun buildInitializeInstructionData(amount: Long, listingId: String, sellerWallet: ByteArray): ByteArray {
+    fun buildInitializeInstructionData(
+        amount: Long,
+        listingId: String,
+        sellerWallet: ByteArray,
+        feeBps: Int,
+        treasuryWallet: ByteArray,
+        feeExempt: Boolean,
+    ): ByteArray {
         val buf = ByteArrayOutputStream()
         buf.write(INITIALIZE_DISCRIMINATOR)
 
@@ -107,6 +114,15 @@ object AnchorTransactionBuilder {
 
         // seller_wallet: Pubkey (32 bytes, raw)
         buf.write(sellerWallet)
+
+        // fee_bps: u16 little-endian
+        buf.write(ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN).putShort(feeBps.toShort()).array())
+
+        // treasury_wallet: Pubkey (32 bytes, raw)
+        buf.write(treasuryWallet)
+
+        // fee_exempt: bool
+        buf.write(if (feeExempt) 1 else 0)
 
         return buf.toByteArray()
     }
@@ -167,13 +183,24 @@ object AnchorTransactionBuilder {
         amountLamports: Long,
         buyerPubkey: String,
         sellerPubkey: String,
+        feeBps: Int,
+        treasuryWallet: String,
+        feeExempt: Boolean,
     ): ByteArray {
         Log.d(TAG, "Building Initialize TX: listing=$listingId, amount=$amountLamports")
 
         val escrowPda = deriveEscrowPda(listingId)
         val vaultPda = deriveVaultPda(escrowPda.address)
         val sellerBytes = decodeBase58(sellerPubkey)
-        val instructionData = buildInitializeInstructionData(amountLamports, listingId, sellerBytes)
+        val treasuryBytes = decodeBase58(treasuryWallet)
+        val instructionData = buildInitializeInstructionData(
+            amount = amountLamports,
+            listingId = listingId,
+            sellerWallet = sellerBytes,
+            feeBps = feeBps,
+            treasuryWallet = treasuryBytes,
+            feeExempt = feeExempt,
+        )
         Log.d(TAG, "Derived Escrow PDA: ${Base58.encodeToString(escrowPda.address)}")
 
         // Fetch recent blockhash
@@ -250,6 +277,7 @@ object AnchorTransactionBuilder {
         signerPubkey: String,
         assetUri: String,
         assetTitle: String,
+        treasuryWallet: String,
     ): ByteArray {
         Log.d(TAG, "Building Release TX: listing=$listingId, seller=$sellerPubkey")
 
@@ -271,6 +299,7 @@ object AnchorTransactionBuilder {
                         AccountMeta(decodeBase58(sellerPubkey), isSigner = false, isWritable = true),
                         AccountMeta(escrowPda.address, isSigner = false, isWritable = true),
                         AccountMeta(vaultPda.address, isSigner = false, isWritable = true),
+                        AccountMeta(decodeBase58(treasuryWallet), isSigner = false, isWritable = true),
                         AccountMeta(decodeBase58(SYSTEM_PROGRAM), isSigner = false, isWritable = false),
                     ),
                     data = instructionData,

@@ -9,6 +9,8 @@ import io.github.jan.supabase.realtime.realtime
 import io.github.jan.supabase.realtime.decodeRecord
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.mapNotNull
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
 
 object ChatRepository {
     private val client = SupabaseClient.client
@@ -55,6 +57,26 @@ object ChatRepository {
         try {
             client.postgrest["chat_messages"].insert(message)
         } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    suspend fun markConversationAsRead(listingId: String, myWallet: String) {
+        try {
+            client.postgrest["chat_messages"].update(
+                {
+                    set("is_read", true)
+                    set("read_at", OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
+                }
+            ) {
+                filter {
+                    eq("listing_id", listingId)
+                    eq("receiver_wallet", myWallet)
+                    eq("is_read", false)
+                }
+            }
+        } catch (e: Exception) {
+            // Keep non-fatal; old schemas may not include read fields yet.
             e.printStackTrace()
         }
     }

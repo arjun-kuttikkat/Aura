@@ -36,6 +36,7 @@ import com.aura.app.model.EscrowState
 import com.aura.app.util.CryptoPriceFormatter
 import com.aura.app.model.TradeState
 import com.aura.app.wallet.WalletConnectionState
+import com.aura.app.wallet.SolanaRpc
 import kotlinx.coroutines.launch
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateContentSize
@@ -66,6 +67,8 @@ fun EscrowPayScreen(
     var txSig by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
+    var isPendingConfirmation by remember { mutableStateOf(false) }
+    var isPaymentVerified by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -141,7 +144,7 @@ fun EscrowPayScreen(
                     }
                 }
             } else {
-                val isSuccess = status == EscrowState.LOCKED || txSig != null
+                val isSuccess = status == EscrowState.LOCKED || isPaymentVerified
                 
                 // ── 300ms Liquid Morphing State Completion Protocol ──
                 androidx.compose.animation.AnimatedContent(
@@ -179,10 +182,21 @@ fun EscrowPayScreen(
                                             scope = scope,
                                             base64EncodedTx = base64Tx,
                                             onSuccess = { sig ->
-                                                isLoading = false
                                                 txSig = sig
-                                                status = EscrowState.LOCKED
-                                                AuraRepository.updateTradeState(TradeState.ESCROW_LOCKED)
+                                                isPendingConfirmation = true
+                                                isLoading = false
+                                                AuraRepository.updateTradeState(TradeState.PAYMENT_PENDING)
+                                                scope.launch {
+                                                    val confirmed = SolanaRpc.waitForSignatureConfirmation(sig, timeoutMs = 90_000L)
+                                                    isPendingConfirmation = false
+                                                    if (confirmed) {
+                                                        isPaymentVerified = true
+                                                        status = EscrowState.LOCKED
+                                                        AuraRepository.updateTradeState(TradeState.ESCROW_LOCKED)
+                                                    } else {
+                                                        errorMsg = "Payment still pending on-chain. Please retry status check."
+                                                    }
+                                                }
                                             },
                                             onError = { e ->
                                                 isLoading = false
@@ -231,6 +245,19 @@ fun EscrowPayScreen(
                                 Text("Escrow Locked", style = MaterialTheme.typography.titleMedium, color = com.aura.app.ui.theme.SolanaGreen)
                                 txSig?.let { Text("Sig: ${it.take(8)}...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             }
+                        }
+                    }
+                }
+
+                if (isPendingConfirmation) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text("Payment Pending", style = MaterialTheme.typography.titleSmall)
+                            Text("Waiting for on-chain confirmation of ${txSig?.take(8)}...", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }

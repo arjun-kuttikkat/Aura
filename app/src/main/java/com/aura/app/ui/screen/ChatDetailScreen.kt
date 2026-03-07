@@ -1,5 +1,8 @@
 package com.aura.app.ui.screen
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -10,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,21 +21,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.aura.app.data.AiChatResponder
 import com.aura.app.data.AuraRepository
 import com.aura.app.data.ChatRepository
 import com.aura.app.model.ChatMessage
 import com.aura.app.ui.theme.DarkCard
 import com.aura.app.ui.theme.DarkSurface
-import com.aura.app.ui.theme.GlassSurface
-import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SolanaGreen
 import com.aura.app.ui.theme.UltraViolet
 import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.launch
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,10 +55,28 @@ fun ChatDetailScreen(
     var isAiTyping by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null && walletAddress != null && listing != null) {
+            val message = ChatMessage(
+                id = UUID.randomUUID().toString(),
+                listingId = listingId,
+                senderWallet = walletAddress!!,
+                receiverWallet = listing.sellerWallet,
+                content = "Shared an image",
+                imageUrl = uri.toString(),
+            )
+            messages = messages + message
+            scope.launch {
+                ChatRepository.sendMessage(message)
+                listState.animateScrollToItem(messages.lastIndex)
+            }
+        }
+    }
 
     // 1. Initial Load
     LaunchedEffect(listingId) {
         messages = ChatRepository.getMessagesForListing(listingId)
+        walletAddress?.let { ChatRepository.markConversationAsRead(listingId, it) }
         // For official bot: send welcome message if first time
         if (isOfficialBot && messages.isEmpty()) {
             isAiTyping = true
@@ -80,6 +104,7 @@ fun ChatDetailScreen(
                 if (messages.none { it.id == newMessage.id }) {
                     messages = messages + newMessage
                     listState.animateScrollToItem(messages.size - 1)
+                    walletAddress?.let { ChatRepository.markConversationAsRead(listingId, it) }
                 }
             }
         }
@@ -91,7 +116,7 @@ fun ChatDetailScreen(
                 title = {
                     Column {
                         Text(
-                            if (isOfficialBot) "🌟 Aura Wellness" else "Chat with Seller",
+                            if (isOfficialBot) "Aura Wellness" else "Buyer / Seller Chat",
                             fontWeight = FontWeight.Bold, fontSize = 18.sp
                         )
                         listing?.title?.let {
@@ -128,7 +153,6 @@ fun ChatDetailScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("💙", fontSize = 18.sp)
                     Text(
                         "Aura AI • Mood Tracker & Wellness Guide",
                         style = MaterialTheme.typography.labelMedium,
@@ -147,9 +171,20 @@ fun ChatDetailScreen(
                 contentPadding = PaddingValues(vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(messages) { msg ->
+                items(messages, key = { it.id }) { msg ->
                     val isMine = msg.senderWallet == walletAddress
-                    ChatBubble(msg = msg, isMine = isMine, isBot = isOfficialBot && !isMine)
+                    val role = when {
+                        isOfficialBot && !isMine -> "Aura"
+                        listing != null && msg.senderWallet == listing.sellerWallet -> "Seller"
+                        else -> "Buyer"
+                    }
+                    ChatBubble(
+                        msg = msg,
+                        isMine = isMine,
+                        isBot = isOfficialBot && !isMine,
+                        roleLabel = role,
+                        showReadReceipt = isMine,
+                    )
                 }
                 if (isAiTyping) {
                     item {
@@ -187,6 +222,13 @@ fun ChatDetailScreen(
 
                 Spacer(modifier = Modifier.width(12.dp))
 
+                IconButton(
+                    onClick = { imagePickerLauncher.launch("image/*") },
+                    enabled = walletAddress != null && listing != null,
+                ) {
+                    Icon(Icons.Default.Image, contentDescription = "Share image", tint = Orange500)
+                }
+
                 val canSend = inputText.isNotBlank() && walletAddress != null && listing != null
                 IconButton(
                     onClick = {
@@ -198,7 +240,6 @@ fun ChatDetailScreen(
                                 receiverWallet = listing.sellerWallet,
                                 content = inputText.trim()
                             )
-                            val text = inputText.trim()
                             inputText = ""
                             messages = messages + userMsg
                             scope.launch {
@@ -264,7 +305,13 @@ fun AiTypingIndicator() {
 }
 
 @Composable
-fun ChatBubble(msg: ChatMessage, isMine: Boolean, isBot: Boolean = false) {
+fun ChatBubble(
+    msg: ChatMessage,
+    isMine: Boolean,
+    isBot: Boolean,
+    roleLabel: String,
+    showReadReceipt: Boolean,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -274,31 +321,78 @@ fun ChatBubble(msg: ChatMessage, isMine: Boolean, isBot: Boolean = false) {
             ),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
     ) {
-        Box(
-            modifier = Modifier
-                .clip(
-                    RoundedCornerShape(
-                        topStart = 16.dp,
-                        topEnd = 16.dp,
-                        bottomStart = if (isMine) 16.dp else 4.dp,
-                        bottomEnd = if (isMine) 4.dp else 16.dp
+        Column(horizontalAlignment = if (isMine) Alignment.End else Alignment.Start) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AssistChip(
+                    onClick = {},
+                    enabled = false,
+                    label = { Text(if (isBot) "Aura" else roleLabel, style = MaterialTheme.typography.labelSmall) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        disabledContainerColor = if (isMine) Orange500.copy(alpha = 0.2f) else DarkCard,
+                        disabledLabelColor = MaterialTheme.colorScheme.onSurface,
                     )
                 )
-                .background(
-                    when {
-                        isMine -> Orange500
-                        isBot -> UltraViolet.copy(alpha = 0.3f)
-                        else -> DarkCard
-                    }
+                Text(
+                    text = formatChatTime(msg.createdAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                .padding(12.dp)
-        ) {
-            Text(
-                text = msg.content,
-                color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
-            )
+            }
+            Box(
+                modifier = Modifier
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 16.dp,
+                            topEnd = 16.dp,
+                            bottomStart = if (isMine) 16.dp else 4.dp,
+                            bottomEnd = if (isMine) 4.dp else 16.dp
+                        )
+                    )
+                    .background(
+                        when {
+                            isMine -> Orange500
+                            isBot -> UltraViolet.copy(alpha = 0.3f)
+                            else -> DarkCard
+                        }
+                    )
+                    .padding(12.dp)
+            ) {
+                Column(horizontalAlignment = if (isMine) Alignment.End else Alignment.Start) {
+                    if (!msg.imageUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = msg.imageUrl,
+                            contentDescription = "Shared image",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)
+                                .clip(RoundedCornerShape(10.dp)),
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    Text(
+                        text = msg.content,
+                        color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Start,
+                    )
+                }
+            }
+            if (showReadReceipt) {
+                Text(
+                    text = if (msg.isRead) "Read" else "Delivered",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, end = 2.dp),
+                )
+            }
         }
     }
+}
+
+private fun formatChatTime(iso: String): String {
+    return runCatching {
+        val odt = OffsetDateTime.parse(iso)
+        odt.format(DateTimeFormatter.ofPattern("HH:mm"))
+    }.getOrDefault("Now")
 }
 
 

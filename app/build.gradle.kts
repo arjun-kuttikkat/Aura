@@ -32,6 +32,7 @@ android {
         buildConfigField("String", "GROQ_API_KEY", "\"${localProps.getProperty("GROQ_API_KEY", "")}\"")
         buildConfigField("String", "GROQ_MODEL", "\"${localProps.getProperty("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")}\"")
         buildConfigField("String", "CEREBRAS_API_KEY", "\"${localProps.getProperty("CEREBRAS_API_KEY", "")}\"")
+        buildConfigField("String", "TREASURY_WALLET", "\"${localProps.getProperty("TREASURY_WALLET", "")}\"")
         manifestPlaceholders["MAPS_API_KEY"] = localProps.getProperty("MAPS_API_KEY", "PLACEHOLDER_KEY")
     }
 

@@ -11,5 +11,7 @@ data class ChatMessage(
     @SerialName("receiver_wallet") val receiverWallet: String,
     @SerialName("content") val content: String,
     @SerialName("created_at") val createdAt: String = "",
-    @SerialName("is_read") val isRead: Boolean = false
+    @SerialName("is_read") val isRead: Boolean = false,
+    @SerialName("read_at") val readAt: String? = null,
+    @SerialName("image_url") val imageUrl: String? = null,
 )

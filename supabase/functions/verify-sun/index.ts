@@ -184,6 +184,9 @@ serve(async (req) => {
         const authorityKeypair = Keypair.fromSecretKey(bs58.decode(secretKeyStr));
         const escrowPda = new PublicKey(escrowPdaBase58);
         const sellerPubkey = new PublicKey(sellerWalletBase58);
+        const treasuryWalletBase58 = Deno.env.get("TREASURY_WALLET");
+        if (!treasuryWalletBase58) throw new Error("TREASURY_WALLET not configured");
+        const treasuryPubkey = new PublicKey(treasuryWalletBase58);
         const PROGRAM_ID = new PublicKey("BMKWLYrXtuuxp4TA4yNhrs9LbomR1fMdbrko6R7Qj5WM");
         const vaultPda = PublicKey.findProgramAddressSync([Buffer.from("vault"), escrowPda.toBuffer()], PROGRAM_ID)[0];
 
@@ -213,6 +216,7 @@ serve(async (req) => {
                 { pubkey: sellerPubkey, isSigner: false, isWritable: true },
                 { pubkey: escrowPda, isSigner: false, isWritable: true },
                 { pubkey: vaultPda, isSigner: false, isWritable: true },
+                { pubkey: treasuryPubkey, isSigner: false, isWritable: true },
                 { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
             ],
             data: instructionData,

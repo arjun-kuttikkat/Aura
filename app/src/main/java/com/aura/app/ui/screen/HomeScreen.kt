@@ -107,8 +107,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.animation.AnimatedVisibility
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalPermissionsApi::class)
 @Composable
 fun HomeScreen(
     onListingClick: (String) -> Unit,
@@ -119,6 +122,7 @@ fun HomeScreen(
     val walletAddress by com.aura.app.wallet.WalletConnectionState.walletAddress.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(false) }
+    val locationPermissionState = rememberPermissionState(android.Manifest.permission.ACCESS_FINE_LOCATION)
 
     // Load profile when wallet is connected — fixes Aura card not showing on first visit
     LaunchedEffect(walletAddress) {
@@ -182,7 +186,7 @@ fun HomeScreen(
         val filterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
         // ── Derive filtered + sorted listings ──
-        val filteredListings = remember(listings, searchQuery, selectedScope, selectedCondition, sortOrder) {
+        val filteredListings = remember(listings, searchQuery, selectedScope, selectedCondition, sortOrder, locationPermissionState.status.isGranted) {
             var result = listings
 
             // Search filter
@@ -193,10 +197,10 @@ fun HomeScreen(
                 }
             }
 
-            // Distance filter — include listings with unknown distance (no lat/lng or no user location)
+            // Distance filter — Nearby/Explore require location+distance and actually reduce the feed.
             result = when (selectedScope) {
-                "Nearby" -> result.filter { it.distanceMeters == null || it.distanceMeters < 5_000 }
-                "Explore" -> result.filter { it.distanceMeters == null || it.distanceMeters < 50_000 }
+                "Nearby" -> if (!locationPermissionState.status.isGranted) emptyList() else result.filter { it.distanceMeters != null && it.distanceMeters < 5_000 }
+                "Explore" -> if (!locationPermissionState.status.isGranted) emptyList() else result.filter { it.distanceMeters != null && it.distanceMeters < 50_000 }
                 else -> result // Global = all
             }
 
@@ -213,6 +217,13 @@ fun HomeScreen(
                 "Price↓" -> result.sortedByDescending { it.priceLamports }
                 else -> result
             }
+
+            // Paid boosts override base sort until promotion expiry.
+            val now = System.currentTimeMillis()
+            result = result.sortedWith(
+                compareByDescending<com.aura.app.model.Listing> { it.isPromoted && (it.promotedUntil ?: 0L) > now }
+                    .thenByDescending { it.promotedAt ?: 0L }
+            )
 
             result
         }
@@ -305,8 +316,8 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(tabSpacing),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        scopes.forEach { scope ->
-                            val isSelected = scope == selectedScope
+                        scopes.forEach { scopeLabel ->
+                            val isSelected = scopeLabel == selectedScope
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -320,11 +331,18 @@ fun HomeScreen(
                                         if (isSelected) Color.Transparent else SlateLight.copy(alpha = 0.4f),
                                         RoundedCornerShape(10.dp),
                                     )
-                                    .clickable { selectedScope = scope }
+                                    .clickable {
+                                        selectedScope = scopeLabel
+                                        if ((scopeLabel == "Nearby" || scopeLabel == "Explore") && !locationPermissionState.status.isGranted) {
+                                            locationPermissionState.launchPermissionRequest()
+                                        } else {
+                                            scope.launch { AuraRepository.refreshListingsAwait() }
+                                        }
+                                    }
                                     .padding(horizontal = scopeTabPaddingH, vertical = scopeTabPaddingV),
                             ) {
                                 Text(
-                                    scope,
+                                    scopeLabel,
                                     style = if (isCompact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface,
