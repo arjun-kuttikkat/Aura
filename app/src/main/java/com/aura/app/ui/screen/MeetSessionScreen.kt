@@ -160,18 +160,10 @@ fun MeetSessionScreen(
                 
                 val success = AuraRepository.releaseEscrowWithNfc(
                     tradeId = s.id,
-                    listingId = s.listingId,
                     sdmDataHex = confirmedState.sdmDataHex,
                     receivedCmacHex = confirmedState.cmacHex,
-                    escrowPdaBase58 = try {
-                        val pda = com.aura.app.wallet.AnchorTransactionBuilder.deriveEscrowPda(s.listingId)
-                        Base58.encodeToString(pda.address)
-                    } catch (_: Exception) { "" },
-                    sellerWalletBase58 = s.sellerWallet,
-                    buyerWalletBase58 = walletAddress,
                     assetUri = metadataUri,
                     assetTitle = assetTitle,
-                    amount = listing?.priceLamports ?: 0L
                 )
                 isVerifying = false
                 if (success) {

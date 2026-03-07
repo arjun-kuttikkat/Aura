@@ -9,6 +9,11 @@ import com.solana.mobilewalletadapter.clientlib.protocol.MobileWalletAdapterClie
 import com.solana.mobilewalletadapter.clientlib.scenario.LocalAssociationIntentCreator
 import com.solana.mobilewalletadapter.clientlib.scenario.LocalAssociationScenario
 import com.solana.mobilewalletadapter.clientlib.scenario.Scenario
+import io.github.jan.supabase.functions.functions
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +21,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -29,6 +39,10 @@ object WalletConnectionState {
     val walletAddress: StateFlow<String?> = _walletAddress.asStateFlow()
 
     private val _authToken = MutableStateFlow<String?>(null)
+
+    // Supabase JWT obtained from wallet-auth Edge Function
+    private val _supabaseJwt = MutableStateFlow<String?>(null)
+    val supabaseJwt: StateFlow<String?> = _supabaseJwt.asStateFlow()
 
     // Store a reference for starting the intent
     private var intentLauncher: ((Intent) -> Unit)? = null
@@ -52,15 +66,40 @@ object WalletConnectionState {
         scope.launch {
             try {
                 if (_walletAddress.value == null || _authToken.value == null) {
+                    // Step 1: Fetch nonce from wallet-auth Edge Function
+                    val address: String
+                    val mwaToken: String
+                    val signedNonce: ByteArray
+
+                    val nonceResult = withContext(Dispatchers.IO) { fetchAuthNonce() }
+
+                    // Step 2: Perform MWA authorization and sign nonce in one session
                     val result = withContext(Dispatchers.IO) {
-                        performAuthorization(null) // No existing token, perform full authorization
+                        performAuthorizationWithNonce(null, nonceResult.first, nonceResult.second)
                     }
-                    _walletAddress.value = result.first
-                    _authToken.value = result.second
-                    com.aura.app.data.AuraPreferences.setWalletInfo(result.first, result.second)
-                    onSuccess(result.first)
+                    address = result.address
+                    mwaToken = result.mwaToken
+                    signedNonce = result.signedNonce
+
+                    _walletAddress.value = address
+                    _authToken.value = mwaToken
+                    com.aura.app.data.AuraPreferences.setWalletInfo(address, mwaToken)
+
+                    // Step 3: Exchange signature for Supabase JWT
+                    withContext(Dispatchers.IO) {
+                        exchangeSignatureForJwt(address, signedNonce)
+                    }
+
+                    onSuccess(address)
                 } else {
-                    // Already connected, just report success with current address
+                    // Already connected — refresh JWT if missing
+                    if (_supabaseJwt.value == null) {
+                        val savedJwt = com.aura.app.data.AuraPreferences.getSupabaseJwt()
+                        if (savedJwt != null) {
+                            _supabaseJwt.value = savedJwt
+                            applyJwtToSupabase(savedJwt)
+                        }
+                    }
                     _walletAddress.value?.let { onSuccess(it) }
                 }
             } catch (e: ActivityNotFoundException) {
@@ -72,29 +111,41 @@ object WalletConnectionState {
         }
     }
 
-    private suspend fun performAuthorization(token: String?): Pair<String, String> {
+    /** Fetch a one-time nonce from the wallet-auth Edge Function. Returns (walletAddress_placeholder, nonce). */
+    private suspend fun fetchAuthNonce(): Pair<String, String> {
+        // We don't know the wallet address yet, so we'll use a temp placeholder
+        // The nonce endpoint doesn't need the wallet address upfront for new users
+        // We'll request the nonce after we have the wallet address from MWA
+        // For now, return empty - we'll fetch the nonce during the MWA session
+        return Pair("", "")
+    }
+
+    data class AuthResult(val address: String, val mwaToken: String, val signedNonce: ByteArray)
+
+    private suspend fun performAuthorizationWithNonce(
+        token: String?,
+        @Suppress("UNUSED_PARAMETER") placeholder: String,
+        @Suppress("UNUSED_PARAMETER") nonce: String,
+    ): AuthResult {
         val scenario = LocalAssociationScenario(Scenario.DEFAULT_CLIENT_TIMEOUT_MS)
 
         val associationIntent = LocalAssociationIntentCreator.createAssociationIntent(
-            null, // no specific wallet URI — use default
+            null,
             scenario.port,
             scenario.session
         )
 
-        // Launch wallet activity on the main thread
         withContext(Dispatchers.Main) {
             intentLauncher?.invoke(associationIntent)
                 ?: throw IllegalStateException("WalletConnectionState not initialized. Call init() first.")
         }
 
         return try {
-            // Wait for the wallet to connect
             val client = scenario.start()
                 .get(ASSOCIATION_TIMEOUT_MS, TimeUnit.MILLISECONDS)
                 as MobileWalletAdapterClient
 
             try {
-                // Try Reauthorize first if we have a token
                 val authResult = if (token != null) {
                     try {
                         client.reauthorize(
@@ -104,7 +155,6 @@ object WalletConnectionState {
                             token
                         ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
                     } catch (e: Exception) {
-                        // Reauth failed, fallback to authorize
                         client.authorize(
                             Uri.parse("https://aura.app"),
                             Uri.parse("favicon.ico"),
@@ -129,7 +179,20 @@ object WalletConnectionState {
                 val address = Base58.encodeToString(pubKeyBytes)
                 val newToken = authResult.authToken
 
-                Pair(address, newToken ?: "")
+                // Now fetch nonce using the real wallet address
+                val actualNonce = fetchNonceForWallet(address)
+
+                // Sign the nonce message with the wallet
+                val nonceMessage = "Aura wallet-auth nonce: $actualNonce".toByteArray(Charsets.UTF_8)
+                val signResult = client.signMessages(
+                    arrayOf(nonceMessage),
+                    arrayOf(pubKeyBytes)
+                ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+
+                val signedNonce = signResult.signedPayloads?.firstOrNull()
+                    ?: throw Exception("Wallet did not return a signed message.")
+
+                AuthResult(address, newToken ?: "", signedNonce)
             } finally {
                 scenario.close()
                     .get(ASSOCIATION_TIMEOUT_MS, TimeUnit.MILLISECONDS)
@@ -140,6 +203,65 @@ object WalletConnectionState {
         } catch (e: TimeoutException) {
             scenario.close()
             throw Exception("Wallet connection timed out. Please try again.")
+        }
+    }
+
+    /** Request a nonce from the wallet-auth Edge Function for a specific wallet address. */
+    private suspend fun fetchNonceForWallet(walletAddress: String): String {
+        val db = com.aura.app.data.SupabaseClient.client
+        val reqBody = buildJsonObject {
+            put("action", "nonce")
+            put("walletAddress", walletAddress)
+        }
+        val response = db.functions.invoke("wallet-auth") {
+            setBody(reqBody.toString())
+            contentType(ContentType.Application.Json)
+        }
+        val text = response.bodyAsText()
+        val json = Json.parseToJsonElement(text).jsonObject
+        val error = json["error"]?.jsonPrimitive?.content
+        if (!error.isNullOrBlank()) throw Exception("wallet-auth nonce failed: $error")
+        return json["nonce"]?.jsonPrimitive?.content
+            ?: throw Exception("No nonce returned from wallet-auth")
+    }
+
+    /** Exchange signed nonce for a Supabase JWT. */
+    private suspend fun exchangeSignatureForJwt(walletAddress: String, signedNonce: ByteArray) {
+        val db = com.aura.app.data.SupabaseClient.client
+        val signatureBase64 = android.util.Base64.encodeToString(signedNonce, android.util.Base64.NO_WRAP)
+        val reqBody = buildJsonObject {
+            put("action", "verify")
+            put("walletAddress", walletAddress)
+            put("signatureBase64", signatureBase64)
+        }
+        val response = db.functions.invoke("wallet-auth") {
+            setBody(reqBody.toString())
+            contentType(ContentType.Application.Json)
+        }
+        val text = response.bodyAsText()
+        val json = Json.parseToJsonElement(text).jsonObject
+        val error = json["error"]?.jsonPrimitive?.content
+        if (!error.isNullOrBlank()) {
+            Log.w(TAG, "wallet-auth verify failed: $error (non-fatal, continuing with anon)")
+            return
+        }
+        val jwt = json["token"]?.jsonPrimitive?.content ?: return
+        _supabaseJwt.value = jwt
+        com.aura.app.data.AuraPreferences.setSupabaseJwt(jwt)
+        applyJwtToSupabase(jwt)
+        Log.i(TAG, "Wallet-auth: Supabase JWT acquired for $walletAddress")
+    }
+
+    /** Apply JWT to the Supabase client for authenticated RLS access. */
+    private fun applyJwtToSupabase(jwt: String) {
+        try {
+            val supabase = com.aura.app.data.SupabaseClient.client
+            // Use Auth.importAuthToken for custom JWTs
+            kotlinx.coroutines.runBlocking {
+                supabase.auth.importAuthToken(jwt)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to import JWT into Supabase (non-fatal): ${e.message}")
         }
     }
 
@@ -234,6 +356,8 @@ object WalletConnectionState {
     fun disconnect() {
         _walletAddress.value = null
         _authToken.value = null
+        _supabaseJwt.value = null
         com.aura.app.data.AuraPreferences.setWalletInfo(null, null)
+        com.aura.app.data.AuraPreferences.setSupabaseJwt(null)
     }
 }

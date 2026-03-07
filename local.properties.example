@@ -9,8 +9,16 @@ SUPABASE_KEY=your-anon-key
 GROQ_API_KEY=your-groq-api-key
 GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 
+# Solana / Helius RPC
+HELIUS_API_KEY=your-helius-api-key
+
+# Platform wallets
+TREASURY_WALLET=your-treasury-wallet-base58
+RELEASE_AUTHORITY_PUBKEY=your-release-authority-pubkey-base58
+
+# Auth
+SUPABASE_JWT_SECRET=your-supabase-jwt-secret
+
 # Optional
-HELIUS_API_KEY=
 CEREBRAS_API_KEY=
 MAPS_API_KEY=
-TREASURY_WALLET=

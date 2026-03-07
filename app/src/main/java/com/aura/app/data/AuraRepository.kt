@@ -95,6 +95,14 @@ data class TradeSessionRow(
     @SerialName("updated_at") val updatedAt: String? = null,
 )
 
+@Serializable
+data class FavoriteRow(
+    val id: String = "",
+    @SerialName("wallet_address") val walletAddress: String = "",
+    @SerialName("listing_id") val listingId: String = "",
+    @SerialName("created_at") val createdAt: String? = null,
+)
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Repository
 // ─────────────────────────────────────────────────────────────────────────────
@@ -116,6 +124,9 @@ object AuraRepository {
     private val _currentTradeSession = MutableStateFlow<TradeSession?>(null)
     val currentTradeSession: StateFlow<TradeSession?> = _currentTradeSession.asStateFlow()
 
+    private val _favoriteListingIds = MutableStateFlow<Set<String>>(emptySet())
+    val favoriteListingIds: StateFlow<Set<String>> = _favoriteListingIds.asStateFlow()
+
     val activeQuickReceiveUri = MutableStateFlow<String?>(null)
 
     init {
@@ -126,7 +137,7 @@ object AuraRepository {
                 kotlinx.coroutines.delay(60_000)
                 try {
                     val rows = db.from("marketplace_listings").select {
-                        limit(count = 1000)
+                        limit(count = 200)
                     }.decodeList<ListingRow>()
                     _listings.value = rows
                         .filter { it.soldAt == null && it.isActive && it.isPublished }
@@ -152,6 +163,7 @@ object AuraRepository {
             
             if (profiles.isNotEmpty()) {
                 _currentProfile.value = profiles.first()
+                loadFavorites(walletAddress)
             } else {
                 val newProfile = ProfileDto(walletAddress = walletAddress)
                 val insertedList = supabase.postgrest["profiles"]
@@ -280,12 +292,63 @@ object AuraRepository {
                 try {
                     val history = AuraHistoryDto(userId = uuid, changeAmount = creditsEarned, reason = "Daily Aura Check: $rating/100")
                     supabase.postgrest["aura_history"].insert(history)
-                } catch (e: Exception) {}
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to insert aura_history for Aura Check", e)
+                }
             }
         }
 
         return com.aura.app.model.AuraCheckResult(rating, feedback, streakMaintained, creditsEarned)
     }
+
+    // ── Favorites ─────────────────────────────────────────────────────────────
+
+    suspend fun loadFavorites(walletAddress: String) {
+        try {
+            val rows = db.from("favorites")
+                .select { filter { eq("wallet_address", walletAddress) } }
+                .decodeList<FavoriteRow>()
+            _favoriteListingIds.value = rows.map { it.listingId }.toSet()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load favorites: ${e.message}")
+        }
+    }
+
+    fun getFavoriteListings(): List<Listing> {
+        val ids = _favoriteListingIds.value
+        return _listings.value.filter { it.id in ids }
+    }
+
+    suspend fun toggleFavorite(listingId: String) {
+        val wallet = com.aura.app.wallet.WalletConnectionState.walletAddress.value ?: return
+        val current = _favoriteListingIds.value
+        if (listingId in current) {
+            _favoriteListingIds.value = current - listingId
+            try {
+                db.from("favorites").delete {
+                    filter {
+                        eq("wallet_address", wallet)
+                        eq("listing_id", listingId)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to remove favorite: ${e.message}")
+                _favoriteListingIds.value = current // rollback
+            }
+        } else {
+            _favoriteListingIds.value = current + listingId
+            try {
+                db.from("favorites").insert(
+                    FavoriteRow(walletAddress = wallet, listingId = listingId)
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to add favorite: ${e.message}")
+                _favoriteListingIds.value = current // rollback
+            }
+        }
+    }
+
+    fun isFavorite(listingId: String): Boolean = listingId in _favoriteListingIds.value
 
     // ── Listings ──────────────────────────────────────────────────────────────
 
@@ -311,7 +374,7 @@ object AuraRepository {
         //    Only active listings (sold_at IS NULL); local filters (Nearby/Explore) applied in UI
         try {
             val rows = db.from("marketplace_listings").select {
-                limit(count = 1000)
+                limit(count = 200)
             }.decodeList<ListingRow>()
             val domainListings = rows
                 .filter { it.soldAt == null && it.isActive && it.isPublished }
@@ -514,7 +577,9 @@ object AuraRepository {
                     set("mint_address", mintAddr)
                     set("minted_status", "MINTED")
                 }) { filter { eq("id", listingId) } }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to persist mint status for $listingId: ${e.message}")
+            }
             updated
         } catch (e: Exception) {
             Log.w(TAG, "Minting Edge Function failed (non-fatal) — listing is saved: ${e.message}")
@@ -586,7 +651,9 @@ object AuraRepository {
                         sellerWallet = sellerWallet,
                     )
                 )
-            } catch (e: Exception) {}
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to insert trade session ${session.id}", e)
+            }
         }
         // Start listening for Realtime state changes on this session
         observeTradeSession(session.id)
@@ -602,7 +669,9 @@ object AuraRepository {
                     db.from("trade_sessions").update(
                         { set("state", state.name); set("updated_at", "now()") }
                     ) { filter { eq("id", session.id) } }
-                } catch (e: Exception) {}
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to update trade session state to ${state.name}", e)
+                }
             }
         }
     }
@@ -685,6 +754,7 @@ object AuraRepository {
         val isRadiant = (_currentProfile.value?.auraScore ?: 0) >= 90
         val treasuryWallet = com.aura.app.BuildConfig.TREASURY_WALLET
         val feeBps = if (isRadiant) 0 else DEFAULT_PLATFORM_FEE_BPS
+        val releaseAuth = com.aura.app.BuildConfig.RELEASE_AUTHORITY_PUBKEY
         val txBytes = com.aura.app.wallet.AnchorTransactionBuilder.buildInitializeEscrowTx(
             listingId = listingId,
             amountLamports = amount,
@@ -693,6 +763,7 @@ object AuraRepository {
             feeBps = feeBps,
             treasuryWallet = treasuryWallet,
             feeExempt = isRadiant,
+            releaseAuthority = releaseAuth,
         )
         // Do NOT call updateTradeState here — wait for wallet signing confirmation
         return txBytes
@@ -715,7 +786,7 @@ object AuraRepository {
         val txBytes = com.aura.app.wallet.AnchorTransactionBuilder.buildReleaseEscrowTx(
             listingId = listingId,
             sellerPubkey = sellerWallet,
-            signerPubkey = walletAddr,
+            authorityPubkey = walletAddr,
             assetUri = listing?.images?.firstOrNull() ?: "",
             assetTitle = listing?.title ?: "Aura Verified Asset",
             treasuryWallet = com.aura.app.BuildConfig.TREASURY_WALLET,
@@ -726,34 +797,30 @@ object AuraRepository {
 
     suspend fun releaseEscrowWithNfc(
         tradeId: String,
-        listingId: String,
         sdmDataHex: String,
         receivedCmacHex: String,
-        escrowPdaBase58: String,
-        sellerWalletBase58: String,
-        buyerWalletBase58: String?,
         assetUri: String,
         assetTitle: String,
-        amount: Long
     ): Boolean {
         try {
             val reqBody = buildJsonObject {
-                put("listingId", listingId)
                 put("sdmDataHex", sdmDataHex)
                 put("receivedCmacHex", receivedCmacHex)
-                put("escrowPdaBase58", escrowPdaBase58)
-                put("sellerWalletBase58", sellerWalletBase58)
-                put("buyerWalletBase58", buyerWalletBase58)
                 put("assetUri", assetUri)
                 put("assetTitle", assetTitle)
-                put("amount", amount)
             }
             val response = db.functions.invoke("verify-sun") {
                 setBody(reqBody.toString())
                 contentType(ContentType.Application.Json)
             }
             val responseText = response.bodyAsText()
-            Log.d(TAG, "NFC verified and escrow released via Live Edge Function. Response: $responseText")
+            val jsonElement = kotlinx.serialization.json.Json.parseToJsonElement(responseText).jsonObject
+            val error = jsonElement["error"]?.jsonPrimitive?.content
+            if (!error.isNullOrBlank()) {
+                Log.e(TAG, "verify-sun error: $error")
+                return false
+            }
+            Log.d(TAG, "NFC verified and escrow released via Edge Function. Response: $responseText")
             return true
         } catch (e: Exception) {
             Log.e(TAG, "Failed Edge Function verify-sun", e)

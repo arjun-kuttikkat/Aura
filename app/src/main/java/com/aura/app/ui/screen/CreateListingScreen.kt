@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.annotation.SuppressLint
 import android.location.Geocoder
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -157,7 +158,9 @@ fun CreateListingScreen(
                                     )
                                     // Minting is best-effort: if the Edge Function isn't deployed yet
                                     // the listing is still created. Mint status will be PENDING.
-                                    try { AuraRepository.mintListing(listing.id) } catch (_: Exception) {}
+                                    try { AuraRepository.mintListing(listing.id) } catch (e: Exception) {
+                                        Log.w("CreateListing", "Mint failed (non-blocking): ${e.message}")
+                                    }
                                     onListingCreated()
                                 } catch (e: Exception) {
                                     errorMsg = e.message ?: "Failed to publish"

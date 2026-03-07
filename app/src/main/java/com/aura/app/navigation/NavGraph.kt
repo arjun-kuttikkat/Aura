@@ -128,7 +128,8 @@ fun NavGraph(
             }
             composable(Routes.FAVORITES) {
                 com.aura.app.ui.screen.FavoritesScreen(
-                    onNavigateToHome = { navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } } }
+                    onNavigateToHome = { navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } } },
+                    onListingClick = { listingId -> navController.navigate(Routes.listingDetail(listingId)) }
                 )
             }
             composable(Routes.CHATS) {

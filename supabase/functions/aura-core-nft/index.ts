@@ -45,6 +45,28 @@ serve(async (req: Request) => {
             })
         }
 
+        // Authorization: Verify the caller owns this wallet via JWT
+        const authHeader = req.headers.get("Authorization")
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            return new Response(JSON.stringify({ error: "Authorization header required" }), {
+                status: 401,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+            })
+        }
+
+        // Decode JWT to extract wallet_address claim (verified by Supabase gateway)
+        const token = authHeader.replace("Bearer ", "")
+        const payloadB64 = token.split(".")[1]
+        const payload = JSON.parse(atob(payloadB64))
+        const jwtWallet = payload.wallet_address || payload.app_metadata?.wallet_address
+
+        if (jwtWallet !== walletAddress) {
+            return new Response(JSON.stringify({ error: "Wallet address does not match authenticated user" }), {
+                status: 403,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+            })
+        }
+
         const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
         const umi = createUmi(SOLANA_RPC)
 
