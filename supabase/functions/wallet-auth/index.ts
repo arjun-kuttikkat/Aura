@@ -71,7 +71,7 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-        const { action, walletAddress, nonce, signature } = await req.json()
+        const { action, walletAddress, signatureBase64 } = await req.json()
 
         if (!walletAddress || typeof walletAddress !== "string" || walletAddress.length < 32 || walletAddress.length > 44) {
             return new Response(JSON.stringify({ error: "Invalid walletAddress" }), {
@@ -86,6 +86,11 @@ Deno.serve(async (req: Request) => {
         // Action: Request a nonce (challenge)
         // ═══════════════════════════════════════════════════════════════
         if (action === "nonce") {
+            // Ensure profile exists first (auth_nonces has FK to profiles) — needed for new users
+            await supabase
+                .from("profiles")
+                .upsert({ wallet_address: walletAddress }, { onConflict: "wallet_address", ignoreDuplicates: true })
+
             // Generate a random nonce
             const nonceBytes = crypto.getRandomValues(new Uint8Array(32))
             const nonceHex = Array.from(nonceBytes).map(b => b.toString(16).padStart(2, "0")).join("")
@@ -109,8 +114,8 @@ Deno.serve(async (req: Request) => {
         // Action: Verify signature and return JWT
         // ═══════════════════════════════════════════════════════════════
         if (action === "verify") {
-            if (!nonce || !signature) {
-                return new Response(JSON.stringify({ error: "nonce and signature required" }), {
+            if (!signatureBase64) {
+                return new Response(JSON.stringify({ error: "signatureBase64 required" }), {
                     status: 400,
                     headers: { ...corsHeaders, "Content-Type": "application/json" },
                 })
@@ -140,18 +145,20 @@ Deno.serve(async (req: Request) => {
                 })
             }
 
-            // Verify nonce matches
-            if (nonceRow.nonce !== nonce) {
-                return new Response(JSON.stringify({ error: "Nonce mismatch." }), {
-                    status: 401,
+            const nonce = nonceRow.nonce
+
+            // Verify Ed25519 signature — client signs "Aura wallet-auth nonce: " + nonce
+            const message = `Aura wallet-auth nonce: ${nonce}`
+            const messageBytes = new TextEncoder().encode(message)
+            let signatureBytes: Uint8Array
+            try {
+                signatureBytes = Uint8Array.from(atob(signatureBase64), c => c.charCodeAt(0))
+            } catch {
+                return new Response(JSON.stringify({ error: "Invalid signature encoding (expected base64)" }), {
+                    status: 400,
                     headers: { ...corsHeaders, "Content-Type": "application/json" },
                 })
             }
-
-            // Verify Ed25519 signature
-            // The message that was signed is the nonce as a UTF-8 string
-            const messageBytes = new TextEncoder().encode(nonce)
-            const signatureBytes = decodeBase58(signature)
             const publicKeyBytes = decodeBase58(walletAddress)
 
             const isValid = await ed25519Verify(messageBytes, signatureBytes, publicKeyBytes)
@@ -192,6 +199,7 @@ Deno.serve(async (req: Request) => {
             }, JWT_SECRET)
 
             return new Response(JSON.stringify({
+                token: jwt,
                 access_token: jwt,
                 token_type: "bearer",
                 expires_in: 86400,

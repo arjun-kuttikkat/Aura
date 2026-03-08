@@ -227,7 +227,7 @@ object WalletConnectionState {
         }
     }
 
-    /** Request a nonce from the wallet-auth Edge Function for a specific wallet address. */
+    /** Request a nonce from wallet-auth Edge Function. */
     private suspend fun fetchNonceForWallet(walletAddress: String): String {
         return withRetry(WALLET_AUTH_RETRIES) {
             val db = com.aura.app.data.SupabaseClient.client
