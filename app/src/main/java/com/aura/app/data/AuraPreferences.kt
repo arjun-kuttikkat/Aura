@@ -126,6 +126,26 @@ object AuraPreferences {
         if (isInitialized()) prefs.edit().putInt("total_aura_earned", newTotal).apply()
     }
 
+    private val _rewardedTradeIds = mutableSetOf<String>()
+
+    /** Award trade completion bonus (10 Aura). Returns true if awarded, false if already awarded for this trade. */
+    fun tryAwardTradeBonus(sessionId: String): Boolean {
+        if (sessionId.isBlank() || sessionId in _rewardedTradeIds) return false
+        _rewardedTradeIds.add(sessionId)
+        addAuraReward(10)
+        return true
+    }
+
+    /** Spend Aura points. Returns true if successful, false if insufficient balance. */
+    fun spendAuraPoints(amount: Int): Boolean {
+        val current = _totalAuraEarned.value
+        if (current < amount) return false
+        val newTotal = current - amount
+        _totalAuraEarned.value = newTotal
+        if (isInitialized()) prefs.edit().putInt("total_aura_earned", newTotal).apply()
+        return true
+    }
+
     fun setDisplayName(name: String) {
         _displayName.value = name
         if (isInitialized()) prefs.edit().putString("display_name", name).apply()

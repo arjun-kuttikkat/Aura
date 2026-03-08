@@ -187,8 +187,8 @@ fun NavGraph(
                 val category = backStackEntry.arguments?.getString("category") ?: ""
                 com.aura.app.ui.screen.PlaceAdTypeScreen(
                     category = category,
-                    onSellWithAI = { navController.navigate(Routes.PLACE_AD_UPLOAD) },
-                    onClassicPost = { navController.navigate(Routes.PLACE_AD_UPLOAD) },
+                    onSellWithAI = { navController.navigate(Routes.CREATE_LISTING) { popUpTo(Routes.HOME) { inclusive = false } } },
+                    onClassicPost = { navController.navigate(Routes.CREATE_LISTING) { popUpTo(Routes.HOME) { inclusive = false } } },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -216,7 +216,7 @@ fun NavGraph(
             ListingDetailScreen(
                 listingId = listingId,
                 tradeSession = session,
-                onStartMeetup = { navController.navigate(Routes.meetLocation(listingId)) },
+                onStartMeetup = { navController.navigate(Routes.ESCROW_PAY) },
                 onBack = { navController.popBackStack() },
                 onChatClicked = { navController.navigate(Routes.chatDetail(listingId)) }
             )
@@ -229,7 +229,8 @@ fun NavGraph(
             }
             com.aura.app.ui.screen.ChatDetailScreen(
                 listingId = listingId,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onConfirmMeetupPlan = { navController.navigate(Routes.ESCROW_PAY) },
             )
         }
         composable(Routes.MEET_LOCATION) { backStackEntry ->
@@ -246,18 +247,20 @@ fun NavGraph(
         }
         composable(Routes.MEET_SESSION) {
             MeetSessionScreen(
-                onHandshakeComplete = { navController.navigate(Routes.VERIFY_ITEM) },
+                onHandshakeComplete = { navController.navigate(Routes.TRADE_COMPLETE) { popUpTo(Routes.HOME) { inclusive = false } } },
+                onStartTransaction = { navController.navigate(Routes.VERIFY_ITEM) },
                 onBack = { navController.popBackStack() },
             )
         }
         composable(Routes.VERIFY_ITEM) {
             VerifyItemScreen(
-                onVerified = { navController.navigate(Routes.ESCROW_PAY) },
+                onVerified = { navController.popBackStack() },
                 onBack = { navController.popBackStack() },
             )
         }
         composable(Routes.ESCROW_PAY) {
             EscrowPayScreen(
+                onLockSuccess = { listingId -> navController.navigate(Routes.meetLocation(listingId)) },
                 onComplete = { navController.navigate(Routes.TRADE_COMPLETE) { popUpTo(Routes.HOME) { inclusive = false } } },
                 onBack = { navController.popBackStack() },
             )
@@ -338,10 +341,13 @@ fun NavGraph(
                     currentRoute = currentRoute ?: Routes.HOME,
                     onNavigate = { route ->
                         if (route != currentRoute) {
-                            navController.navigate(route) {
-                                popUpTo(Routes.HOME) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
+                            val popped = navController.popBackStack(route, inclusive = false)
+                            if (!popped) {
+                                navController.navigate(route) {
+                                    popUpTo(Routes.HOME) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
                             }
                         }
                     },

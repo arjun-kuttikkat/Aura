@@ -47,7 +47,7 @@ fun MainTopBar(
             if (onBack != null) {
                 IconButton(
                     onClick = onBack,
-                    modifier = Modifier.padding(start = -8.dp, end = 4.dp),
+                    modifier = Modifier.padding(start = 0.dp, end = 4.dp),
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,

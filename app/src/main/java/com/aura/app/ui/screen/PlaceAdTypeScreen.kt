@@ -74,10 +74,10 @@ fun PlaceAdTypeScreen(
         ) {
             Spacer(modifier = Modifier.height(24.dp))
 
-            // AI Card
+            // AI Card — routes to CreateListingScreen (camera only, no gallery)
             AdTypeCard(
                 title = "Sell with AI",
-                subtitle = "Simply take a picture or upload an image",
+                subtitle = "Take a picture or add from gallery",
                 icon = Icons.Default.AutoAwesome,
                 badgeText = "20% Faster",
                 useGradient = true,

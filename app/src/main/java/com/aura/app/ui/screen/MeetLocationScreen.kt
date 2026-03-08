@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.aura.app.data.AuraRepository
+import com.aura.app.data.MeetupPreferencesStore
 import com.aura.app.ui.theme.DarkVoid
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
@@ -57,10 +58,13 @@ import com.aura.app.util.MeetupLocationUtils
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.maps.android.compose.Circle
 import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
+import com.aura.app.ui.util.breathe
+import com.aura.app.ui.util.pulseGlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -85,12 +89,14 @@ fun MeetLocationScreen(
         if (listing == null) AuraRepository.refreshListingsAwait()
     }
 
-    val lat = listing?.latitude ?: DEFAULT_DUBAI.latitude
-    val lng = listing?.longitude ?: DEFAULT_DUBAI.longitude
-    // Location Text vs Map Desync fix: prefer reverse-geocoded live location; fallback to listing
-    val locationText = liveAddressText ?: listing?.location ?: listing?.emirate ?: "Meetup location"
+    // Prefer buyer's requested location & time from chat; else use listing
+    val preferred = MeetupPreferencesStore.load(context, listingId)
+    val lat = preferred?.latitude ?: listing?.latitude ?: DEFAULT_DUBAI.latitude
+    val lng = preferred?.longitude ?: listing?.longitude ?: DEFAULT_DUBAI.longitude
+    // Location Text vs Map Desync fix: prefer reverse-geocoded live location; fallback to preferred/listing
+    val locationText = liveAddressText ?: preferred?.address ?: listing?.location ?: listing?.emirate ?: "Meetup location"
 
-    // Geofence fix: poll location; "I am here" requires actual proximity (50m for urban canyon)
+    // Geofence: 50m radius for meetup (user-requested; kept at 50m)
     val hasLocationPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
     LaunchedEffect(hasLocationPermission, lat, lng) {
         if (!hasLocationPermission) return@LaunchedEffect
@@ -101,7 +107,7 @@ fun MeetLocationScreen(
             }.getOrNull()
             if (loc != null && !loc.isFromMockProvider) {
                 val dist = com.aura.app.util.MeetupLocationUtils.distanceMeters(loc, lat, lng)
-                geofencePassed = MeetupLocationUtils.isWithinGeofence(dist, useStrictRadius = false)
+                geofencePassed = MeetupLocationUtils.isWithinGeofence(dist, customRadiusMeters = MeetupLocationUtils.GEOFENCE_RADIUS_METERS)
                 // Reverse geocode for live address (Location Text vs Map fix)
                 liveAddressText = withContext(Dispatchers.IO) {
                     runCatching {
@@ -125,6 +131,11 @@ fun MeetLocationScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    androidx.compose.material3.TextButton(onClick = onContinue) {
+                        Text("Help", style = MaterialTheme.typography.labelSmall)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -162,6 +173,13 @@ fun MeetLocationScreen(
                         state = MarkerState(position = LatLng(lat, lng)),
                         title = locationText,
                     )
+                    Circle(
+                        center = LatLng(lat, lng),
+                        radius = MeetupLocationUtils.GEOFENCE_RADIUS_METERS.toDouble(),
+                        fillColor = androidx.compose.ui.graphics.Color(0x15FF9500),
+                        strokeColor = Orange500.copy(alpha = 0.5f),
+                        strokeWidth = 4f,
+                    )
                 }
             }
 
@@ -184,7 +202,7 @@ fun MeetLocationScreen(
                         Icons.Default.LocationOn,
                         contentDescription = null,
                         tint = Orange500,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier.size(28.dp).then(if (geofencePassed) Modifier.pulseGlow() else Modifier),
                     )
                     Column {
                         Text(
@@ -230,10 +248,13 @@ fun MeetLocationScreen(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // Geofence fix (#4): "I am here" requires actual proximity — no couch bypass
+                // Live Meet Radar: Confirm Arrival when within 20m zone
                 Button(
                     onClick = onContinue,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .then(if (!geofencePassed && hasLocationPermission) Modifier.breathe() else Modifier),
                     shape = RoundedCornerShape(14.dp),
                     enabled = hasLocationPermission && geofencePassed,
                     colors = ButtonDefaults.buttonColors(
@@ -249,7 +270,7 @@ fun MeetLocationScreen(
                     Text(
                         when {
                             !hasLocationPermission -> "Enable location to continue"
-                            geofencePassed -> "I am here"
+                            geofencePassed -> "Confirm Arrival"
                             else -> "Move within 50m of meetup"
                         },
                         fontWeight = FontWeight.Bold,

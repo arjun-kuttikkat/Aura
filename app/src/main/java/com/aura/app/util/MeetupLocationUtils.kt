@@ -47,9 +47,13 @@ object MeetupLocationUtils {
     }
 
     /** Urban Canyon fix: use 50m radius instead of 10m for geofence pass. */
-    fun isWithinGeofence(distMeters: Float?, useStrictRadius: Boolean = false): Boolean {
+    fun isWithinGeofence(distMeters: Float?, useStrictRadius: Boolean = false, customRadiusMeters: Float? = null): Boolean {
         if (distMeters == null) return false
-        val radius = if (useStrictRadius) RELEASE_GEOFENCE_METERS else GEOFENCE_RADIUS_METERS
+        val radius = when {
+            customRadiusMeters != null -> customRadiusMeters
+            useStrictRadius -> RELEASE_GEOFENCE_METERS
+            else -> GEOFENCE_RADIUS_METERS
+        }
         return distMeters <= radius
     }
 

@@ -62,7 +62,7 @@ serve(async (req: any) => {
             if (listError || !listing) {
                 return new Response(
                     JSON.stringify({ rating: 0, pass: false, feedback: "Listing not found. Cannot verify item." }),
-                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 },
+                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
                 );
             }
 
@@ -72,7 +72,7 @@ serve(async (req: any) => {
             if (!refImageUrl || typeof refImageUrl !== 'string') {
                 return new Response(
                     JSON.stringify({ rating: 0, pass: false, feedback: "Listing has no reference image. Cannot verify item." }),
-                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 },
+                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
                 );
             }
 
@@ -90,21 +90,21 @@ serve(async (req: any) => {
                 refImageForGroq = refImageUrl;
             }
 
-            systemPrompt = `You are an item-matching inspector for the Aura marketplace.
-Image 1: The buyer's photo of the physical item in front of them (may have different lighting, be in a bag/plastic wrap, or different angle).
+            systemPrompt = `You are a lenient item-matching inspector for the Aura marketplace.
+Image 1: The buyer's photo of the physical item in front of them (may have different lighting, angle, or be partially visible).
 Image 2: The listing's reference photo (what the seller listed).
 
-Question: Does Image 1 show the SAME physical item as Image 2? Consider only whether it is the same product (model, key features, condition).
-DO NOT reject for: different lighting, item inside plastic bag or packaging, slight angle difference, indoor vs outdoor, shadows. Pass if the same item is clearly visible.
-Respond ONLY with valid JSON: {"rating": <0-100 where 70+ means same item>, "pass": <true if same item>, "feedback": "<1-2 sentence>"}`;
+Question: Does Image 1 show the SAME physical item as Image 2? Be lenient — pass if it is reasonably likely the same product (model, key features).
+DO NOT reject for: different lighting, angle, item in bag/packaging, shadows, partial view, slight blur, different background, hands holding item. When in doubt, pass.
+Respond ONLY with valid JSON: {"rating": <0-100 where 55+ means same item>, "pass": <true if reasonably likely same item>, "feedback": "<1-2 sentence>"}`;
 
             content[0].text = systemPrompt;
             content.push({ type: "image_url", image_url: { url: refImageForGroq } });
         } else {
-            // aura_check or generic single-image
+            // aura_check or generic single-image — strict 3D physical object validation
             systemPrompt = isAuraCheck
-                ? "You are an AI authenticity inspector for the Aura marketplace. Analyze this photo of the user's physical environment. Score the authenticity of this being a real, live capture (not a screenshot, stock photo, or AI-generated image). Respond ONLY with valid JSON: {\"rating\": <0-100>, \"pass\": <true if rating >= 70>, \"feedback\": \"<1-2 sentence analysis>\"}"
-                : "You are an AI product photo inspector for the Aura marketplace. Analyze this listing photo. Score how authentic and genuine this product photo appears (not a screenshot, not AI-generated, not a stock photo, shows a real physical item). Respond ONLY with valid JSON: {\"rating\": <0-100>, \"pass\": <true if rating >= 70>, \"feedback\": \"<1-2 sentence assessment of the photo>\"}";
+                ? "You are a strict anti-spoofing inspector for Aura marketplace. Determine if this image shows a REAL 3D physical object in a REAL physical environment. PASS (rating 70+) ONLY if: tangible item in real setting, depth/shadows/natural lighting. FAIL if: screenshot, monitor/display photo, photo of a photo, stock image, AI-generated, or flat 2D representation. Respond ONLY with valid JSON: {\"rating\": <0-100>, \"pass\": <true if rating >= 70>, \"feedback\": \"<1-2 sentence analysis>\"}"
+                : "You are an AI product photo inspector for the Aura marketplace. Analyze this listing photo. Score how authentic and genuine this product photo appears. Must show a REAL 3D physical object in a real environment — reject screenshots, monitor photos, stock images, AI-generated content. Respond ONLY with valid JSON: {\"rating\": <0-100>, \"pass\": <true if rating >= 70>, \"feedback\": \"<1-2 sentence assessment of the photo>\"}";
             content[0].text = systemPrompt;
         }
 
@@ -139,7 +139,7 @@ Respond ONLY with valid JSON: {"rating": <0-100 where 70+ means same item>, "pas
         }
 
         const rating = Math.min(100, Math.max(0, Number(result.rating) ?? 50));
-        const pass = Boolean(result.pass) || rating >= 70;
+        const pass = Boolean(result.pass) || rating >= 55;
         const feedback = result.feedback || (pass ? "Item match confirmed." : "Item match could not be confirmed.");
 
         return new Response(

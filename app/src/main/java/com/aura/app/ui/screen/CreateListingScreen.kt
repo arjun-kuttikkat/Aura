@@ -40,9 +40,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,6 +57,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Nfc
@@ -95,6 +98,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -121,13 +125,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import android.net.Uri
 import java.io.File
 import java.util.Locale
 
+private fun imageModelForRef(ref: String): Any = when {
+    ref.startsWith("content://") -> Uri.parse(ref)
+    ref.startsWith("/") -> "file://$ref"
+    else -> ref
+}
+
 private enum class PublishStep {
+    IMAGE_PICKER,
     CAMERA,
-    VERIFY,
+    DETAILS_INIT,
+    MACRO_CAPTURE,
     AI_ANALYZING,
+    ANTI_SPOOFING,
     DETAILS_PRICE,
     PUBLISHING,
     PUBLISH_SUCCESS,
@@ -151,7 +165,7 @@ fun CreateListingScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    var step by remember { mutableStateOf(PublishStep.CAMERA) }
+    var step by remember { mutableStateOf(PublishStep.IMAGE_PICKER) }
     var capturedImages by remember { mutableStateOf<List<String>>(emptyList()) }
     var addingMorePhotos by remember { mutableStateOf(false) }
     var title by remember { mutableStateOf("") }
@@ -165,6 +179,9 @@ fun CreateListingScreen(
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
     var nfcSunUrl by remember { mutableStateOf<String?>(null) }
+    var textureHash by remember { mutableStateOf<String?>(null) }
+    var macroImages by remember { mutableStateOf<List<String>>(emptyList()) }
+    var meetupRadiusMeters by remember { mutableStateOf(50) }
     var publishPhase by remember { mutableStateOf(PublishPhase.VERIFYING_PHOTO) }
 
     val haptic = LocalHapticFeedback.current
@@ -182,7 +199,41 @@ fun CreateListingScreen(
     val conditions = listOf("New", "Like New", "Good", "Fair")
     val categories = listOf("Electronics", "Fashion", "Sports", "Home", "Books", "Collectibles", "Tools", "Other")
 
-    // Step 1: Full-screen camera modal
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents(),
+        onResult = { uris ->
+            val toAdd = uris.map { it.toString() }.take(4 - capturedImages.size)
+            if (toAdd.isNotEmpty()) {
+                capturedImages = (capturedImages + toAdd).take(4)
+            }
+        }
+    )
+
+    // Step 1: Image picker (camera or gallery, 1–4 product images)
+    if (step == PublishStep.IMAGE_PICKER) {
+        ImagePickerStep(
+            capturedImages = capturedImages,
+            onCamera = {
+                addingMorePhotos = false
+                step = PublishStep.CAMERA
+            },
+            onGallery = {
+                galleryLauncher.launch("image/*")
+            },
+            onRemoveImage = { index ->
+                capturedImages = capturedImages.filterIndexed { i, _ -> i != index }
+            },
+            onNext = {
+                if (capturedImages.isNotEmpty()) {
+                    step = PublishStep.MACRO_CAPTURE
+                }
+            },
+            onBack = onBack,
+        )
+        return
+    }
+
+    // Step 1b: Full-screen camera modal (from image picker)
     if (step == PublishStep.CAMERA) {
         if (!hasCameraPermission) {
             LaunchedEffect(Unit) {
@@ -221,8 +272,10 @@ fun CreateListingScreen(
                     if (addingMorePhotos) {
                         addingMorePhotos = false
                         step = PublishStep.DETAILS_PRICE
+                    } else if (capturedImages.isNotEmpty()) {
+                        step = PublishStep.MACRO_CAPTURE
                     } else {
-                        onBack()
+                        step = PublishStep.IMAGE_PICKER
                     }
                 },
                 onCapture = { imageCapture ->
@@ -237,12 +290,12 @@ fun CreateListingScreen(
                                 val path = photoFile.absolutePath
                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                     if (isAddMore) {
-                                        capturedImages = capturedImages + path
+                                        capturedImages = (capturedImages + path).take(4)
                                         addingMorePhotos = false
                                         step = PublishStep.DETAILS_PRICE
                                     } else {
-                                        capturedImages = listOf(path)
-                                        step = PublishStep.VERIFY
+                                        capturedImages = (capturedImages + path).take(4)
+                                        step = PublishStep.MACRO_CAPTURE
                                     }
                                 }
                             }
@@ -261,35 +314,24 @@ fun CreateListingScreen(
         return
     }
 
-    // Step 2: NFC Tap to verify / Skip for now — both paths lead to AI analysis
-    if (step == PublishStep.VERIFY && capturedImages.isNotEmpty()) {
-        VerifyProductStep(
-            imagePath = capturedImages.first(),
-            onVerify = { sunUrl ->
-                nfcSunUrl = sunUrl
-                NfcHandoverManager.reset()
+    // Step 2: Macro capture (texture scan) — right after first photo
+    if (step == PublishStep.MACRO_CAPTURE) {
+        MacroCaptureScreen(
+            onComplete = { paths, hash ->
+                macroImages = paths
+                textureHash = hash
                 step = PublishStep.AI_ANALYZING
-                aiError = null
             },
-            onSkip = {
-                nfcSunUrl = null
-                NfcHandoverManager.reset()
-                step = PublishStep.AI_ANALYZING
-                aiError = null
-            },
-            onRetake = {
-                capturedImages = emptyList()
-                step = PublishStep.CAMERA
-            },
-            onBack = onBack,
+            onBack = { step = PublishStep.IMAGE_PICKER },
         )
         return
     }
 
-    // Step 3: AI Analyzing
+    // Step 4: AI Analyzing
     if (step == PublishStep.AI_ANALYZING) {
+        val aiImagePath = macroImages.firstOrNull() ?: capturedImages.firstOrNull().orEmpty()
         AiAnalyzingStep(
-            imagePath = capturedImages.firstOrNull().orEmpty(),
+            imagePath = aiImagePath,
             onComplete = { analysis ->
                 title = analysis.title
                 description = analysis.description
@@ -298,11 +340,24 @@ fun CreateListingScreen(
                 aiTags = analysis.tags
                 aiAnalyzed = true
                 aiError = null
-                step = PublishStep.DETAILS_PRICE
+                step = PublishStep.ANTI_SPOOFING
             },
             onError = {
                 aiError = it
                 aiAnalyzed = true
+                step = PublishStep.DETAILS_PRICE
+            },
+        )
+        return
+    }
+
+    // Step 5: Anti-spoofing
+    if (step == PublishStep.ANTI_SPOOFING) {
+        AntiSpoofingStep(
+            imagePath = macroImages.firstOrNull() ?: capturedImages.firstOrNull().orEmpty(),
+            onPass = { step = PublishStep.DETAILS_PRICE },
+            onFail = {
+                aiError = it
                 step = PublishStep.DETAILS_PRICE
             },
         )
@@ -334,17 +389,20 @@ fun CreateListingScreen(
                     return@LaunchedEffect
                 }
                 val price = priceSol.toDoubleOrNull() ?: 0.0
+                val allImages = if (macroImages.isNotEmpty()) capturedImages + macroImages else capturedImages
                 val listing = AuraRepository.createListing(
                     sellerWallet = walletAddress!!,
                     title = title.ifBlank { "Untitled" },
                     description = description,
                     priceLamports = CryptoPriceFormatter.solToLamports(price),
-                    imageRefs = capturedImages,
+                    imageRefs = allImages,
                     condition = condition,
+                    textureHash = textureHash,
                     location = locationStr,
                     latitude = lat,
                     longitude = lng,
                     nfcSunUrl = nfcSunUrl,
+                    meetupRadiusMeters = meetupRadiusMeters,
                 )
                 publishPhase = PublishPhase.MINTING_NFT
                 delay(800)
@@ -371,9 +429,10 @@ fun CreateListingScreen(
         return
     }
 
-    // Step 4: Details and Price (main form)
+    // Step 6: Details and Price (main form) with meetup radius
+    val displayImages = if (macroImages.isNotEmpty()) capturedImages + macroImages else capturedImages
     PublishDetailsStep(
-        capturedImages = capturedImages,
+        capturedImages = displayImages,
         title = title,
         onTitleChange = { title = it },
         description = description,
@@ -390,6 +449,8 @@ fun CreateListingScreen(
         categories = categories,
         hasLocationPermission = hasLocationPermission,
         onRequestLocation = { locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
+        meetupRadiusMeters = meetupRadiusMeters,
+        onMeetupRadiusChange = { meetupRadiusMeters = it },
         errorMsg = errorMsg,
         isSubmitting = isSubmitting,
         onBack = onBack,
@@ -434,6 +495,448 @@ fun CreateListingScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+private fun ImagePickerStep(
+    capturedImages: List<String>,
+    onCamera: () -> Unit,
+    onGallery: () -> Unit,
+    onRemoveImage: (Int) -> Unit,
+    onNext: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
+    val canAddMore = capturedImages.size < 4
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Sell on Aura", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+                navigationIcon = {
+                    IconButton(onClick = { AuraHaptics.subtleTap(haptic); onBack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    TextButton(
+                        onClick = { AuraHaptics.lightTap(haptic); onNext() },
+                        enabled = capturedImages.isNotEmpty(),
+                    ) {
+                        Text("Next", color = Orange500, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBase)
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 24.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    "Add product images (1–4)",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    "One image is enough. Next: texture scan for verification.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                if (canAddMore) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Card(
+                            onClick = { AuraHaptics.subtleTap(haptic); onCamera() },
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(containerColor = DarkCard),
+                            shape = RoundedCornerShape(14.dp),
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Orange500, modifier = Modifier.size(40.dp))
+                                Text("Take photo", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                        Card(
+                            onClick = { AuraHaptics.subtleTap(haptic); onGallery() },
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(containerColor = DarkCard),
+                            shape = RoundedCornerShape(14.dp),
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, tint = Orange500, modifier = Modifier.size(40.dp))
+                                Text("From gallery", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    }
+                }
+            }
+            // Previews at bottom — shown as user adds photos
+            if (capturedImages.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "${capturedImages.size}/4",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                    ) {
+                        itemsIndexed(capturedImages) { index, ref ->
+                            Box(
+                                modifier = Modifier
+                                    .size(88.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .border(2.dp, Orange500.copy(alpha = 0.6f), RoundedCornerShape(12.dp)),
+                            ) {
+                                AsyncImage(
+                                    model = imageModelForRef(ref),
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
+                                )
+                                IconButton(
+                                    onClick = { AuraHaptics.subtleTap(haptic); onRemoveImage(index) },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(26.dp)
+                                        .background(Color.Black.copy(alpha = 0.6f), CircleShape),
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(14.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DetailsInitStep(
+    capturedImages: List<String>,
+    title: String,
+    onTitleChange: (String) -> Unit,
+    description: String,
+    onDescriptionChange: (String) -> Unit,
+    condition: String,
+    onConditionChange: (String) -> Unit,
+    category: String,
+    onCategoryChange: (String) -> Unit,
+    aiTags: List<String>,
+    aiAnalyzed: Boolean,
+    conditions: List<String>,
+    categories: List<String>,
+    onGenerateAi: () -> Unit,
+    onNext: () -> Unit,
+    onRetake: () -> Unit,
+    onAddMorePhotos: () -> Unit,
+    onAddFromGallery: () -> Unit,
+    canAddMore: Boolean,
+    onBack: () -> Unit,
+) {
+    val scrollState = rememberScrollState()
+    val haptic = LocalHapticFeedback.current
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Sell on Aura", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+                navigationIcon = {
+                    IconButton(onClick = { AuraHaptics.subtleTap(haptic); onBack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    TextButton(onClick = { AuraHaptics.lightTap(haptic); onNext() }) {
+                        Text("Next", color = Orange500, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBase)
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(scrollState)
+        ) {
+            if (capturedImages.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .background(DarkCard),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AsyncImage(
+                        model = imageModelForRef(capturedImages.first()),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                    if (canAddMore) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.Black.copy(alpha = 0.6f))
+                                    .clickable { AuraHaptics.subtleTap(haptic); onAddMorePhotos() }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    Text("Camera", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.Black.copy(alpha = 0.6f))
+                                    .clickable { AuraHaptics.subtleTap(haptic); onAddFromGallery() }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    Text("Gallery", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            AnimatedVisibility(visible = aiTags.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Orange500.copy(alpha = 0.08f))
+                        .padding(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Orange500, modifier = Modifier.size(16.dp))
+                        Text("AI Detected Tags", style = MaterialTheme.typography.labelMedium, color = Orange500, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(aiTags) { tag ->
+                            Box(
+                                modifier = Modifier
+                                    .background(Orange500.copy(alpha = 0.2f), RoundedCornerShape(20.dp))
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(tag, style = MaterialTheme.typography.labelSmall, color = Orange500)
+                            }
+                        }
+                    }
+                }
+            }
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("What are you selling?", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = onTitleChange,
+                        placeholder = { Text("Give your listing a title", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                }
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = onDescriptionChange,
+                    placeholder = { Text("Describe your item", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    modifier = Modifier.fillMaxWidth().height(100.dp),
+                    singleLine = false,
+                    shape = RoundedCornerShape(12.dp),
+                )
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Category", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(72.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(categories) { cat ->
+                            FilterChip(
+                                selected = category == cat,
+                                onClick = { AuraHaptics.subtleTap(haptic); onCategoryChange(cat) },
+                                label = { Text(cat, fontSize = 12.sp) },
+                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Orange500, selectedLabelColor = Color.Black),
+                                shape = RoundedCornerShape(8.dp),
+                            )
+                        }
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Condition", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(72.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        conditions.forEach { cond ->
+                            FilterChip(
+                                selected = condition == cond,
+                                onClick = { AuraHaptics.subtleTap(haptic); onConditionChange(cond) },
+                                label = { Text(cond, fontSize = 12.sp) },
+                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Orange500, selectedLabelColor = Color.Black),
+                                shape = RoundedCornerShape(8.dp),
+                            )
+                        }
+                    }
+                }
+                androidx.compose.material3.Button(
+                    onClick = onGenerateAi,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Orange500.copy(alpha = 0.3f)),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp), tint = Orange500)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (aiAnalyzed) "Regenerate with AI" else "Generate with AI", color = Orange500, fontWeight = FontWeight.Medium)
+                }
+                TextButton(onClick = { AuraHaptics.subtleTap(haptic); onRetake() }) {
+                    Text("Retake photo", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AntiSpoofingStep(
+    imagePath: String,
+    onPass: () -> Unit,
+    onFail: (String) -> Unit,
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "anti_spoof")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(animation = tween(1000, easing = LinearEasing), repeatMode = RepeatMode.Reverse),
+        label = "pulse",
+    )
+    val shimmerAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(animation = tween(700, easing = LinearEasing), repeatMode = RepeatMode.Reverse),
+        label = "shimmer",
+    )
+
+    LaunchedEffect(imagePath) {
+        if (imagePath.isBlank()) {
+            onFail("Image path missing")
+            return@LaunchedEffect
+        }
+        val bytes = withContext(Dispatchers.IO) { File(imagePath).readBytes() }
+        if (bytes.isEmpty()) {
+            onFail("Could not read image")
+            return@LaunchedEffect
+        }
+        val result = GroqAIService.runAntiSpoofing(bytes)
+        if (result.pass) {
+            onPass()
+        } else {
+            onFail(result.reason)
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(DarkVoid),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(32.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(120.dp)
+                    .scale(pulseScale)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Orange500.copy(alpha = 0.4f),
+                                Gold500.copy(alpha = 0.2f),
+                                Color.Transparent,
+                            ),
+                        ),
+                    )
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = Orange500.copy(alpha = shimmerAlpha),
+                    modifier = Modifier.size(56.dp),
+                )
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "Verifying physical presence",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 22.sp,
+                    color = Color.White,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "Anti-spoof check in progress…",
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            androidx.compose.material3.CircularProgressIndicator(
+                modifier = Modifier.size(40.dp),
+                color = Orange500,
+                strokeWidth = 3.dp,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun VerifyProductStep(
     imagePath: String,
     onVerify: (sunUrl: String?) -> Unit,
@@ -467,7 +970,7 @@ private fun VerifyProductStep(
             .background(DarkVoid)
     ) {
         AsyncImage(
-            model = "file://$imagePath",
+            model = imageModelForRef(imagePath),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
@@ -626,53 +1129,63 @@ private fun AiAnalyzingStep(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(DarkVoid),
+            .background(
+                Brush.verticalGradient(
+                    listOf(DarkVoid, DarkBase, DarkVoid),
+                )
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(32.dp),
+            verticalArrangement = Arrangement.spacedBy(40.dp),
+            modifier = Modifier.padding(32.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .size(120.dp)
+                    .size(140.dp)
                     .scale(pulseScale)
                     .clip(CircleShape)
+                    .border(
+                        2.dp,
+                        Brush.linearGradient(listOf(Orange500.copy(alpha = 0.6f), Gold500.copy(alpha = 0.3f))),
+                        CircleShape,
+                    )
                     .background(
                         Brush.radialGradient(
                             colors = listOf(
-                                Orange500.copy(alpha = 0.4f),
-                                Gold500.copy(alpha = 0.2f),
+                                Orange500.copy(alpha = 0.25f),
+                                Gold500.copy(alpha = 0.1f),
                                 Color.Transparent,
                             ),
                         ),
                     )
-                    .padding(24.dp),
+                    .padding(28.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     Icons.Default.AutoAwesome,
                     contentDescription = null,
                     tint = Orange500.copy(alpha = shimmerAlpha),
-                    modifier = Modifier.size(56.dp),
+                    modifier = Modifier.size(64.dp),
                 )
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "AI is analyzing your product",
+                    "AI is filling your details",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 22.sp,
+                    fontSize = 24.sp,
                     color = Color.White,
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    "Identifying item and filling details…",
+                    "Identifying item, title, description & category…",
                     fontSize = 15.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                    textAlign = TextAlign.Center,
                 )
             }
             CircularProgressIndicator(
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(44.dp),
                 color = Orange500,
                 strokeWidth = 3.dp,
             )
@@ -700,6 +1213,8 @@ private fun PublishDetailsStep(
     categories: List<String>,
     hasLocationPermission: Boolean,
     onRequestLocation: () -> Unit,
+    meetupRadiusMeters: Int = 50,
+    onMeetupRadiusChange: (Int) -> Unit = {},
     errorMsg: String?,
     isSubmitting: Boolean,
     onBack: () -> Unit,
@@ -762,7 +1277,7 @@ private fun PublishDetailsStep(
                     contentAlignment = Alignment.Center,
                 ) {
                     AsyncImage(
-                        model = "file://${capturedImages.first()}",
+                        model = imageModelForRef(capturedImages.first()),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
@@ -796,7 +1311,7 @@ private fun PublishDetailsStep(
                                         .border(2.dp, Orange500, RoundedCornerShape(8.dp))
                                 ) {
                                     AsyncImage(
-                                        model = "file://$path",
+                                        model = imageModelForRef(path),
                                         contentDescription = null,
                                         modifier = Modifier.fillMaxSize(),
                                         contentScale = ContentScale.Crop,
@@ -926,33 +1441,63 @@ private fun PublishDetailsStep(
                     }
                 }
 
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Meetup radius", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(100.dp))
+                    listOf(50, 100, 200, 500).forEach { radius ->
+                        FilterChip(
+                            selected = meetupRadiusMeters == radius,
+                            onClick = { AuraHaptics.subtleTap(haptic); onMeetupRadiusChange(radius) },
+                            label = { Text("${radius}m", fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Orange500, selectedLabelColor = Color.Black),
+                            shape = RoundedCornerShape(8.dp),
+                        )
+                    }
+                }
+
                 Divider(color = MaterialTheme.colorScheme.outlineVariant)
 
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     Text("Price", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(DarkCard)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        DarkCard,
+                                        DarkCard.copy(alpha = 0.98f),
+                                    )
+                                )
+                            )
                             .border(
-                                1.dp,
-                                Brush.linearGradient(listOf(Orange500.copy(0.3f), Gold500.copy(0.2f))),
-                                RoundedCornerShape(16.dp),
+                                1.5.dp,
+                                Brush.linearGradient(listOf(Orange500.copy(0.5f), Gold500.copy(0.35f))),
+                                RoundedCornerShape(18.dp),
                             )
-                            .padding(20.dp),
+                            .padding(24.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.Center,
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("◎", fontSize = 26.sp, color = Orange500, fontWeight = FontWeight.Bold)
-                            PremiumPriceTextField(
-                                value = priceSol,
-                                onValueChange = onPriceChange,
-                                modifier = Modifier.focusRequester(priceFocusRequester),
-                            )
-                        }
-                        Text("SOL", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("◎", fontSize = 28.sp, color = Orange500, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        PremiumPriceTextField(
+                            value = priceSol,
+                            onValueChange = onPriceChange,
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(priceFocusRequester),
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(
+                            "SOL",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     Row(
                         modifier = Modifier
@@ -983,31 +1528,35 @@ private fun PremiumPriceTextField(
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val textStyle = MaterialTheme.typography.headlineMedium.copy(
+        color = MaterialTheme.colorScheme.onSurface,
+        fontWeight = FontWeight.Bold,
+        textAlign = TextAlign.Center,
+    )
     BasicTextField(
         value = value,
         onValueChange = { s -> onValueChange(s.filter { c -> c.isDigit() || c == '.' }) },
         modifier = modifier
-            .widthIn(min = 120.dp)
-            .defaultMinSize(minWidth = 120.dp, minHeight = 48.dp),
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp),
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
-        textStyle = MaterialTheme.typography.headlineMedium.copy(
-            color = MaterialTheme.colorScheme.onSurface,
-            fontWeight = FontWeight.Bold,
-        ),
+        textStyle = textStyle,
         cursorBrush = Brush.linearGradient(listOf(Orange500, Gold500)),
         decorationBox = { inner ->
-            Box {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
                 if (value.isEmpty()) {
                     Text(
                         "0.00",
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.5f),
-                            fontWeight = FontWeight.Bold,
-                        ),
+                        style = textStyle.copy(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)),
                     )
                 }
-                inner()
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
+                    inner()
+                }
             }
         },
     )

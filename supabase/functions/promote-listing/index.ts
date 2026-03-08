@@ -15,11 +15,74 @@ serve(async (req) => {
     }
 
     try {
-        const { listingId, txSignature, sellerWallet } = await req.json();
+        const { listingId, txSignature, sellerWallet, useAuraPoints } = await req.json();
 
-        if (!listingId || !txSignature || !sellerWallet) {
+        if (!listingId || !sellerWallet) {
             return new Response(
-                JSON.stringify({ error: "listingId, txSignature, and sellerWallet are required" }),
+                JSON.stringify({ error: "listingId and sellerWallet are required" }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+        }
+
+        // Aura points path: 50 points for 24h (client deducts locally)
+        if (useAuraPoints === true) {
+            const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+            const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+            const supabase = createClient(supabaseUrl, supabaseKey);
+
+            const { data: listing, error: fetchError } = await supabase
+                .from("marketplace_listings")
+                .select("seller_wallet")
+                .eq("id", listingId)
+                .single();
+
+            if (fetchError || !listing) {
+                return new Response(
+                    JSON.stringify({ error: "Listing not found" }),
+                    { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+            }
+
+            if (listing.seller_wallet !== sellerWallet) {
+                return new Response(
+                    JSON.stringify({ error: "Only the seller can promote this listing" }),
+                    { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+            }
+
+            const promotedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+            const promotedAt = new Date().toISOString();
+
+            const { error: updateError } = await supabase
+                .from("marketplace_listings")
+                .update({
+                    is_promoted: true,
+                    promoted_at: promotedAt,
+                    promoted_until: promotedUntil,
+                })
+                .eq("id", listingId);
+
+            if (updateError) {
+                return new Response(
+                    JSON.stringify({ error: updateError.message }),
+                    { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+            }
+
+            return new Response(
+                JSON.stringify({
+                    success: true,
+                    message: "Listing promoted for 24 hours (50 Aura points)",
+                    promoted_until: promotedUntil,
+                }),
+                { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+        }
+
+        // SOL path (legacy)
+        if (!txSignature) {
+            return new Response(
+                JSON.stringify({ error: "txSignature is required when not using Aura points" }),
                 { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
         }
@@ -51,7 +114,6 @@ serve(async (req) => {
         }
 
         // 2. Find SOL transfer from seller -> treasury for 10 SOL
-        const accountKeys = tx.transaction.message.accountKeys;
         const signerIndex = tx.transaction.message.accountKeys.findIndex(
             (k) => "pubkey" in k && k.pubkey.toBase58() === sellerWallet
         );

@@ -24,6 +24,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,12 +42,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Nfc
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -86,6 +89,7 @@ import androidx.camera.core.ImageCaptureException
 import androidx.core.content.ContextCompat
 import com.aura.app.data.AuraRepository
 import com.aura.app.ui.components.AuraFullScreenCamera
+import com.aura.app.ui.components.AuraQrScanner
 import com.aura.app.ui.components.GlassCard
 import com.aura.app.model.TradeState
 import com.aura.app.ui.theme.DarkBase
@@ -98,6 +102,7 @@ import com.aura.app.util.NfcHandoverManager
 import com.aura.app.util.NfcHandshakeResult
 import com.aura.app.wallet.WalletConnectionState
 import com.aura.app.ui.util.HapticEngine
+import com.aura.app.ui.util.pulseGlow
 import com.aura.app.ui.util.springScale
 import com.funkatronics.encoders.Base58
 import com.google.zxing.BarcodeFormat
@@ -113,6 +118,7 @@ import kotlinx.coroutines.tasks.await
 @Composable
 fun MeetSessionScreen(
     onHandshakeComplete: () -> Unit,
+    onStartTransaction: () -> Unit,
     onBack: () -> Unit,
 ) {
     val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
@@ -127,6 +133,11 @@ fun MeetSessionScreen(
     var geofencePassed by remember { androidx.compose.runtime.mutableStateOf(false) }
     var consecutiveInRange by remember { androidx.compose.runtime.mutableStateOf(0) }
     var showPhotoCamera by rememberSaveable { mutableStateOf(false) }
+    var showQrFallback by rememberSaveable { mutableStateOf(false) }
+    var verifiedPhotoBase64 by rememberSaveable { mutableStateOf<String?>(null) }
+    var showAiMismatchPopup by remember { mutableStateOf(false) }
+    var aiMismatchMessage by remember { mutableStateOf("") }
+    var showQrScanner by remember { mutableStateOf(false) }
     val imageCapture = remember { ImageCapture.Builder().build() }
     val context = LocalContext.current
     val activity = context as? Activity
@@ -137,25 +148,37 @@ fun MeetSessionScreen(
 
     val view = LocalView.current
     val scope = rememberCoroutineScope()
+    val releaseInProgress = remember { AtomicBoolean(false) }
+    val photoReleaseInProgress = remember { AtomicBoolean(false) }
 
-    // Disable NFC when listing has no NFC data — we use photo verification instead
-    DisposableEffect(hasNfcVerification) {
+    // Enable phone-to-phone NFC on payment release (both buyer and seller can tap)
+    DisposableEffect(aiScanDone) {
         activity?.let { act ->
-            if (!hasNfcVerification) {
-                NfcHandoverManager.disable(act)
-            } else {
+            if (aiScanDone) {
                 NfcHandoverManager.enable(act)
+            } else {
+                NfcHandoverManager.disable(act)
             }
         }
         onDispose {
             activity?.let { NfcHandoverManager.enable(it) }
+            releaseInProgress.set(false)
+            photoReleaseInProgress.set(false)
         }
     }
 
     LaunchedEffect(session?.state) {
-        if (session?.state == TradeState.VERIFIED_PASS) {
-            aiScanDone = true
+        when (session?.state) {
+            TradeState.VERIFIED_PASS -> aiScanDone = true
+            TradeState.BOTH_PRESENT -> {
+                if (walletAddress == session?.buyerWallet) onHandshakeComplete()
+            }
+            else -> {}
         }
+    }
+
+    LaunchedEffect(nfcState) {
+        if (nfcState is NfcHandshakeResult.Confirmed) qrHandshakeDone = true
     }
 
     // Urban Canyon (#1) + Drive-By (#9) fix: 50m radius, sustained 10s proximity required
@@ -183,45 +206,54 @@ fun MeetSessionScreen(
         }
     }
 
-    // Premature verification (#12) fix: only auto-release when user confirms (no accidental brush)
-    var confirmReleaseClicked by remember { mutableStateOf(false) }
-    val releaseInProgress = remember { AtomicBoolean(false) }
-    val photoReleaseInProgress = remember { AtomicBoolean(false) }
-    LaunchedEffect(hasNfcVerification, nfcState, confirmReleaseClicked) {
-        if (!hasNfcVerification) return@LaunchedEffect
+    // Auto-release on phone tap — seller reads buyer's phone, triggers release
+    LaunchedEffect(nfcState) {
         if (nfcState is NfcHandshakeResult.Error) {
             HapticEngine.triggerThud(view)
             nfcError = (nfcState as NfcHandshakeResult.Error).reason
             return@LaunchedEffect
         }
-        if (nfcState !is NfcHandshakeResult.Confirmed || !confirmReleaseClicked) return@LaunchedEffect
+        if (nfcState !is NfcHandshakeResult.Confirmed) return@LaunchedEffect
         if (!releaseInProgress.compareAndSet(false, true)) return@LaunchedEffect
-        if (!qrHandshakeDone || !geofencePassed || !aiScanDone) {
-            releaseInProgress.set(false)
-            nfcError = "Complete QR handshake, 10m geofence check, and AI item verification before releasing funds."
-            return@LaunchedEffect
-        }
         val confirmedState = nfcState as NfcHandshakeResult.Confirmed
         HapticEngine.triggerSuccess(view)
         nfcError = null
         isVerifying = true
         NfcHandoverManager.reset()
         session?.let { s ->
-                try {
+            try {
                 val listing = AuraRepository.getListing(s.listingId)
                 val metadataUri = listing?.images?.firstOrNull() ?: ""
                 val assetTitle = listing?.title ?: "Aura Verified Asset"
-                val result = AuraRepository.releaseEscrowWithNfc(
+                // Phone-to-phone: no sdm/cmac → use photo release. Physical tag: use verify-sun.
+                val result = if (confirmedState.sdmDataHex.isNotBlank() && confirmedState.cmacHex.isNotBlank()) {
+                    AuraRepository.releaseEscrowWithNfc(
                     tradeId = s.id,
-                    sdmDataHex = confirmedState.sdmDataHex,
-                    receivedCmacHex = confirmedState.cmacHex,
-                    assetUri = metadataUri,
-                    assetTitle = assetTitle,
-                )
+                        sdmDataHex = confirmedState.sdmDataHex,
+                        receivedCmacHex = confirmedState.cmacHex,
+                        assetUri = metadataUri,
+                        assetTitle = assetTitle,
+                    )
+                } else {
+                    // Phone tap: use verified photo to release
+                    val photo = verifiedPhotoBase64
+                    if (photo == null) {
+                        releaseInProgress.set(false)
+                        nfcError = "No verified photo. Complete AI scan first."
+                        isVerifying = false
+                        return@LaunchedEffect
+                    }
+                    AuraRepository.releaseEscrowWithPhoto(
+                        tradeId = s.id,
+                        listingId = s.listingId,
+                        photoBase64 = photo,
+                        assetUri = metadataUri,
+                        assetTitle = assetTitle,
+                    )
+                }
                 when (result) {
                     is AuraRepository.ReleaseResult.Success -> {
                         releaseInProgress.set(false)
-                        confirmReleaseClicked = false
                         AuraRepository.updateTradeReceiptMints(result.receiptMintBuyer, result.receiptMintSeller)
                         AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
                         onHandshakeComplete()
@@ -281,6 +313,20 @@ fun MeetSessionScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
+                actions = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            if (!aiScanDone) {
+                                aiScanDone = true
+                                AuraRepository.updateTradeState(TradeState.VERIFIED_PASS)
+                            } else {
+                                onHandshakeComplete()
+                            }
+                        },
+                    ) {
+                        Text("Help", style = MaterialTheme.typography.labelSmall)
+                    }
+                },
                 colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
                     containerColor = DarkBase,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -296,87 +342,122 @@ fun MeetSessionScreen(
         val screenPadding = if (isCompact) 16.dp else 24.dp
         val qrSize = if (isCompact) 160.dp else 180.dp
 
-        // Photo capture overlay (non-NFC flow only)
-        if (showPhotoCamera && !hasNfcVerification) {
-            AuraFullScreenCamera(
-                onCapture = { imageCapture ->
-                    try {
-                        val photoFile = java.io.File(context.cacheDir, "meet_verify_${System.currentTimeMillis()}.jpg")
-                        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-                        imageCapture.takePicture(
-                            outputOptions,
-                            ContextCompat.getMainExecutor(context),
-                            object : ImageCapture.OnImageSavedCallback {
-                                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                                    showPhotoCamera = false
-                                    isVerifying = true
-                                    scope.launch {
-                                        if (!photoReleaseInProgress.compareAndSet(false, true)) return@launch
-                                        try {
-                                            val bytes = kotlin.runCatching { photoFile.readBytes() }.getOrNull()
-                                            photoFile.delete()
-                                            if (bytes == null || bytes.isEmpty()) {
-                                                photoReleaseInProgress.set(false)
-                                                nfcError = "Photo could not be read."
+        // ── Step 1: Full-screen AI Scan ── Buyer points phone at item, AI verifies
+        if (!aiScanDone) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                AuraFullScreenCamera(
+                    showGuideFrame = true,
+                    captureLabel = "Scan Item for Proof",
+                    onCapture = { cap ->
+                        try {
+                            val photoFile = java.io.File(context.cacheDir, "meet_verify_${System.currentTimeMillis()}.jpg")
+                            val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+                            cap.takePicture(
+                                outputOptions,
+                                ContextCompat.getMainExecutor(context),
+                                object : ImageCapture.OnImageSavedCallback {
+                                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                                        isVerifying = true
+                                        scope.launch {
+                                            try {
+                                                val bytes = kotlin.runCatching { photoFile.readBytes() }.getOrNull()
+                                                photoFile.delete()
+                                                if (bytes != null && bytes.isNotEmpty()) {
+                                                    val lid = session?.listingId ?: ""
+                                                    val res = AuraRepository.verifyPhoto(lid, bytes)
+                                                    if (res.pass) {
+                                                        verifiedPhotoBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                                                        aiScanDone = true
+                                                        AuraRepository.updateTradeState(TradeState.VERIFIED_PASS)
+                                                        HapticEngine.triggerSuccess(view)
+                                                    } else {
+                                                        aiMismatchMessage = res.reason.ifBlank { "Item doesn't match listing." }
+                                                        showAiMismatchPopup = true
+                                                        HapticEngine.triggerThud(view)
+                                                    }
+                                                } else {
+                                                    aiMismatchMessage = "Photo could not be read."
+                                                    showAiMismatchPopup = true
+                                                }
+                                            } catch (e: Exception) {
+                                                aiMismatchMessage = e.message ?: "Verification failed"
+                                                showAiMismatchPopup = true
+                                            } finally {
                                                 isVerifying = false
-                                                return@launch
                                             }
-                                            val sid = session?.id ?: return@launch
-                                            val lid = session?.listingId ?: return@launch
-                                            val l = AuraRepository.getListing(lid)
-                                            val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                                            val result = AuraRepository.releaseEscrowWithPhoto(
-                                                tradeId = sid,
-                                                listingId = lid,
-                                                photoBase64 = base64,
-                                                assetUri = l?.images?.firstOrNull() ?: "",
-                                                assetTitle = l?.title ?: "Aura Verified Asset",
-                                            )
-                                            isVerifying = false
-                                            when (result) {
-                                                is AuraRepository.ReleaseResult.Success -> {
-                                                    HapticEngine.triggerSuccess(view)
-                                                    AuraRepository.updateTradeReceiptMints(result.receiptMintBuyer, result.receiptMintSeller)
-                                                    AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
-                                                    onHandshakeComplete()
-                                                }
-                                                is AuraRepository.ReleaseResult.OfflineQueued -> {
-                                                    nfcError = "You're offline. Try again when connected."
-                                                    HapticEngine.triggerThud(view)
-                                                }
-                                                is AuraRepository.ReleaseResult.Failed -> {
-                                                    nfcError = result.reason
-                                                    HapticEngine.triggerThud(view)
-                                                }
-                                            }
-                                        } catch (e: Exception) {
-                                            photoReleaseInProgress.set(false)
-                                            nfcError = e.message ?: "Release failed"
-                                            HapticEngine.triggerThud(view)
-                                        } finally {
-                                            photoReleaseInProgress.set(false)
-                                            isVerifying = false
                                         }
                                     }
-                                }
-                                override fun onError(exception: ImageCaptureException) {
-                                    showPhotoCamera = false
-                                    isVerifying = false
-                                    nfcError = exception.message ?: "Capture failed"
-                                    HapticEngine.triggerThud(view)
-                                }
-                            },
-                        )
-                    } catch (e: Exception) {
-                        showPhotoCamera = false
-                        nfcError = e.message ?: "Capture failed"
-                        HapticEngine.triggerThud(view)
+                                    override fun onError(exception: ImageCaptureException) {
+                                        isVerifying = false
+                                        aiMismatchMessage = exception.message ?: "Capture failed"
+                                        showAiMismatchPopup = true
+                                    }
+                                },
+                            )
+                        } catch (e: Exception) {
+                            aiMismatchMessage = e.message ?: "Capture failed"
+                            showAiMismatchPopup = true
+                        }
+                    },
+                    onClose = onBack,
+                )
+                // AI Verifying overlay
+                if (isVerifying) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.7f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                color = Orange500,
+                                modifier = Modifier.size(64.dp),
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                "AI Verifying…",
+                                color = Color.White,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                "Matching item to listing",
+                                color = Color.White.copy(alpha = 0.8f),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                     }
-                },
-                onClose = { showPhotoCamera = false },
-            )
+                }
+                // AI mismatch popup — show AI feedback when verification fails
+                if (showAiMismatchPopup) {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { showAiMismatchPopup = false },
+                        title = { Text("AI Verification", fontWeight = FontWeight.Bold) },
+                        text = {
+                            Text(
+                                aiMismatchMessage,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = { showAiMismatchPopup = false },
+                                colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
+                            ) {
+                                Text("OK")
+                            }
+                        },
+                        containerColor = DarkBase,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface,
+                        textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             return@Scaffold
         }
+
+        // ── Step 2: Full-screen Payment Release (NFC tap or QR) ──
 
         Column(
             modifier = Modifier
@@ -390,7 +471,7 @@ fun MeetSessionScreen(
             session?.listingId?.let { lid ->
                 val listing = AuraRepository.getListing(lid)
                 listing?.let { l ->
-                    GlassCard(modifier = Modifier.fillMaxWidth(), glowColor = Orange500.copy(alpha = 0.5f), cornerRadius = 12.dp) {
+                    GlassCard(modifier = Modifier.fillMaxWidth(0.92f), glowColor = Orange500.copy(alpha = 0.5f), cornerRadius = 12.dp) {
                         Row(
                             modifier = Modifier.padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -404,7 +485,8 @@ fun MeetSessionScreen(
                 }
             }
 
-            if (hasNfcVerification) {
+            // Phone-to-phone tap: buyer holds phone, seller taps to read and release
+            val isBuyer = walletAddress == session?.buyerWallet
             AnimatedContent(
                 targetState = nfcState,
                 transitionSpec = { fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(200)) },
@@ -416,22 +498,22 @@ fun MeetSessionScreen(
                 ) {
                     when (state) {
                         is NfcHandshakeResult.Waiting -> {
-                            NfcPulsingRings()
+                            TapPhonesGraphic(modifier = Modifier.pulseGlow())
                             Text(
-                                "Tap the physical item's chip",
+                                "Tap your phones together",
                                 style = MaterialTheme.typography.headlineSmall,
                                 textAlign = TextAlign.Center,
                             )
                             Text(
-                                "NTAG 424 DNA",
+                                if (isBuyer) "Hold your phone — seller will tap to complete" else "Tap the buyer's phone to complete the sale",
                                 style = MaterialTheme.typography.bodyMedium,
-                                fontFamily = FontFamily.Monospace,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
                             )
-                            if (qrBitmap != null) {
+                            if (showQrFallback && qrBitmap != null) {
                                 Spacer(modifier = Modifier.height(20.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("No NFC? Scan QR instead", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Dynamic QR — refreshes every 90s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     androidx.compose.material3.TextButton(onClick = { qrRefreshKey++ }) {
                                         Text("Refresh", style = MaterialTheme.typography.labelSmall)
                                     }
@@ -455,6 +537,16 @@ fun MeetSessionScreen(
                                     }
                                 }
                             }
+                            Spacer(modifier = Modifier.height(24.dp))
+                            OutlinedButton(
+                                onClick = { showQrFallback = !showQrFallback },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Orange500),
+                            ) {
+                                Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(22.dp), tint = Orange500)
+                                Spacer(modifier = Modifier.size(10.dp))
+                                Text(if (showQrFallback) "Hide QR Code" else "No NFC? Use QR Code Instead", fontWeight = FontWeight.SemiBold)
+                            }
                         }
                         is NfcHandshakeResult.Confirmed -> {
                             Icon(
@@ -463,18 +555,18 @@ fun MeetSessionScreen(
                                 modifier = Modifier.size(96.dp),
                                 tint = SuccessGreen,
                             )
-                            Text("Chip Verified ✓", style = MaterialTheme.typography.headlineSmall)
+                            Text("Phone tap verified ✓", style = MaterialTheme.typography.headlineSmall)
                             Text(
-                                "Tap below to confirm release — prevents accidental verification",
-                                style = MaterialTheme.typography.bodySmall,
+                                if (isVerifying) "Releasing funds…" else "Release triggered automatically",
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
                             )
-                            Button(
-                                onClick = { confirmReleaseClicked = true },
-                                colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen, contentColor = Color.Black),
-                            ) {
-                                Text("Confirm Release Funds")
+                            if (isVerifying) {
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    modifier = Modifier.size(40.dp),
+                                    color = SuccessGreen,
+                                )
                             }
                         }
                         is NfcHandshakeResult.Error -> {
@@ -500,96 +592,61 @@ fun MeetSessionScreen(
                                 tint = MaterialTheme.colorScheme.error
                             )
                             Text(
-                                "NFC Required",
+                                "No NFC on this device",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.error
                             )
                             Text(
-                                "This device cannot verify NFC tags. Both parties must use an NFC-capable device to complete a trade. " +
-                                    "The physical item's NTAG 424 DNA chip must be tapped to release escrow funds.",
+                                "Use QR code or scan to complete.",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
                             )
+                            if (showQrFallback && qrBitmap != null) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                GlassCard(glowColor = Orange500, cornerRadius = 16.dp) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(qrSize)
+                                            .padding(if (isCompact) 8.dp else 12.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color.White),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Image(
+                                            bitmap = qrBitmap.asImageBitmap(),
+                                            contentDescription = "QR Code",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Fit,
+                                        )
+                                    }
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = { showQrFallback = !showQrFallback },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Orange500),
+                            ) {
+                                Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(22.dp), tint = Orange500)
+                                Spacer(modifier = Modifier.size(10.dp))
+                                Text(if (showQrFallback) "Hide QR" else "Show your QR", fontWeight = FontWeight.SemiBold)
+                            }
+                            Button(
+                                onClick = {
+                                    if (verifiedPhotoBase64 == null) { nfcError = "Complete AI scan first."; return@Button }
+                                    showQrScanner = true
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen, contentColor = Color.Black),
+                            ) {
+                                Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(22.dp))
+                                Spacer(modifier = Modifier.size(10.dp))
+                                Text("Scan buyer's QR to release", fontWeight = FontWeight.Bold)
+                            }
                         }
                         is NfcHandshakeResult.Idle -> {
                             Text("Initializing NFC…", style = MaterialTheme.typography.bodyMedium)
                         }
-                    }
-                }
-            }
-            } else {
-                // Photo verification flow (no NFC at publish)
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Icon(
-                        Icons.Default.CameraAlt,
-                        contentDescription = null,
-                        modifier = Modifier.size(96.dp),
-                        tint = Orange500,
-                    )
-                    Text(
-                        "Verify with photo",
-                        style = MaterialTheme.typography.headlineSmall,
-                        textAlign = TextAlign.Center,
-                    )
-                    Text(
-                        "This item wasn't published with NFC. Take a photo to verify it matches the listing.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-                    Button(
-                        onClick = {
-                            if (hasCameraPermission) {
-                                showPhotoCamera = true
-                            } else {
-                                permissionLauncher.launch(Manifest.permission.CAMERA)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
-                        enabled = qrHandshakeDone && geofencePassed && aiScanDone,
-                    ) {
-                        Text("Take photo to verify & release")
-                    }
-                    if (!qrHandshakeDone || !geofencePassed || !aiScanDone) {
-                        Text(
-                            "Complete the checklist below first.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-
-            // NFC / verification error feedback
-            Spacer(modifier = Modifier.height(14.dp))
-            GlassCard(modifier = Modifier.fillMaxWidth(), glowColor = Orange500, cornerRadius = 14.dp) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Meetup Security Checklist", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Button(
-                        onClick = { qrHandshakeDone = !qrHandshakeDone },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (qrHandshakeDone) SuccessGreen else Orange500,
-                            contentColor = Color.Black,
-                        ),
-                    ) {
-                        Text(if (qrHandshakeDone) "QR Handshake Complete" else "Confirm QR Handshake")
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(if (geofencePassed) "GPS Geofence: within 20m (10s sustained)" else "GPS Geofence: hold position 10s", color = if (geofencePassed) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Button(
-                        onClick = { aiScanDone = !aiScanDone },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (aiScanDone) SuccessGreen else Orange500,
-                            contentColor = Color.Black,
-                        ),
-                    ) {
-                        Text(if (aiScanDone) "AI Item Verification Complete" else "Confirm AI Item Verification")
                     }
                 }
             }
@@ -643,9 +700,9 @@ fun MeetSessionScreen(
                         } else {
                             Button(onClick = {
                                 nfcError = null
-                                if (hasNfcVerification) NfcHandoverManager.reset() else { /* photo flow: user can retry photo */ }
+                                NfcHandoverManager.reset()
                             }) {
-                                Text(if (hasNfcVerification) "Retry NFC Tap" else "Retry")
+                                Text("Retry")
                             }
                         }
                     }
@@ -659,10 +716,109 @@ fun MeetSessionScreen(
                     modifier = Modifier.size(32.dp)
                 )
                 Text(
-                    if (hasNfcVerification) "Verifying chip & releasing escrow…" else "Verifying photo & releasing escrow…",
+                    "Releasing escrow…",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            // QR Scanner overlay — seller scans buyer's QR to release (non-NFC only)
+            if (showQrScanner) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AuraQrScanner(
+                        onScan = { raw ->
+                            showQrScanner = false
+                            val parts = raw.split(":")
+                            if (parts.size >= 4 && parts[0] == "aura" && parts[1] == "meet") {
+                                val scannedSessionId = parts[2]
+                                val scannedWallet = parts.getOrNull(3) ?: ""
+                                val sid = session?.id ?: return@AuraQrScanner
+                                val lid = session?.listingId ?: return@AuraQrScanner
+                                if (scannedSessionId != sid) {
+                                    nfcError = "QR doesn't match this trade."
+                                    return@AuraQrScanner
+                                }
+                                val photo = verifiedPhotoBase64 ?: run {
+                                    nfcError = "No verified photo."
+                                    return@AuraQrScanner
+                                }
+                                if (!photoReleaseInProgress.compareAndSet(false, true)) return@AuraQrScanner
+                                scope.launch {
+                                    try {
+                                        val l = AuraRepository.getListing(lid)
+                                        val result = AuraRepository.releaseEscrowWithPhoto(
+                                            tradeId = sid,
+                                            listingId = lid,
+                                            photoBase64 = photo,
+                                            assetUri = l?.images?.firstOrNull() ?: "",
+                                            assetTitle = l?.title ?: "Aura Verified Asset",
+                                        )
+                                        when (result) {
+                                            is AuraRepository.ReleaseResult.Success -> {
+                                                HapticEngine.triggerSuccess(view)
+                                                AuraRepository.updateTradeReceiptMints(result.receiptMintBuyer, result.receiptMintSeller)
+                                                if (result.receiptMintError != null) {
+                                                    AuraRepository.setLastReceiptMintError(result.receiptMintError)
+                                                    nfcError = "Receipt mint failed: ${result.receiptMintError}"
+                                                }
+                                                AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
+                                                onHandshakeComplete()
+                                            }
+                                            is AuraRepository.ReleaseResult.OfflineQueued ->
+                                                nfcError = "You're offline. Try again when connected."
+                                            is AuraRepository.ReleaseResult.Failed ->
+                                                nfcError = result.reason
+                                        }
+                                    } catch (e: Exception) {
+                                        nfcError = e.message ?: "Release failed"
+                                    } finally {
+                                        photoReleaseInProgress.set(false)
+                                    }
+                                }
+                            } else {
+                                nfcError = "Invalid QR. Scan the buyer's Aura meet QR."
+                            }
+                        },
+                        onClose = { showQrScanner = false },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TapPhonesGraphic(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.size(120.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Orange500.copy(alpha = 0.3f))
+                    .border(2.dp, Orange500, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Nfc, contentDescription = null, modifier = Modifier.size(28.dp), tint = Orange500)
+            }
+            Spacer(modifier = Modifier.size(8.dp))
+            Icon(Icons.Default.Nfc, contentDescription = null, modifier = Modifier.size(40.dp), tint = Orange500)
+            Spacer(modifier = Modifier.size(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Orange500.copy(alpha = 0.3f))
+                    .border(2.dp, Orange500, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Nfc, contentDescription = null, modifier = Modifier.size(28.dp), tint = Orange500)
             }
         }
     }

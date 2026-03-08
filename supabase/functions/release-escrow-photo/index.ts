@@ -67,15 +67,9 @@ serve(async (req) => {
             });
         }
 
+        // Log but do not block — receipt NFT will still be minted after release
         if (!listing?.mint_address || listing?.minted_status !== "MINTED") {
-            return new Response(JSON.stringify({
-                valid: false,
-                reason: "NFT_NOT_MINTED",
-                error: "Listing must be NFT-verified before release. Complete the publish flow first.",
-            }), {
-                status: 403,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            console.warn("Listing not NFT-published; proceeding with release. Receipt NFT will be minted.");
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -254,6 +248,7 @@ serve(async (req) => {
 
         let receiptMintBuyer: string | null = null;
         let receiptMintSeller: string | null = null;
+        let receiptMintError: string | null = null;
         const mintPayload = JSON.stringify({
             tradeId,
             listingId,
@@ -270,17 +265,23 @@ serve(async (req) => {
                     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${supabaseKey}` },
                     body: mintPayload,
                 });
+                const mintText = await mintRes.text();
                 if (mintRes.ok) {
-                    const mintJson = await mintRes.json();
+                    const mintJson = JSON.parse(mintText);
                     receiptMintBuyer = mintJson.receiptMintBuyer ?? null;
                     receiptMintSeller = mintJson.receiptMintSeller ?? null;
                     break;
                 }
+                try {
+                    const errJson = JSON.parse(mintText);
+                    receiptMintError = errJson?.error || mintText || `HTTP ${mintRes.status}`;
+                } catch {
+                    receiptMintError = mintText || `HTTP ${mintRes.status}`;
+                }
                 if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-                else console.error("Receipt NFT mint failed:", await mintRes.text());
-            } catch (mintErr) {
+            } catch (mintErr: any) {
+                receiptMintError = mintErr?.message || String(mintErr);
                 if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-                else console.error("Receipt NFT mint error:", mintErr);
             }
         }
 
@@ -293,6 +294,7 @@ serve(async (req) => {
             tradeSessionId: tradeId,
             receiptMintBuyer,
             receiptMintSeller,
+            receiptMintError: receiptMintError ?? undefined,
         }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });

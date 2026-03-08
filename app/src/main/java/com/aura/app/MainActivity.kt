@@ -51,6 +51,14 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 Log.w("MainActivity", "HotzoneManager init failed", e)
             }
+            try {
+                val mapsKey = com.aura.app.BuildConfig.MAPS_API_KEY
+                if (mapsKey.isNotBlank()) {
+                    com.google.android.libraries.places.api.Places.initializeWithNewPlacesApiEnabled(applicationContext, mapsKey)
+                }
+            } catch (e: Exception) {
+                Log.w("MainActivity", "Places SDK init failed (location picker may not work)", e)
+            }
             com.aura.app.data.DirectivesManager.generateDailyDirectives()
             lifecycleScope.launch {
                 OfficialListingSeeder.seedIfNeeded(applicationContext)

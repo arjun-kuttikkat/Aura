@@ -7,8 +7,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -61,6 +64,7 @@ import com.aura.app.ui.theme.ErrorRed
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SuccessGreen
+import com.aura.app.ui.util.breathe
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -84,6 +88,8 @@ fun VerifyItemScreen(
     Box(modifier = Modifier.fillMaxSize().background(DarkBase)) {
         if (showFullScreenCamera && result == null) {
             AuraFullScreenCamera(
+                showGuideFrame = true,
+                captureLabel = "Scan Item for Proof",
                 onCapture = { imageCapture ->
                     try {
                         val photoFile = java.io.File(context.cacheDir, "verify_${System.currentTimeMillis()}.jpg")
@@ -178,7 +184,10 @@ fun VerifyItemScreen(
             ) {
                 AnimatedContent(
                     targetState = result,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    transitionSpec = {
+                        (slideInVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)) { it / 4 } + fadeIn()) togetherWith
+                            (fadeOut())
+                    },
                     label = "verify_result",
                 ) { res ->
                     when {
@@ -235,7 +244,7 @@ fun VerifyItemScreen(
                                     shape = RoundedCornerShape(18.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
                                 ) {
-                                    Text("Open Camera", fontWeight = FontWeight.Bold)
+                                    Text("Scan Item for Proof", fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -287,7 +296,7 @@ fun VerifyItemScreen(
                                         shape = RoundedCornerShape(18.dp),
                                         colors = ButtonDefaults.buttonColors(containerColor = Gold500, contentColor = Color.Black),
                                     ) {
-                                        Text("Continue to Pay", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                        Text("Continue to Release", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                                     }
                                 }
                             }
@@ -302,7 +311,8 @@ fun VerifyItemScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.7f)),
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .breathe(),
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {

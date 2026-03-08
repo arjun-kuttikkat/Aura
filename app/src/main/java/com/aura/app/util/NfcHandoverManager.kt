@@ -161,22 +161,26 @@ object NfcHandoverManager {
                 val sunUrl = parseNdefUrl(ndefBytes)
 
                 if (sunUrl != null) {
-                    Log.i(TAG, "SUN URL read: $sunUrl")
+                    Log.i(TAG, "URL read: $sunUrl")
                     val piccMatch = Regex("picc_data=([0-9A-Fa-f]+)").find(sunUrl)
                     val cmacMatch = Regex("cmac=([0-9A-Fa-f]+)").find(sunUrl)
-                    
+                    // Phone-to-phone: aura:meet:sessionId:wallet — no picc/cmac
+                    val isPhoneTap = sunUrl.startsWith("aura:meet:") || sunUrl.contains("aura.so/meet")
                     if (piccMatch != null && cmacMatch != null) {
                         _state.value = NfcHandshakeResult.Confirmed(
                             sdmDataHex = piccMatch.groupValues[1],
                             cmacHex = cmacMatch.groupValues[1],
                             payloadUrl = sunUrl
                         )
-                    } else {
-                        // Strict validation: reject tags without valid SUN cryptographic fields
-                        Log.e(TAG, "NFC tag missing picc_data/cmac fields. Rejecting unverifiable tag.")
-                        _state.value = NfcHandshakeResult.Error(
-                            "Invalid NFC tag: missing cryptographic SUN data. Ensure an NTAG 424 DNA tag is used."
+                    } else if (isPhoneTap) {
+                        _state.value = NfcHandshakeResult.Confirmed(
+                            sdmDataHex = "",
+                            cmacHex = "",
+                            payloadUrl = sunUrl
                         )
+                    } else {
+                        Log.e(TAG, "NFC tag missing picc_data/cmac and not a phone-tap URL.")
+                        _state.value = NfcHandshakeResult.Error("Invalid NFC. Tap the other phone's Meet screen.")
                     }
                 } else {
                     Log.e(TAG, "Could not parse URL from NDEF payload")

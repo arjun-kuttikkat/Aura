@@ -106,27 +106,35 @@ class AuraHceService : HostApduService() {
     }
 
     private fun constructNdefFile(): ByteArray {
-        val tradeId = AuraRepository.currentTradeSession.value?.id
-        if (tradeId == null) {
-            // No active trade session — refuse to emit HCE data
-            Log.w(TAG, "No active trade session — HCE service cannot construct NDEF")
-            return byteArrayOf()  // Return empty file; reader will see no NDEF record
-        }
         val quickReceiveUrl = AuraRepository.activeQuickReceiveUri.value
-        val url = quickReceiveUrl ?: "https://aura.so/pay/$tradeId"
+        if (!quickReceiveUrl.isNullOrBlank()) {
+            return ndefToFile(quickReceiveUrl)
+        }
+        val session = AuraRepository.currentTradeSession.value
+        val tradeId = session?.id
+        if (tradeId == null) {
+            Log.w(TAG, "No active trade session — HCE service cannot construct NDEF")
+            return byteArrayOf()
+        }
+        val buyerWallet = com.aura.app.wallet.WalletConnectionState.walletAddress.value
+        val url = if (buyerWallet != null && session.buyerWallet == buyerWallet) {
+            "aura:meet:$tradeId:$buyerWallet"
+        } else {
+            "https://aura.so/pay/$tradeId"
+        }
         Log.d(TAG, "Constructing NDEF for URL: $url")
-        
+        return ndefToFile(url)
+    }
+
+    private fun ndefToFile(url: String): ByteArray {
         val record = NdefRecord.createUri(url)
         val ndefMessage = NdefMessage(record)
         val ndefBytes = ndefMessage.toByteArray()
-        
         val fileLength = ndefBytes.size
-        // First 2 bytes are the length of the NDEF message
         val fileData = ByteArray(fileLength + 2)
         fileData[0] = ((fileLength shr 8) and 0xFF).toByte()
         fileData[1] = (fileLength and 0xFF).toByte()
         System.arraycopy(ndefBytes, 0, fileData, 2, fileLength)
-        
         return fileData
     }
 
