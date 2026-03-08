@@ -37,7 +37,9 @@ object WalletConnectionState {
     private const val TAG = "WalletConnection"
     private const val ASSOCIATION_TIMEOUT_MS = 60000L
     private const val CLIENT_TIMEOUT_MS = 90000L
-    private const val WALLET_AUTH_RETRIES = 3
+    private const val WALLET_AUTH_RETRIES = 5
+    private const val WALLET_AUTH_REQUEST_TIMEOUT_MS = 90_000L
+    private const val WALLET_AUTH_CONNECT_TIMEOUT_MS = 30_000L
 
     private val _walletAddress = MutableStateFlow<String?>(null)
     val walletAddress: StateFlow<String?> = _walletAddress.asStateFlow()
@@ -239,9 +241,9 @@ object WalletConnectionState {
                 setBody(reqBody.toString())
                 contentType(ContentType.Application.Json)
                 timeout {
-                    requestTimeoutMillis = 60_000
-                    connectTimeoutMillis = 15_000
-                    socketTimeoutMillis = 60_000
+                    requestTimeoutMillis = WALLET_AUTH_REQUEST_TIMEOUT_MS
+                    connectTimeoutMillis = WALLET_AUTH_CONNECT_TIMEOUT_MS
+                    socketTimeoutMillis = WALLET_AUTH_REQUEST_TIMEOUT_MS
                 }
             }
             val text = response.bodyAsText()
@@ -261,7 +263,10 @@ object WalletConnectionState {
             } catch (e: Exception) {
                 lastEx = e
                 if (attempt < maxAttempts - 1) {
-                    val delayMs = 1000L * (1 shl attempt)
+                    // Exponential backoff: 1.5s, 3s, 6s, 12s + small jitter
+                    val baseMs = 1500L * (1 shl attempt)
+                    val jitter = (0..500).random().toLong()
+                    val delayMs = baseMs + jitter
                     Log.w(TAG, "wallet-auth attempt ${attempt + 1}/$maxAttempts failed, retrying in ${delayMs}ms: ${e.message}")
                     delay(delayMs)
                 } else {
@@ -286,9 +291,9 @@ object WalletConnectionState {
                 setBody(reqBody.toString())
                 contentType(ContentType.Application.Json)
                 timeout {
-                    requestTimeoutMillis = 60_000
-                    connectTimeoutMillis = 15_000
-                    socketTimeoutMillis = 60_000
+                    requestTimeoutMillis = WALLET_AUTH_REQUEST_TIMEOUT_MS
+                    connectTimeoutMillis = WALLET_AUTH_CONNECT_TIMEOUT_MS
+                    socketTimeoutMillis = WALLET_AUTH_REQUEST_TIMEOUT_MS
                 }
             }
             val text = response.bodyAsText()

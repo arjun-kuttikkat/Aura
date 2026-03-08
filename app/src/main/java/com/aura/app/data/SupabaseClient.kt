@@ -36,12 +36,12 @@ object SupabaseClient {
         supabaseUrl = supabaseUrl,
         supabaseKey = BuildConfig.SUPABASE_KEY
     ) {
-        // Install HttpTimeout so request-level timeout { } blocks work in functions.invoke
+        // Install HttpTimeout — generous defaults for auth/edge functions (cold starts, flaky networks)
         httpConfig {
             install(HttpTimeout) {
-                requestTimeoutMillis = 60_000
-                connectTimeoutMillis = 15_000
-                socketTimeoutMillis = 60_000
+                requestTimeoutMillis = 90_000
+                connectTimeoutMillis = 30_000
+                socketTimeoutMillis = 90_000
             }
         }
         install(Postgrest)

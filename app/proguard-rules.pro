@@ -64,6 +64,11 @@
 # ── Coil Image Loading ────────────────────────────────────────────
 -keep class coil.** { *; }
 
+# ── Glide / disklrucache (transitive from ML Kit) ─────────────────
+# Prevents R8 NPE in DiskLruCache.completeEdit; compat mode also used
+-dontwarn com.bumptech.glide.disklrucache.**
+-keep class com.bumptech.glide.disklrucache.** { *; }
+
 # ── Lottie ────────────────────────────────────────────────────────
 -keep class com.airbnb.lottie.** { *; }
 

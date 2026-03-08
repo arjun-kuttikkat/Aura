@@ -59,6 +59,8 @@ jobs:
           } > local.properties
 
       - name: Build with Gradle
+        env:
+          GRADLE_OPTS: -Xmx4096m -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError
         run: ./gradlew build --no-daemon --stacktrace
 
       - name: Run unit tests
@@ -83,6 +85,8 @@ jobs:
 
       - name: Build release APK
         if: github.ref == 'refs/heads/main'
+        env:
+          GRADLE_OPTS: -Xmx4096m -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK artifact
