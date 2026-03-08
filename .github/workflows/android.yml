@@ -40,14 +40,23 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - name: Create local.properties
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          TREASURY_WALLET: ${{ secrets.TREASURY_WALLET }}
+          RELEASE_AUTHORITY_PUBKEY: ${{ secrets.RELEASE_AUTHORITY_PUBKEY }}
         run: |
-          echo "HELIUS_API_KEY=${{ secrets.HELIUS_API_KEY }}" > local.properties
-          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> local.properties
-          echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> local.properties
-          echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> local.properties
-          echo "GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct" >> local.properties
-          echo "TREASURY_WALLET=${{ secrets.TREASURY_WALLET }}" >> local.properties
-          echo "RELEASE_AUTHORITY_PUBKEY=${{ secrets.RELEASE_AUTHORITY_PUBKEY }}" >> local.properties
+          {
+            echo "SUPABASE_URL=${SUPABASE_URL:-https://placeholder.supabase.co}"
+            echo "SUPABASE_KEY=${SUPABASE_KEY:-placeholder-anon-key}"
+            echo "HELIUS_API_KEY=${HELIUS_API_KEY:-placeholder}"
+            echo "GROQ_API_KEY=${GROQ_API_KEY:-placeholder}"
+            echo "GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct"
+            echo "TREASURY_WALLET=${TREASURY_WALLET:-placeholder}"
+            echo "RELEASE_AUTHORITY_PUBKEY=${RELEASE_AUTHORITY_PUBKEY:-placeholder}"
+          } > local.properties
 
       - name: Build with Gradle
         run: ./gradlew build --no-daemon --stacktrace
