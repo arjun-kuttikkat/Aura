@@ -11,8 +11,8 @@ import com.solana.mobilewalletadapter.clientlib.scenario.LocalAssociationScenari
 import com.solana.mobilewalletadapter.clientlib.scenario.Scenario
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.functions.functions
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.setBody
-import io.ktor.client.request.timeout
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
@@ -37,7 +37,6 @@ object WalletConnectionState {
     private const val TAG = "WalletConnection"
     private const val ASSOCIATION_TIMEOUT_MS = 60000L
     private const val CLIENT_TIMEOUT_MS = 90000L
-    private const val WALLET_AUTH_TIMEOUT_MS = 60_000L
     private const val WALLET_AUTH_RETRIES = 3
 
     private val _walletAddress = MutableStateFlow<String?>(null)
@@ -240,9 +239,9 @@ object WalletConnectionState {
                 setBody(reqBody.toString())
                 contentType(ContentType.Application.Json)
                 timeout {
-                    requestTimeoutMillis = WALLET_AUTH_TIMEOUT_MS
-                    connectTimeoutMillis = 30_000
-                    socketTimeoutMillis = WALLET_AUTH_TIMEOUT_MS
+                    requestTimeoutMillis = 60_000
+                    connectTimeoutMillis = 15_000
+                    socketTimeoutMillis = 60_000
                 }
             }
             val text = response.bodyAsText()
@@ -287,9 +286,9 @@ object WalletConnectionState {
                 setBody(reqBody.toString())
                 contentType(ContentType.Application.Json)
                 timeout {
-                    requestTimeoutMillis = WALLET_AUTH_TIMEOUT_MS
-                    connectTimeoutMillis = 30_000
-                    socketTimeoutMillis = WALLET_AUTH_TIMEOUT_MS
+                    requestTimeoutMillis = 60_000
+                    connectTimeoutMillis = 15_000
+                    socketTimeoutMillis = 60_000
                 }
             }
             val text = response.bodyAsText()

@@ -1,3 +1,4 @@
+@file:OptIn(io.github.jan.supabase.annotations.SupabaseInternal::class)
 package com.aura.app.data
 
 import com.aura.app.BuildConfig
@@ -7,6 +8,7 @@ import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.storage.Storage
 import io.github.jan.supabase.functions.Functions
+import io.ktor.client.plugins.HttpTimeout
 import android.content.Context
 
 object SupabaseClient {
@@ -34,6 +36,14 @@ object SupabaseClient {
         supabaseUrl = supabaseUrl,
         supabaseKey = BuildConfig.SUPABASE_KEY
     ) {
+        // Install HttpTimeout so request-level timeout { } blocks work in functions.invoke
+        httpConfig {
+            install(HttpTimeout) {
+                requestTimeoutMillis = 60_000
+                connectTimeoutMillis = 15_000
+                socketTimeoutMillis = 60_000
+            }
+        }
         install(Postgrest)
         install(Auth)
         install(Storage)

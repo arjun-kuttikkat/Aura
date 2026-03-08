@@ -105,20 +105,7 @@ fun ProfileScreen(
     val trustScore by animateIntAsState(targetValue = trustScoreRaw, animationSpec = tween(1800, easing = FastOutSlowInEasing), label = "score")
     val streak by animateIntAsState(targetValue = streakRaw, animationSpec = tween(1200, easing = FastOutSlowInEasing), label = "streak")
 
-    val tier = when {
-        trustScoreRaw >= 90 -> TrustTier.PLATINUM
-        trustScoreRaw >= 80 -> TrustTier.GOLD
-        trustScoreRaw >= 70 -> TrustTier.SILVER
-        trustScoreRaw >= 50 -> TrustTier.BRONZE
-        else -> TrustTier.NEW
-    }
-    val tierEmoji = when (tier) {
-        TrustTier.PLATINUM -> "💎"
-        TrustTier.GOLD -> "🥇"
-        TrustTier.SILVER -> "🥈"
-        TrustTier.BRONZE -> "🥉"
-        TrustTier.NEW -> "🌱"
-    }
+    val rankInfo = com.aura.app.model.RankSystem.getRankInfo(trustScoreRaw)
 
     // NFT Evolution stages
     val nftStageIndex = when {
@@ -149,6 +136,15 @@ fun ProfileScreen(
     var showNameDialog by remember { mutableStateOf(false) }
     var showBioDialog by remember { mutableStateOf(false) }
     var editingText by remember { mutableStateOf("") }
+
+    val rankColor = when (rankInfo.rankName) {
+        "Ember"   -> Color(0xFFFF8A65) // Deep Orange 300
+        "Spark"   -> Color(0xFF64B5F6) // Blue 300
+        "Flame"   -> Color(0xFFFFB74D) // Orange 300
+        "Nova"    -> Color(0xFFFFD54F) // Amber 300
+        "Radiant" -> Color(0xFFCE93D8) // Purple 300
+        else      -> Orange500
+    }
 
     val avatarPalette = listOf(
         Color(0xFFFF6B35), // Ember
@@ -258,10 +254,10 @@ fun ProfileScreen(
                     .clip(RoundedCornerShape(20.dp))
                     .background(
                         Brush.linearGradient(
-                            listOf(Orange500.copy(alpha = 0.12f), Gold500.copy(alpha = 0.08f)),
+                            listOf(rankColor.copy(alpha = 0.15f), rankColor.copy(alpha = 0.05f)),
                         ),
                     )
-                    .border(1.dp, GlassBorder, RoundedCornerShape(20.dp))
+                    .border(1.dp, rankColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
                     .padding(20.dp),
             ) {
                 Row(
@@ -270,21 +266,25 @@ fun ProfileScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column {
-                        Text("Trust Score", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(verticalAlignment = Alignment.Bottom) {
-                            Text("$trustScore", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = Orange500)
-                            Text(" /100", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        Text("Aura Rank", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(tierEmoji, style = MaterialTheme.typography.titleMedium)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("${tier.name} Tier", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Gold500)
+                            Text(rankInfo.emoji, fontSize = 42.sp)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text("${rankInfo.rankName} ${rankInfo.tierString}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = rankColor)
+                                if (rankInfo.isMaxRank) {
+                                    Text("⭐ ${rankInfo.absoluteStars} Total Stars", style = MaterialTheme.typography.bodyMedium, color = Gold500, fontWeight = FontWeight.SemiBold)
+                                } else {
+                                    Text("⭐ ${rankInfo.currentStarsInTier} / ${rankInfo.maxStarsInTier} Stars", style = MaterialTheme.typography.bodyMedium, color = Gold500, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
                         }
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.LocalFireDepartment, contentDescription = null, tint = Orange500, modifier = Modifier.size(32.dp))
-                        Text("$streak", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Orange500)
-                        Text("day streak", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("🏆", fontSize = 28.sp)
+                        Text("${rankInfo.absoluteStars}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = rankColor)
+                        Text("Stars", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -309,8 +309,13 @@ fun ProfileScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column {
-                            Text("Aura NFT", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text(nftStages[nftStageIndex], style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = nftStageColors[nftStageIndex])
+                            Text("Streak NFT Evolution", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.LocalFireDepartment, contentDescription = null, tint = Orange500, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("$streak Day Streak • ", style = MaterialTheme.typography.bodyMedium, color = Orange500, fontWeight = FontWeight.Bold)
+                                Text(nftStages[nftStageIndex], style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = nftStageColors[nftStageIndex])
+                            }
                         }
                         Icon(Icons.Default.Star, contentDescription = null, tint = nftStageColors[nftStageIndex], modifier = Modifier.size(40.dp))
                     }

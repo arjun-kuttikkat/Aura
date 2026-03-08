@@ -295,7 +295,8 @@ fun AuraCoreRenderer(
         }
 
         // ─── Aura Score arc overlay ──────────────────────────────────
-        val scoreArc = 360f * (auraScore / 100f)
+        val normalizedScore = auraScore % 100
+        val scoreArc = 360f * (normalizedScore / 100f)
         drawArc(
             brush = Brush.sweepGradient(
                 listOf(primaryColor.copy(alpha = 0.6f), secondaryColor.copy(alpha = 0.6f), primaryColor.copy(alpha = 0.6f)),

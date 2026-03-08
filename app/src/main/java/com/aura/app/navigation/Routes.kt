@@ -29,6 +29,7 @@ object Routes {
     const val P2P_EXCHANGE = "p2p_exchange"
     const val ZONE_REFINEMENT = "zone_refinement"
     const val DIRECTIVES = "directives"
+    const val MISSION_DETAIL = "mission_detail"
     const val SECURITY = "security"
     const val PRIVACY = "privacy"
     // Phase 2: Avatar + Store

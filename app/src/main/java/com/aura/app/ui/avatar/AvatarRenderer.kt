@@ -147,6 +147,76 @@ private fun DrawScope.drawBody(cx: Float, bodyTop: Float, w: Float, h: Float,
     }
     drawPath(bodyPath, color = outfitColor)
 
+    // Details based on topStyle
+    when (topStyle) {
+        1 -> { // Hoodie (Draw hood and pocket)
+            // Hood outline behind neck
+            drawRoundRect(color = outfitColor.copy(alpha=0.8f), topLeft = Offset(cx - neckW * 1.5f, bodyTop - neckH * 0.5f), size = Size(neckW * 3f, neckH * 1.5f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(neckW))
+            // Kangaroo pocket
+            val pocketW = bodyW * 0.6f
+            val pocketH = bodyH * 0.35f
+            drawRoundRect(color = outfitColor.copy(alpha=0.9f), topLeft = Offset(cx - pocketW/2f, bodyTop + bodyH * 0.5f), size = Size(pocketW, pocketH), cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f))
+            // Pocket lines
+            drawLine(Color.Black.copy(alpha=0.2f), Offset(cx - pocketW/2f, bodyTop + bodyH * 0.5f), Offset(cx - pocketW/2f + 10f, bodyTop + bodyH * 0.8f), strokeWidth = 3f)
+            drawLine(Color.Black.copy(alpha=0.2f), Offset(cx + pocketW/2f, bodyTop + bodyH * 0.5f), Offset(cx + pocketW/2f - 10f, bodyTop + bodyH * 0.8f), strokeWidth = 3f)
+        }
+        2 -> { // Bomber Jacket (collar and zipper)
+            // Zipper
+            drawLine(Color(0xFF888888), Offset(cx, bodyTop), Offset(cx, bodyTop + bodyH), strokeWidth = 4f)
+            // Collar
+            drawOval(Color(0xFF222222), topLeft = Offset(cx - neckW, bodyTop - 5f), size = Size(neckW * 2f, neckH * 0.8f))
+        }
+        3 -> { // Tee (Neckline)
+            drawOval(skin, topLeft = Offset(cx - neckW * 0.8f, bodyTop - 5f), size = Size(neckW * 1.6f, neckH * 0.6f))
+            // "AURA" text approximation or star logo
+            drawCircle(Color.White.copy(alpha=0.8f), radius = bodyW * 0.15f, center = Offset(cx, bodyTop + bodyH * 0.4f))
+        }
+        4 -> { // Formal Blazer (Lapels and shirt)
+            // White shirt underneath
+            val shirtPath = Path().apply {
+                moveTo(cx - neckW * 0.8f, bodyTop)
+                lineTo(cx + neckW * 0.8f, bodyTop)
+                lineTo(cx, bodyTop + bodyH * 0.6f)
+                close()
+            }
+            drawPath(shirtPath, color = Color.White)
+            // Tie
+            drawLine(Color(0xFFB71C1C), Offset(cx, bodyTop + 10f), Offset(cx, bodyTop + bodyH * 0.45f), strokeWidth = 6f)
+            // Lapels (darker shade of blazer)
+            drawLine(outfitColor.copy(alpha=0.7f), Offset(cx - neckW * 0.8f, bodyTop), Offset(cx, bodyTop + bodyH * 0.6f), strokeWidth = 4f)
+            drawLine(outfitColor.copy(alpha=0.7f), Offset(cx + neckW * 0.8f, bodyTop), Offset(cx, bodyTop + bodyH * 0.6f), strokeWidth = 4f)
+        }
+        5 -> { // Tank top (shoulders exposed)
+            drawOval(skin, topLeft = Offset(cx - w * 0.28f, bodyTop - 5f), size = Size(w * 0.15f, bodyH * 0.4f))
+            drawOval(skin, topLeft = Offset(cx + w * 0.13f, bodyTop - 5f), size = Size(w * 0.15f, bodyH * 0.4f))
+            drawOval(skin, topLeft = Offset(cx - neckW, bodyTop - 5f), size = Size(neckW * 2f, neckH))
+        }
+        6 -> { // Denim Jacket (Buttons and seams)
+            val seamColor = Color(0xFFE67E22) // Orange threading
+            drawLine(Color(0xFF999999), Offset(cx, bodyTop), Offset(cx, bodyTop + bodyH), strokeWidth = 4f) // button lane
+            for (i in 1..4) {
+               drawCircle(Color(0xFFDDDDDD), radius = 3f, center = Offset(cx, bodyTop + bodyH * (i * 0.2f)))
+            }
+            // Collar
+            drawRect(Color(0xFFECECEC), topLeft = Offset(cx - neckW, bodyTop - 8f), size = Size(neckW * 2f, neckH * 0.8f)) // sherpa collar
+        }
+        7 -> { // Jordan Fit (Sporty jersey look)
+            // V-neck
+            val vPath = Path().apply {
+                moveTo(cx - neckW * 0.6f, bodyTop)
+                lineTo(cx + neckW * 0.6f, bodyTop)
+                lineTo(cx, bodyTop + neckH * 1.5f)
+                close()
+            }
+            drawPath(vPath, color = skin)
+            // Trim lines
+            drawLine(Color.White, Offset(cx - w * 0.25f, bodyTop), Offset(cx - w * 0.25f, bodyTop + bodyH), strokeWidth = 8f)
+            drawLine(Color.White, Offset(cx + w * 0.25f, bodyTop), Offset(cx + w * 0.25f, bodyTop + bodyH), strokeWidth = 8f)
+            // Number "23" abstract shape
+            drawRoundRect(Color.White, topLeft = Offset(cx - 15f, bodyTop + bodyH * 0.3f), size = Size(30f, 35f), style = Stroke(width = 6f))
+        }
+    }
+
     // Simple bottom (pants/skirt)
     val bottomColor = when (bottomStyle) {
         0 -> Color(0xFF1A1A1A)

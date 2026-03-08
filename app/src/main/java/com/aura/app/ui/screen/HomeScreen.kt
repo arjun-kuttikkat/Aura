@@ -89,7 +89,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.aura.app.data.AuraRepository
-import com.aura.app.data.AvatarPreferences
 import com.aura.app.model.MintedStatus
 import com.aura.app.ui.components.AuraHaptics
 import com.aura.app.ui.components.MainTopBar
@@ -244,7 +243,7 @@ fun HomeScreen(
             item(span = { GridItemSpan(maxCurrentLineSpan) }) {
                 val p = profile
                 val context = LocalContext.current
-                val auraPoints by AvatarPreferences.creditsFlow(context).collectAsState(initial = 50)
+                val auraPoints = p?.auraScore ?: 0
                 val myListingsCount = if (walletAddress != null) listings.count { it.sellerWallet == walletAddress } else 0
                 if (p != null) {
                     HeroBannerCard(
