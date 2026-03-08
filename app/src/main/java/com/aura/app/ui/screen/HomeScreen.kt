@@ -323,6 +323,7 @@ fun HomeScreen(
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
+                                    .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(
                                         if (isSelected) Brush.linearGradient(listOf(Orange500, Gold500.copy(alpha = 0.9f)))
@@ -343,6 +344,7 @@ fun HomeScreen(
                                         }
                                     }
                                     .padding(horizontal = scopeTabPaddingH, vertical = scopeTabPaddingV),
+                                contentAlignment = Alignment.Center,
                             ) {
                                 Text(
                                     scopeLabel,
@@ -351,6 +353,8 @@ fun HomeScreen(
                                     color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth(),
                                 )
                             }
                         }

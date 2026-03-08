@@ -39,6 +39,8 @@ import android.annotation.SuppressLint
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlin.math.pow
@@ -113,6 +115,8 @@ data class TradeSessionRow(
     val state: String = "SESSION_CREATED",
     @SerialName("escrow_tx_sig") val escrowTxSig: String? = null,
     @SerialName("nfc_sun_url") val nfcSunUrl: String? = null,
+    @SerialName("receipt_mint_buyer") val receiptMintBuyer: String? = null,
+    @SerialName("receipt_mint_seller") val receiptMintSeller: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
 )
@@ -750,6 +754,18 @@ object AuraRepository {
         return session
     }
 
+    fun updateTradeReceiptMints(receiptMintBuyer: String?, receiptMintSeller: String?) {
+        _currentTradeSession.value?.let { session ->
+            val updated = session.copy(
+                receiptMintBuyer = receiptMintBuyer,
+                receiptMintSeller = receiptMintSeller,
+                lastUpdated = System.currentTimeMillis(),
+            )
+            _currentTradeSession.value = updated
+            appContext?.let { TradeSessionStore.save(it, updated) }
+        }
+    }
+
     fun updateTradeState(state: TradeState) {
         _currentTradeSession.value?.let { session ->
             val updated = session.copy(state = state, lastUpdated = System.currentTimeMillis())
@@ -861,6 +877,8 @@ object AuraRepository {
                             _currentTradeSession.value?.let { session ->
                                 _currentTradeSession.value = session.copy(
                                     state = newState,
+                                    receiptMintBuyer = row.receiptMintBuyer ?: session.receiptMintBuyer,
+                                    receiptMintSeller = row.receiptMintSeller ?: session.receiptMintSeller,
                                     lastUpdated = System.currentTimeMillis()
                                 )
                             }
@@ -953,7 +971,10 @@ object AuraRepository {
 
     /** Result of release attempt: success, network/offline (queued for retry), or other failure */
     sealed class ReleaseResult {
-        data object Success : ReleaseResult()
+        data class Success(
+            val receiptMintBuyer: String? = null,
+            val receiptMintSeller: String? = null,
+        ) : ReleaseResult()
         data object OfflineQueued : ReleaseResult()
         data class Failed(val reason: String) : ReleaseResult()
     }
@@ -966,6 +987,29 @@ object AuraRepository {
                 e is java.net.SocketTimeoutException ||
                 msg.contains("network") || msg.contains("unreachable") || msg.contains("timeout") ||
                 msg.contains("connection") || msg.contains("failed to connect")
+    }
+
+    private suspend fun <T> invokeWithRetry(
+        maxAttempts: Int = 3,
+        initialDelayMs: Long = 500,
+        block: suspend () -> T,
+    ): T {
+        var last: Exception? = null
+        var delayMs = initialDelayMs
+        repeat(maxAttempts) { attempt ->
+            try {
+                return block()
+            } catch (e: Exception) {
+                last = e
+                if (attempt < maxAttempts - 1 && isNetworkError(e)) {
+                    kotlinx.coroutines.delay(delayMs)
+                    delayMs = (delayMs * 2).coerceAtMost(4000)
+                } else {
+                    throw e
+                }
+            }
+        }
+        throw last ?: Exception("Retry exhausted")
     }
 
     suspend fun releaseEscrowWithNfc(
@@ -999,12 +1043,23 @@ object AuraRepository {
                 put("sellerWalletBase58", sellerWallet)
                 put("tradeId", tradeId)
             }
-            val response = db.functions.invoke("verify-sun") {
-                setBody(reqBody.toString())
-                contentType(ContentType.Application.Json)
+            val responseText = invokeWithRetry {
+                withContext(Dispatchers.IO) {
+                    withTimeout(45_000) {
+                        val response = db.functions.invoke("verify-sun") {
+                            setBody(reqBody.toString())
+                            contentType(ContentType.Application.Json)
+                        }
+                        response.bodyAsText()
+                    }
+                }
             }
-            val responseText = response.bodyAsText()
-            val jsonElement = kotlinx.serialization.json.Json.parseToJsonElement(responseText).jsonObject
+            val jsonElement = runCatching {
+                kotlinx.serialization.json.Json.parseToJsonElement(responseText).jsonObject
+            }.getOrElse {
+                Log.e(TAG, "verify-sun invalid JSON: ${responseText.take(200)}")
+                return ReleaseResult.Failed("Server returned invalid response. Try again.")
+            }
             val error = jsonElement["error"]?.jsonPrimitive?.content
             if (!error.isNullOrBlank()) {
                 Log.e(TAG, "verify-sun error: $error")
@@ -1012,7 +1067,9 @@ object AuraRepository {
             }
             Log.d(TAG, "NFC verified and escrow released via Live Edge Function. Response: $responseText")
             appContext?.let { PendingReleaseStore.clear(it) }
-            return ReleaseResult.Success
+            val receiptBuyer = jsonElement["receiptMintBuyer"]?.jsonPrimitive?.content
+            val receiptSeller = jsonElement["receiptMintSeller"]?.jsonPrimitive?.content
+            return ReleaseResult.Success(receiptMintBuyer = receiptBuyer, receiptMintSeller = receiptSeller)
         } catch (e: Exception) {
             Log.e(TAG, "Failed Edge Function verify-sun", e)
             if (isNetworkError(e)) {
@@ -1020,6 +1077,71 @@ object AuraRepository {
                     PendingReleaseStore.save(ctx, tradeId, lid, sdmDataHex, receivedCmacHex,
                         escrowPda, sellerWallet, buyerWallet, assetUri, assetTitle, amt)
                 }
+                return ReleaseResult.OfflineQueued
+            }
+            return ReleaseResult.Failed(e.message ?: "Release failed")
+        }
+    }
+
+    /**
+     * Release escrow via photo verification. Use for listings without nfc_sun_url.
+     * Verifies item photo matches listing via AI, then releases.
+     */
+    suspend fun releaseEscrowWithPhoto(
+        tradeId: String,
+        listingId: String,
+        photoBase64: String,
+        assetUri: String = "",
+        assetTitle: String = "Aura Verified Asset",
+    ): ReleaseResult {
+        val session = _currentTradeSession.value
+        val lid = listingId
+        val escrowPda = com.aura.app.wallet.AnchorTransactionBuilder.deriveEscrowPda(lid).let {
+            com.funkatronics.encoders.Base58.encodeToString(it.address)
+        }
+        val sellerWallet = session?.sellerWallet ?: getListing(lid)?.sellerWallet ?: ""
+        if (sellerWallet.isBlank()) {
+            return ReleaseResult.Failed("Seller wallet not found")
+        }
+        try {
+            val reqBody = buildJsonObject {
+                put("tradeId", tradeId)
+                put("listingId", lid)
+                put("photoBase64", photoBase64)
+                put("assetUri", assetUri)
+                put("assetTitle", assetTitle)
+                put("escrowPdaBase58", escrowPda)
+                put("sellerWalletBase58", sellerWallet)
+            }
+            val responseText = invokeWithRetry {
+                withContext(Dispatchers.IO) {
+                    withTimeout(60_000) {
+                        val response = db.functions.invoke("release-escrow-photo") {
+                            setBody(reqBody.toString())
+                            contentType(ContentType.Application.Json)
+                        }
+                        response.bodyAsText()
+                    }
+                }
+            }
+            val jsonElement = runCatching {
+                kotlinx.serialization.json.Json.parseToJsonElement(responseText).jsonObject
+            }.getOrElse {
+                Log.e(TAG, "release-escrow-photo invalid JSON: ${responseText.take(200)}")
+                return ReleaseResult.Failed("Server returned invalid response. Try again.")
+            }
+            val error = jsonElement["error"]?.jsonPrimitive?.content
+            if (!error.isNullOrBlank()) {
+                Log.e(TAG, "release-escrow-photo error: $error")
+                return ReleaseResult.Failed(error)
+            }
+            Log.d(TAG, "Photo verified and escrow released. Response: $responseText")
+            val receiptBuyer = jsonElement["receiptMintBuyer"]?.jsonPrimitive?.content
+            val receiptSeller = jsonElement["receiptMintSeller"]?.jsonPrimitive?.content
+            return ReleaseResult.Success(receiptMintBuyer = receiptBuyer, receiptMintSeller = receiptSeller)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed Edge Function release-escrow-photo", e)
+            if (isNetworkError(e)) {
                 return ReleaseResult.OfflineQueued
             }
             return ReleaseResult.Failed(e.message ?: "Release failed")
@@ -1043,6 +1165,50 @@ object AuraRepository {
     }
 
     fun hasPendingRelease(): Boolean = appContext?.let { PendingReleaseStore.hasPending(it) } == true
+
+    /**
+     * Request receipt NFT mint after client-signed release (e.g. EscrowPayScreen path).
+     * Non-blocking; call after release tx confirms.
+     */
+    suspend fun requestReceiptMint(tradeId: String, releaseTxSignature: String): ReleaseResult.Success? {
+        val session = _currentTradeSession.value ?: return null
+        if (session.id != tradeId) return null
+        val listing = getListing(session.listingId) ?: return null
+        return try {
+            invokeWithRetry(maxAttempts = 3, initialDelayMs = 1000) {
+                val reqBody = buildJsonObject {
+                    put("tradeId", tradeId)
+                    put("listingId", session.listingId)
+                    put("buyerWallet", session.buyerWallet)
+                    put("sellerWallet", session.sellerWallet)
+                    put("listingTitle", listing.title)
+                    put("amountLamports", listing.priceLamports)
+                    put("releaseTxSignature", releaseTxSignature)
+                }
+                val responseText = withContext(Dispatchers.IO) {
+                    withTimeout(30_000) {
+                        db.functions.invoke("mint-receipt-nft") {
+                            setBody(reqBody.toString())
+                            contentType(ContentType.Application.Json)
+                        }.bodyAsText()
+                    }
+                }
+                val json = kotlinx.serialization.json.Json.parseToJsonElement(responseText).jsonObject
+                val err = json["error"]?.jsonPrimitive?.content
+                if (!err.isNullOrBlank()) {
+                    Log.e(TAG, "requestReceiptMint error: $err")
+                    throw Exception(err)
+                }
+                val rb = json["receiptMintBuyer"]?.jsonPrimitive?.content
+                val rs = json["receiptMintSeller"]?.jsonPrimitive?.content
+                updateTradeReceiptMints(rb, rs)
+                ReleaseResult.Success(receiptMintBuyer = rb, receiptMintSeller = rs)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "requestReceiptMint failed after retries", e)
+            null
+        }
+    }
 
     /**
      * Hostage fix (18): Build cancel_and_refund tx for buyer to reclaim SOL

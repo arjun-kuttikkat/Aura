@@ -20,6 +20,8 @@ private data class StoredTradeSession(
     val state: String,
     val createdAt: Long,
     val lastUpdated: Long,
+    val receiptMintBuyer: String? = null,
+    val receiptMintSeller: String? = null,
 )
 
 object TradeSessionStore {
@@ -41,6 +43,8 @@ object TradeSessionStore {
             state = session.state.name,
             createdAt = session.createdAt,
             lastUpdated = session.lastUpdated,
+            receiptMintBuyer = session.receiptMintBuyer,
+            receiptMintSeller = session.receiptMintSeller,
         )
         prefs.edit().putString(KEY, Json.encodeToString(stored)).apply()
     }
@@ -58,6 +62,8 @@ object TradeSessionStore {
                 state = runCatching { TradeState.valueOf(stored.state) }.getOrDefault(TradeState.SESSION_CREATED),
                 createdAt = stored.createdAt,
                 lastUpdated = stored.lastUpdated,
+                receiptMintBuyer = stored.receiptMintBuyer,
+                receiptMintSeller = stored.receiptMintSeller,
             )
         }.getOrNull()
     }

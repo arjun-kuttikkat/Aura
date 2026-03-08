@@ -406,6 +406,9 @@ fun EscrowPayScreen(
                                                     showConfirmRelease = false
                                                     isReleasing = false
                                                     AuraRepository.updateTradeState(TradeState.COMPLETE)
+                                                    scope.launch {
+                                                        AuraRepository.requestReceiptMint(tradeId, sig)
+                                                    }
                                                     onComplete()
                                                 },
                                                 onError = { e ->

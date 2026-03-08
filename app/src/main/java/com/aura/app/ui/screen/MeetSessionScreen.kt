@@ -1,8 +1,10 @@
 package com.aura.app.ui.screen
 
+import android.app.Activity
 import android.graphics.Bitmap
 import android.Manifest
 import android.content.pm.PackageManager
+import android.util.Base64
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
@@ -36,6 +38,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Nfc
 import androidx.compose.material.icons.filled.Warning
@@ -48,11 +51,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import java.util.concurrent.atomic.AtomicBoolean
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +69,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -71,7 +79,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.core.content.ContextCompat
 import com.aura.app.data.AuraRepository
+import com.aura.app.ui.components.AuraFullScreenCamera
 import com.aura.app.ui.components.GlassCard
 import com.aura.app.model.TradeState
 import com.aura.app.ui.theme.DarkBase
@@ -103,6 +117,8 @@ fun MeetSessionScreen(
 ) {
     val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
     val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
+    val listing = session?.listingId?.let { AuraRepository.getListing(it) }
+    val hasNfcVerification = !listing?.nfcSunUrl.isNullOrBlank()
     val nfcState by NfcHandoverManager.state.collectAsState(initial = com.aura.app.util.NfcHandshakeResult.Idle)
     var nfcError by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     var isVerifying by remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -110,9 +126,31 @@ fun MeetSessionScreen(
     var aiScanDone by remember { androidx.compose.runtime.mutableStateOf(false) }
     var geofencePassed by remember { androidx.compose.runtime.mutableStateOf(false) }
     var consecutiveInRange by remember { androidx.compose.runtime.mutableStateOf(0) }
+    var showPhotoCamera by rememberSaveable { mutableStateOf(false) }
+    val imageCapture = remember { ImageCapture.Builder().build() }
+    val context = LocalContext.current
+    val activity = context as? Activity
+    val hasCameraPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) showPhotoCamera = true
+    }
 
     val view = LocalView.current
     val scope = rememberCoroutineScope()
+
+    // Disable NFC when listing has no NFC data — we use photo verification instead
+    DisposableEffect(hasNfcVerification) {
+        activity?.let { act ->
+            if (!hasNfcVerification) {
+                NfcHandoverManager.disable(act)
+            } else {
+                NfcHandoverManager.enable(act)
+            }
+        }
+        onDispose {
+            activity?.let { NfcHandoverManager.enable(it) }
+        }
+    }
 
     LaunchedEffect(session?.state) {
         if (session?.state == TradeState.VERIFIED_PASS) {
@@ -146,23 +184,33 @@ fun MeetSessionScreen(
     }
 
     // Premature verification (#12) fix: only auto-release when user confirms (no accidental brush)
-    var confirmReleaseClicked by remember { androidx.compose.runtime.mutableStateOf(false) }
-    LaunchedEffect(nfcState, confirmReleaseClicked) {
-        if (nfcState is NfcHandshakeResult.Confirmed && confirmReleaseClicked) {
-            if (!qrHandshakeDone || !geofencePassed || !aiScanDone) {
-                nfcError = "Complete QR handshake, 10m geofence check, and AI item verification before releasing funds."
-                return@LaunchedEffect
-            }
-            val confirmedState = nfcState as NfcHandshakeResult.Confirmed
-            HapticEngine.triggerSuccess(view)
-            nfcError = null
-            isVerifying = true
-            
-            session?.let { s ->
+    var confirmReleaseClicked by remember { mutableStateOf(false) }
+    val releaseInProgress = remember { AtomicBoolean(false) }
+    val photoReleaseInProgress = remember { AtomicBoolean(false) }
+    LaunchedEffect(hasNfcVerification, nfcState, confirmReleaseClicked) {
+        if (!hasNfcVerification) return@LaunchedEffect
+        if (nfcState is NfcHandshakeResult.Error) {
+            HapticEngine.triggerThud(view)
+            nfcError = (nfcState as NfcHandshakeResult.Error).reason
+            return@LaunchedEffect
+        }
+        if (nfcState !is NfcHandshakeResult.Confirmed || !confirmReleaseClicked) return@LaunchedEffect
+        if (!releaseInProgress.compareAndSet(false, true)) return@LaunchedEffect
+        if (!qrHandshakeDone || !geofencePassed || !aiScanDone) {
+            releaseInProgress.set(false)
+            nfcError = "Complete QR handshake, 10m geofence check, and AI item verification before releasing funds."
+            return@LaunchedEffect
+        }
+        val confirmedState = nfcState as NfcHandshakeResult.Confirmed
+        HapticEngine.triggerSuccess(view)
+        nfcError = null
+        isVerifying = true
+        NfcHandoverManager.reset()
+        session?.let { s ->
+                try {
                 val listing = AuraRepository.getListing(s.listingId)
                 val metadataUri = listing?.images?.firstOrNull() ?: ""
                 val assetTitle = listing?.title ?: "Aura Verified Asset"
-                
                 val result = AuraRepository.releaseEscrowWithNfc(
                     tradeId = s.id,
                     sdmDataHex = confirmedState.sdmDataHex,
@@ -170,17 +218,21 @@ fun MeetSessionScreen(
                     assetUri = metadataUri,
                     assetTitle = assetTitle,
                 )
-                isVerifying = false
                 when (result) {
                     is AuraRepository.ReleaseResult.Success -> {
+                        releaseInProgress.set(false)
+                        confirmReleaseClicked = false
+                        AuraRepository.updateTradeReceiptMints(result.receiptMintBuyer, result.receiptMintSeller)
                         AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
                         onHandshakeComplete()
                     }
                     is AuraRepository.ReleaseResult.OfflineQueued -> {
+                        releaseInProgress.set(false)
                         nfcError = "You're offline. Release queued — tap Retry when you have connection."
                         HapticEngine.triggerThud(view)
                     }
                     is AuraRepository.ReleaseResult.Failed -> {
+                        releaseInProgress.set(false)
                         val reason = result.reason
                         nfcError = when {
                             reason.contains("invalid", ignoreCase = true) || reason.contains("expired", ignoreCase = true)
@@ -192,11 +244,17 @@ fun MeetSessionScreen(
                         HapticEngine.triggerThud(view)
                     }
                 }
-            } ?: run { isVerifying = false }
-        } else if (nfcState is NfcHandshakeResult.Error) {
-            HapticEngine.triggerThud(view)
-            nfcError = (nfcState as NfcHandshakeResult.Error).reason
-        }
+                } catch (e: Exception) {
+                    releaseInProgress.set(false)
+                    nfcError = e.message ?: "Release failed"
+                    HapticEngine.triggerThud(view)
+                } finally {
+                    isVerifying = false
+                }
+            } ?: run {
+                releaseInProgress.set(false)
+                isVerifying = false
+            }
     }
 
     // QR Code Expiration fix: include timestamp for freshness; refresh every 90s to avoid "expired at focus" trap
@@ -238,6 +296,88 @@ fun MeetSessionScreen(
         val screenPadding = if (isCompact) 16.dp else 24.dp
         val qrSize = if (isCompact) 160.dp else 180.dp
 
+        // Photo capture overlay (non-NFC flow only)
+        if (showPhotoCamera && !hasNfcVerification) {
+            AuraFullScreenCamera(
+                onCapture = { imageCapture ->
+                    try {
+                        val photoFile = java.io.File(context.cacheDir, "meet_verify_${System.currentTimeMillis()}.jpg")
+                        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+                        imageCapture.takePicture(
+                            outputOptions,
+                            ContextCompat.getMainExecutor(context),
+                            object : ImageCapture.OnImageSavedCallback {
+                                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                                    showPhotoCamera = false
+                                    isVerifying = true
+                                    scope.launch {
+                                        if (!photoReleaseInProgress.compareAndSet(false, true)) return@launch
+                                        try {
+                                            val bytes = kotlin.runCatching { photoFile.readBytes() }.getOrNull()
+                                            photoFile.delete()
+                                            if (bytes == null || bytes.isEmpty()) {
+                                                photoReleaseInProgress.set(false)
+                                                nfcError = "Photo could not be read."
+                                                isVerifying = false
+                                                return@launch
+                                            }
+                                            val sid = session?.id ?: return@launch
+                                            val lid = session?.listingId ?: return@launch
+                                            val l = AuraRepository.getListing(lid)
+                                            val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                                            val result = AuraRepository.releaseEscrowWithPhoto(
+                                                tradeId = sid,
+                                                listingId = lid,
+                                                photoBase64 = base64,
+                                                assetUri = l?.images?.firstOrNull() ?: "",
+                                                assetTitle = l?.title ?: "Aura Verified Asset",
+                                            )
+                                            isVerifying = false
+                                            when (result) {
+                                                is AuraRepository.ReleaseResult.Success -> {
+                                                    HapticEngine.triggerSuccess(view)
+                                                    AuraRepository.updateTradeReceiptMints(result.receiptMintBuyer, result.receiptMintSeller)
+                                                    AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
+                                                    onHandshakeComplete()
+                                                }
+                                                is AuraRepository.ReleaseResult.OfflineQueued -> {
+                                                    nfcError = "You're offline. Try again when connected."
+                                                    HapticEngine.triggerThud(view)
+                                                }
+                                                is AuraRepository.ReleaseResult.Failed -> {
+                                                    nfcError = result.reason
+                                                    HapticEngine.triggerThud(view)
+                                                }
+                                            }
+                                        } catch (e: Exception) {
+                                            photoReleaseInProgress.set(false)
+                                            nfcError = e.message ?: "Release failed"
+                                            HapticEngine.triggerThud(view)
+                                        } finally {
+                                            photoReleaseInProgress.set(false)
+                                            isVerifying = false
+                                        }
+                                    }
+                                }
+                                override fun onError(exception: ImageCaptureException) {
+                                    showPhotoCamera = false
+                                    isVerifying = false
+                                    nfcError = exception.message ?: "Capture failed"
+                                    HapticEngine.triggerThud(view)
+                                }
+                            },
+                        )
+                    } catch (e: Exception) {
+                        showPhotoCamera = false
+                        nfcError = e.message ?: "Capture failed"
+                        HapticEngine.triggerThud(view)
+                    }
+                },
+                onClose = { showPhotoCamera = false },
+            )
+            return@Scaffold
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -264,6 +404,7 @@ fun MeetSessionScreen(
                 }
             }
 
+            if (hasNfcVerification) {
             AnimatedContent(
                 targetState = nfcState,
                 transitionSpec = { fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(200)) },
@@ -376,8 +517,53 @@ fun MeetSessionScreen(
                     }
                 }
             }
+            } else {
+                // Photo verification flow (no NFC at publish)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(
+                        Icons.Default.CameraAlt,
+                        contentDescription = null,
+                        modifier = Modifier.size(96.dp),
+                        tint = Orange500,
+                    )
+                    Text(
+                        "Verify with photo",
+                        style = MaterialTheme.typography.headlineSmall,
+                        textAlign = TextAlign.Center,
+                    )
+                    Text(
+                        "This item wasn't published with NFC. Take a photo to verify it matches the listing.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                    Button(
+                        onClick = {
+                            if (hasCameraPermission) {
+                                showPhotoCamera = true
+                            } else {
+                                permissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
+                        enabled = qrHandshakeDone && geofencePassed && aiScanDone,
+                    ) {
+                        Text("Take photo to verify & release")
+                    }
+                    if (!qrHandshakeDone || !geofencePassed || !aiScanDone) {
+                        Text(
+                            "Complete the checklist below first.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
 
-            // NFC error / verification failure feedback
+            // NFC / verification error feedback
             Spacer(modifier = Modifier.height(14.dp))
             GlassCard(modifier = Modifier.fillMaxWidth(), glowColor = Orange500, cornerRadius = 14.dp) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -432,9 +618,10 @@ fun MeetSessionScreen(
                                     scope.launch {
                                         isVerifying = true
                                         val retryResult = AuraRepository.retryPendingRelease()
-                                        when (retryResult) {
+                                            when (retryResult) {
                                             is AuraRepository.ReleaseResult.Success -> {
                                                 nfcError = null
+                                                AuraRepository.updateTradeReceiptMints(retryResult.receiptMintBuyer, retryResult.receiptMintSeller)
                                                 AuraRepository.updateTradeState(TradeState.BOTH_PRESENT)
                                                 onHandshakeComplete()
                                             }
@@ -456,9 +643,9 @@ fun MeetSessionScreen(
                         } else {
                             Button(onClick = {
                                 nfcError = null
-                                NfcHandoverManager.reset()
+                                if (hasNfcVerification) NfcHandoverManager.reset() else { /* photo flow: user can retry photo */ }
                             }) {
-                                Text("Retry NFC Tap")
+                                Text(if (hasNfcVerification) "Retry NFC Tap" else "Retry")
                             }
                         }
                     }
@@ -472,7 +659,7 @@ fun MeetSessionScreen(
                     modifier = Modifier.size(32.dp)
                 )
                 Text(
-                    "Verifying chip & releasing escrow…",
+                    if (hasNfcVerification) "Verifying chip & releasing escrow…" else "Verifying photo & releasing escrow…",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

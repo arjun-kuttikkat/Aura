@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Token
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -37,8 +38,10 @@ import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.rememberLottieComposition
 import com.airbnb.lottie.compose.LottieConstants
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,7 +59,11 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import android.content.Intent
+import android.net.Uri
+import com.aura.app.data.AuraRepository
 import com.aura.app.ui.components.AuraHaptics
+import com.aura.app.wallet.WalletConnectionState
 import com.aura.app.ui.theme.DarkBase
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
@@ -69,6 +76,13 @@ fun TradeCompleteScreen(
 ) {
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
+    val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
+    val myReceiptMint = when {
+        walletAddress == session?.buyerWallet -> session?.receiptMintBuyer
+        walletAddress == session?.sellerWallet -> session?.receiptMintSeller
+        else -> session?.receiptMintBuyer ?: session?.receiptMintSeller
+    }
     var showCheck by remember { mutableStateOf(false) }
     var showText by remember { mutableStateOf(false) }
     var showBadge by remember { mutableStateOf(false) }
@@ -150,7 +164,53 @@ fun TradeCompleteScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
+
+            AnimatedVisibility(
+                visible = showBadge && myReceiptMint != null,
+                enter = fadeIn(tween(400)) + slideInVertically(initialOffsetY = { 60 }, animationSpec = spring(dampingRatio = 0.6f)),
+            ) {
+                androidx.compose.material3.Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            myReceiptMint?.let { mint ->
+                                val uri = Uri.parse("https://solscan.io/token/$mint")
+                                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                            }
+                        },
+                    colors = androidx.compose.material3.CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(Icons.Default.Image, contentDescription = null, tint = Gold500, modifier = Modifier.size(36.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Your Receipt NFT",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            "${myReceiptMint?.take(8)}...${myReceiptMint?.takeLast(8)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            "Tap to view on Solscan",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Orange500,
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             AnimatedVisibility(
                 visible = showBadge,

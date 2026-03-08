@@ -178,7 +178,7 @@ serve(async (req) => {
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // 1b. Match tag to listing: if listing has nfc_sun_url from publish, verify same physical tag
+        // 1b. Listing must have nfc_sun_url — otherwise use release-escrow-photo
         // ═══════════════════════════════════════════════════════════════
 
         const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -189,6 +189,17 @@ serve(async (req) => {
             .select("price_lamports,seller_wallet,nfc_sun_url,mint_address,minted_status")
             .eq("id", listingId)
             .single();
+
+        if (!listing?.nfc_sun_url) {
+            return new Response(JSON.stringify({
+                valid: false,
+                reason: "NO_NFC_REGISTRATION",
+                error: "Listing was not published with NFC. Use photo verification (release-escrow-photo) instead.",
+            }), {
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
 
         // ═══════════════════════════════════════════════════════════════
         // 1c. NFT Verification: listing must be minted for escrow release
@@ -205,7 +216,8 @@ serve(async (req) => {
             });
         }
 
-        if (listing?.nfc_sun_url) {
+        // Match tag UID to the one registered at publish (we already ensured nfc_sun_url exists)
+        {
             const piccMatch = listing.nfc_sun_url.match(/picc_data=([0-9A-Fa-f]+)/i);
             if (piccMatch) {
                 const publishPiccHex = piccMatch[1];
@@ -229,7 +241,7 @@ serve(async (req) => {
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // 2. Token Mismatch Fix (19): Verify on-chain escrow holds SOL, matches listing
+        // 2. Token Mismatch Fix (19): Verify on-chain escrow holds SOL
         // ═══════════════════════════════════════════════════════════════
 
         const rpcUrl = Deno.env.get("HELIUS_RPC_URL");
@@ -377,10 +389,47 @@ serve(async (req) => {
 
         // Update trade session state to NFC_VERIFIED
         const tagUidHex = bytesToHex(uid);
+        const { data: sessionRow } = await supabase
+            .from("trade_sessions")
+            .select("buyer_wallet")
+            .eq("id", tradeId)
+            .single();
         await supabase
             .from("trade_sessions")
             .update({ state: "NFC_VERIFIED", nfc_sun_url: `uid:${tagUidHex}` })
             .eq("id", tradeId);
+
+        let receiptMintBuyer: string | null = null;
+        let receiptMintSeller: string | null = null;
+        const mintPayload = JSON.stringify({
+            tradeId,
+            listingId,
+            buyerWallet: sessionRow?.buyer_wallet || "",
+            sellerWallet: sellerWalletBase58,
+            listingTitle: listing?.title || assetTitle,
+            amountLamports: listing?.price_lamports ?? 0,
+            releaseTxSignature: signature,
+        });
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                const mintRes = await fetch(`${supabaseUrl}/functions/v1/mint-receipt-nft`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${supabaseKey}` },
+                    body: mintPayload,
+                });
+                if (mintRes.ok) {
+                    const mintJson = await mintRes.json();
+                    receiptMintBuyer = mintJson.receiptMintBuyer ?? null;
+                    receiptMintSeller = mintJson.receiptMintSeller ?? null;
+                    break;
+                }
+                if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+                else console.error("Receipt NFT mint failed:", await mintRes.text());
+            } catch (mintErr) {
+                if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+                else console.error("Receipt NFT mint error:", mintErr);
+            }
+        }
 
         return new Response(JSON.stringify({
             valid: true,
@@ -391,6 +440,8 @@ serve(async (req) => {
             tradeSessionId: tradeId,
             uidHex: bytesToHex(uid),
             readCounter: readCtr[0] | (readCtr[1] << 8) | (readCtr[2] << 16),
+            receiptMintBuyer,
+            receiptMintSeller,
         }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
