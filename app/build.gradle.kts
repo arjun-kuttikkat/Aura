@@ -49,13 +49,14 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "HELIUS_KEY", "\"${localProps.getProperty("HELIUS_API_KEY", "")}\"")
+        buildConfigField("String", "HELIUS_RPC_URL", "\"${localProps.getProperty("HELIUS_RPC_URL", "")}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${localProps.getProperty("SUPABASE_URL", "")}\"")
         buildConfigField("String", "SUPABASE_KEY", "\"${localProps.getProperty("SUPABASE_KEY", "")}\"")
         buildConfigField("String", "GROQ_API_KEY", "\"${localProps.getProperty("GROQ_API_KEY", "")}\"")
         buildConfigField("String", "GROQ_MODEL", "\"${localProps.getProperty("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")}\"")
         buildConfigField("String", "CEREBRAS_API_KEY", "\"${localProps.getProperty("CEREBRAS_API_KEY", "")}\"")
         buildConfigField("String", "TREASURY_WALLET", "\"${localProps.getProperty("TREASURY_WALLET", "")}\"")
-        buildConfigField("String", "RELEASE_AUTHORITY_PUBKEY", "\"${localProps.getProperty("RELEASE_AUTHORITY_PUBKEY", "")}\"")
+        buildConfigField("String", "RELEASE_AUTHORITY_PUBKEY", "\"${localProps.getProperty("RELEASE_AUTHORITY_PUBKEY", localProps.getProperty("SOLANA_AUTHORITY_KEY", ""))}\"")
         buildConfigField("String", "SUPABASE_JWT_SECRET", "\"${localProps.getProperty("SUPABASE_JWT_SECRET", "")}\"")
         manifestPlaceholders["MAPS_API_KEY"] = localProps.getProperty("MAPS_API_KEY", "PLACEHOLDER_KEY")
     }
@@ -120,6 +121,7 @@ dependencies {
     // ML Kit Face Detection
     implementation(libs.mlkit.face.detection)
     implementation("com.google.mlkit:image-labeling:17.0.9")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
 
     // Coroutines Guava

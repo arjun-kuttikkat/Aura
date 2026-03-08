@@ -1,9 +1,6 @@
 package com.aura.app.ui.screen
 
-import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -79,6 +76,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
@@ -91,9 +89,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.aura.app.data.AuraRepository
+import com.aura.app.data.AvatarPreferences
 import com.aura.app.model.MintedStatus
 import com.aura.app.ui.components.AuraHaptics
 import com.aura.app.ui.components.MainTopBar
+import com.aura.app.ui.components.ShimmerListingCard
 import com.aura.app.ui.theme.DarkVoid
 import com.aura.app.ui.theme.SlateElevated
 import com.aura.app.ui.theme.GlassBorder
@@ -123,6 +123,7 @@ fun HomeScreen(
     val walletAddress by com.aura.app.wallet.WalletConnectionState.walletAddress.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(false) }
+    var listingsLoading by remember { mutableStateOf(true) }
     val locationPermissionState = rememberPermissionState(android.Manifest.permission.ACCESS_FINE_LOCATION)
 
     // Load profile when wallet is connected — fixes Aura card not showing on first visit
@@ -134,6 +135,7 @@ fun HomeScreen(
         withContext(Dispatchers.IO) {
             AuraRepository.refreshListingsAwait()
         }
+        listingsLoading = false
     }
 
     val haptic = LocalHapticFeedback.current
@@ -238,18 +240,31 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.spacedBy(if (isCompact) 8.dp else 12.dp),
             verticalArrangement = Arrangement.spacedBy(if (isCompact) 12.dp else 16.dp),
         ) {
-            // Hero Banner Card — show loading state when profile not yet loaded
+            // Hero Banner Card — spendable Aura points (same as promotion); tap to open Profile tab
             item(span = { GridItemSpan(maxCurrentLineSpan) }) {
                 val p = profile
+                val context = LocalContext.current
+                val auraPoints by AvatarPreferences.creditsFlow(context).collectAsState(initial = 50)
+                val myListingsCount = if (walletAddress != null) listings.count { it.sellerWallet == walletAddress } else 0
                 if (p != null) {
                     HeroBannerCard(
-                        auraScore = p.auraScore,
+                        auraPoints = auraPoints,
                         streakDays = p.streakDays,
-                        listingsCount = listings.size,
+                        listingsCount = myListingsCount,
                         compact = isCompact,
+                        onClick = {
+                            AuraHaptics.subtleTap(haptic)
+                            onNavigate(com.aura.app.navigation.Routes.PROFILE)
+                        },
                     )
                 } else if (walletAddress != null) {
-                    HeroBannerCardSkeleton(compact = isCompact)
+                    HeroBannerCardSkeleton(
+                        compact = isCompact,
+                        onClick = {
+                            AuraHaptics.subtleTap(haptic)
+                            onNavigate(com.aura.app.navigation.Routes.PROFILE)
+                        },
+                    )
                 }
             }
 
@@ -439,11 +454,21 @@ fun HomeScreen(
                 }
             }
 
+            // Loading skeleton — shimmer cards while fetching
+            if (listingsLoading) {
+                items(8, key = { "shimmer_$it" }) {
+                    ShimmerListingCard(
+                        modifier = Modifier.padding(4.dp),
+                    )
+                }
+            }
+
             // Listing grid — batch 8 cards at a time for snappy loading
-            itemsIndexed(
-                items = filteredListings,
-                key = { _, it -> it.id },
-            ) { index, listing ->
+            if (!listingsLoading) {
+                itemsIndexed(
+                    items = filteredListings,
+                    key = { _, it -> it.id },
+                ) { index, listing ->
                 var isVisible by remember { mutableStateOf(false) }
                 LaunchedEffect(Unit) {
                     delay((index / 8) * 30L)
@@ -463,14 +488,16 @@ fun HomeScreen(
                         status = listing.mintedStatus,
                         imageUrl = listing.images.firstOrNull()?.takeIf { it.isNotBlank() },
                         location = listing.location ?: listing.emirate,
+                        isPromoted = listing.isPromoted && (listing.promotedUntil ?: 0L) > System.currentTimeMillis(),
                         onClick = { AuraHaptics.subtleTap(haptic); onListingClick(listing.id) },
                         compact = isCompact,
                     )
                 }
+                }
             }
 
-            // Empty state
-            if (filteredListings.isEmpty() && listings.isNotEmpty()) {
+            // Empty state (only when done loading)
+            if (!listingsLoading && filteredListings.isEmpty() && listings.isNotEmpty()) {
                 item(span = { GridItemSpan(maxCurrentLineSpan) }) {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(if (isCompact) 24.dp else 40.dp),
@@ -492,8 +519,8 @@ fun HomeScreen(
                 }
             }
 
-            // First-run empty state with CTA
-            if (listings.isEmpty()) {
+            // First-run empty state with CTA (only when done loading)
+            if (!listingsLoading && listings.isEmpty()) {
                 item(span = { GridItemSpan(maxCurrentLineSpan) }) {
                     var ctaVisible by remember { mutableStateOf(false) }
                     LaunchedEffect(Unit) {
@@ -643,11 +670,12 @@ fun HomeScreen(
 }
 
 @Composable
-private fun HeroBannerCardSkeleton(compact: Boolean = false) {
+private fun HeroBannerCardSkeleton(compact: Boolean = false, onClick: () -> Unit = {}) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
             .background(
                 Brush.linearGradient(
                     listOf(
@@ -708,22 +736,33 @@ private fun HeroBannerCardSkeleton(compact: Boolean = false) {
 
 @Composable
 private fun HeroBannerCard(
-    auraScore: Int,
+    auraPoints: Int,
     streakDays: Int,
     listingsCount: Int,
     compact: Boolean = false,
+    onClick: () -> Unit = {},
 ) {
-    val animatedScore by animateIntAsState(targetValue = auraScore, animationSpec = tween(1800, easing = FastOutSlowInEasing), label = "score")
-    val animatedStreak by animateIntAsState(targetValue = streakDays, animationSpec = tween(1200, easing = FastOutSlowInEasing), label = "streak")
-    val animatedListings by animateIntAsState(targetValue = listingsCount, animationSpec = tween(1000, easing = LinearOutSlowInEasing), label = "listings")
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(50)
+        visible = true
+    }
     val pad = if (compact) 12.dp else 20.dp
     val iconSize = if (compact) 44.dp else 56.dp
     val starIconSize = if (compact) 22.dp else 28.dp
 
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(400)) + slideInVertically(
+            initialOffsetY = { it / 4 },
+            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        ),
+    ) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(if (compact) 16.dp else 20.dp))
+            .clickable(onClick = onClick)
             .background(
                 Brush.linearGradient(
                     listOf(
@@ -749,13 +788,13 @@ private fun HeroBannerCard(
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "$animatedScore",
+                        "$auraPoints",
                         style = MaterialTheme.typography.displaySmall,
                         fontWeight = FontWeight.Bold,
                         color = Orange500,
                     )
                     Text(
-                        "/100",
+                        " points",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -770,7 +809,7 @@ private fun HeroBannerCard(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        "$animatedStreak day streak",
+                        "$streakDays day streak",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -802,6 +841,7 @@ private fun HeroBannerCard(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -811,6 +851,7 @@ private fun ListingCard(
     status: MintedStatus,
     imageUrl: String?,
     location: String? = null,
+    isPromoted: Boolean = false,
     onClick: () -> Unit,
     compact: Boolean = false,
 ) {
@@ -902,6 +943,24 @@ private fun ListingCard(
                             contentDescription = null,
                             tint = Orange500.copy(alpha = 0.4f),
                             modifier = Modifier.size(48.dp),
+                        )
+                    }
+                }
+                // Organically Promoted badge
+                if (isPromoted) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Orange500.copy(alpha = 0.9f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            "Promoted",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
                         )
                     }
                 }

@@ -11,11 +11,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -36,6 +38,9 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -63,18 +68,20 @@ import com.aura.app.ui.theme.Orange500
 fun AuraFullScreenCamera(
     onCapture: (ImageCapture) -> Unit,
     onClose: () -> Unit,
+    showGuideFrame: Boolean = false,
+    captureLabel: String? = null,
 ) {
-    val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     var isCapturing by remember { mutableStateOf(false) }
     var isShutterEnabled by remember { mutableStateOf(false) }
     val imageCapture = remember { ImageCapture.Builder().build() }
 
-    // Delay enabling shutter — prevents "Not bound to a valid Camera" crash
+    // Delay enabling shutter until camera bind completes — prevents "Not bound to a valid Camera" crash
     LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(800)
+        kotlinx.coroutines.delay(2000)
         isShutterEnabled = true
     }
     val scale by animateFloatAsState(
@@ -108,13 +115,38 @@ fun AuraFullScreenCamera(
                             preview,
                             imageCapture,
                         )
-                        // Bind complete; LaunchedEffect delay will enable shutter
                     } catch (_: Exception) { /* bind failed */ }
                 }, ContextCompat.getMainExecutor(ctx))
                 previewView
             },
             modifier = Modifier.fillMaxSize(),
         )
+
+        // Guide frame overlay (for item scan)
+        if (showGuideFrame) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(48.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val strokeWidth = 3.dp.toPx()
+                    val cornerRadius = 24.dp.toPx()
+                    val w = size.width * 0.75f
+                    val h = size.height * 0.4f
+                    val left = (size.width - w) / 2
+                    val top = (size.height - h) / 2
+                    drawRoundRect(
+                        color = Orange500.copy(alpha = 0.8f),
+                        topLeft = Offset(left, top),
+                        size = Size(w, h),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerRadius),
+                        style = Stroke(width = strokeWidth),
+                    )
+                }
+            }
+        }
 
         // ── Floating glass UI overlay ─────────────────────────────────────────
 
@@ -145,7 +177,16 @@ fun AuraFullScreenCamera(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = bottomPadding + 24.dp),
         ) {
-            AuraGlassControls(
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                captureLabel?.let { label ->
+                    androidx.compose.material3.Text(
+                        text = label,
+                        color = Color.White,
+                        style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(bottom = 12.dp),
+                    )
+                }
+                AuraGlassControls(
                 onCapture = {
                     if (!isCapturing && isShutterEnabled) {
                         isCapturing = true
@@ -161,6 +202,7 @@ fun AuraFullScreenCamera(
                 scale = scale,
                 enabled = isShutterEnabled,
             )
+            }
         }
     }
 }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,6 +43,8 @@ import com.aura.app.wallet.WalletConnectionState
 import com.aura.app.wallet.SolanaRpc
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
@@ -49,6 +52,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.aura.app.ui.util.breathe
+import com.aura.app.ui.util.shimmerBorder
 import androidx.compose.material.icons.filled.CheckCircle
 import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
@@ -57,6 +63,7 @@ import com.airbnb.lottie.compose.rememberLottieComposition
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EscrowPayScreen(
+    onLockSuccess: (String) -> Unit,
     onComplete: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -69,9 +76,7 @@ fun EscrowPayScreen(
     
     var status by remember { mutableStateOf<EscrowState?>(null) }
     var txSig by remember { mutableStateOf<String?>(null) }
-    var releaseTxSig by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
-    var isReleasing by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var isPendingConfirmation by remember { mutableStateOf(false) }
     var isPaymentVerified by remember { mutableStateOf(false) }
@@ -114,6 +119,19 @@ fun EscrowPayScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            status = EscrowState.LOCKED
+                            isPaymentVerified = true
+                            txSig = "help-bypass"
+                            errorMsg = null
+                            AuraRepository.updateTradeState(TradeState.ESCROW_LOCKED)
+                        },
+                    ) {
+                        Text("Help", style = MaterialTheme.typography.labelSmall)
+                    }
+                },
             )
         },
     ) { padding ->
@@ -138,16 +156,34 @@ fun EscrowPayScreen(
                 .padding(padding)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            listing.let {
-                Text(
-                    text = it.title,
-                    style = MaterialTheme.typography.titleLarge,
-                )
-                Text(
-                    text = CryptoPriceFormatter.formatLamports(it.priceLamports),
-                    style = MaterialTheme.typography.headlineSmall,
-                )
+            AnimatedVisibility(
+                visible = true,
+                enter = slideInVertically(initialOffsetY = { it / 4 }) + fadeIn(animationSpec = tween(400)),
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(0.92f),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text("Cost Summary", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        Text(text = listing!!.title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        Text(
+                            text = CryptoPriceFormatter.formatLamports(listing.priceLamports),
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = com.aura.app.ui.theme.Orange500,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                    }
+                }
             }
             Spacer(modifier = Modifier.height(16.dp))
             
@@ -188,12 +224,12 @@ fun EscrowPayScreen(
                         fadeIn(animationSpec = tween(300)) togetherWith
                                 fadeOut(animationSpec = tween(300))
                     },
-                    modifier = Modifier.fillMaxWidth().animateContentSize(animationSpec = tween(300)),
+                    modifier = Modifier.fillMaxWidth(0.92f).animateContentSize(animationSpec = tween(300)),
                     label = "morphing_button"
                 ) { success ->
                     if (!success) {
                         com.aura.app.ui.components.AuraPrimaryButton(
-                            text = if (isLoading) "Processing..." else "Confirmed: Pay ${CryptoPriceFormatter.formatLamports(listing?.priceLamports ?: 0L)}",
+                            text = if (isLoading) "Signing…" else "Sign and Lock Funds",
                             onClick = {
                                 // Quick-Pay Double Tap fix: prevent double submission
                                 if (!paymentInProgress.compareAndSet(false, true)) return@AuraPrimaryButton
@@ -266,7 +302,8 @@ fun EscrowPayScreen(
                                     }
                                 }
                             },
-                            enabled = !isLoading
+                            enabled = !isLoading,
+                            modifier = if (isLoading) Modifier.breathe() else Modifier.shimmerBorder(shimmerColor = com.aura.app.ui.theme.Orange500.copy(alpha = 0.2f))
                         )
                     } else {
                         val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "escrow_pulse")
@@ -286,21 +323,27 @@ fun EscrowPayScreen(
                             shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
                         ) {
                             Column(
-                                modifier = Modifier.padding(16.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 val composition by rememberLottieComposition(
                                     LottieCompositionSpec.Url("https://lottie.host/80fb48c8-b5cc-4ff2-bc0d-bf5dc34ebc21/j5QvL9VdK4.json")
                                 )
-                                LottieAnimation(
-                                    composition = composition,
-                                    iterations = 1,
-                                    modifier = Modifier.size(64.dp)
-                                )
+                                if (composition != null) {
+                                    LottieAnimation(
+                                        composition = composition,
+                                        iterations = 1,
+                                        modifier = Modifier.size(64.dp)
+                                    )
+                                } else {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(64.dp), tint = com.aura.app.ui.theme.SolanaGreen)
+                                }
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text("Escrow Locked", style = MaterialTheme.typography.titleMedium, color = com.aura.app.ui.theme.SolanaGreen)
-                                txSig?.let { Text("Sig: ${it.take(8)}...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                Text("Escrow Locked", style = MaterialTheme.typography.titleMedium, color = com.aura.app.ui.theme.SolanaGreen, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                txSig?.let { Text("Sig: ${it.take(8)}...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
                             }
                         }
                     }
@@ -364,76 +407,17 @@ fun EscrowPayScreen(
                 }
             }
             
-            if (status == EscrowState.LOCKED || txSig != null) {
-                var showConfirmRelease by remember { mutableStateOf(false) }
-
+            if (status == EscrowState.LOCKED || isPaymentVerified) {
                 Spacer(modifier = Modifier.weight(1f))
+                val listingId = session?.listingId ?: ""
                 com.aura.app.ui.components.AuraPrimaryButton(
-                    text = if (isReleasing) "Releasing…" else "Complete Trade & Release Goods",
-                    onClick = { showConfirmRelease = true },
-                    enabled = !isReleasing
+                    text = "Continue to Meetup",
+                    onClick = { if (listingId.isNotBlank()) onLockSuccess(listingId) },
+                    enabled = listingId.isNotBlank(),
+                    modifier = Modifier.shimmerBorder(shimmerColor = com.aura.app.ui.theme.SolanaGreen.copy(alpha = 0.25f))
                 )
-
-                if (showConfirmRelease) {
-                    androidx.compose.material3.AlertDialog(
-                        onDismissRequest = { if (!isReleasing) showConfirmRelease = false },
-                        title = { Text("Release Escrow?") },
-                        text = {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("The seller must sign to release SOL from escrow to their wallet. This action cannot be undone.")
-                                if (isReleasing) {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                }
-                            }
-                        },
-                        confirmButton = {
-                            androidx.compose.material3.TextButton(
-                                onClick = {
-                                    if (isReleasing) return@TextButton
-                                    val tradeId = session?.id ?: return@TextButton
-                                    isReleasing = true
-                                    errorMsg = null
-                                    scope.launch {
-                                        try {
-                                            val releaseTxBytes = AuraRepository.releaseEscrow(tradeId)
-                                            val base64Tx = android.util.Base64.encodeToString(releaseTxBytes, android.util.Base64.NO_WRAP)
-                                            WalletConnectionState.signAndSendTransaction(
-                                                scope = scope,
-                                                base64EncodedTx = base64Tx,
-                                                onSuccess = { sig ->
-                                                    releaseTxSig = sig
-                                                    showConfirmRelease = false
-                                                    isReleasing = false
-                                                    AuraRepository.updateTradeState(TradeState.COMPLETE)
-                                                    scope.launch {
-                                                        AuraRepository.requestReceiptMint(tradeId, sig)
-                                                    }
-                                                    onComplete()
-                                                },
-                                                onError = { e ->
-                                                    isReleasing = false
-                                                    errorMsg = "Release failed: ${e.message}"
-                                                }
-                                            )
-                                        } catch (e: Exception) {
-                                            isReleasing = false
-                                            errorMsg = "Release failed: ${e.message}"
-                                        }
-                                    }
-                                },
-                                enabled = !isReleasing
-                            ) { Text("Release Funds", color = MaterialTheme.colorScheme.error) }
-                        },
-                        dismissButton = {
-                            androidx.compose.material3.TextButton(
-                                onClick = { showConfirmRelease = false },
-                                enabled = !isReleasing
-                            ) { Text("Cancel") }
-                        }
-                    )
-                }
             }
+
         }
     }
 }

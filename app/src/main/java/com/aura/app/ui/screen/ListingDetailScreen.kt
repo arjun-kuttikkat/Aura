@@ -53,6 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -72,15 +73,14 @@ import com.aura.app.ui.theme.GlassSurface
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.components.AuraHaptics
+import com.aura.app.ui.util.pulseGlow
 import com.aura.app.ui.theme.SlateElevated
 import com.aura.app.ui.theme.SlateLight
 import com.aura.app.util.CryptoPriceFormatter
-import com.aura.app.wallet.AnchorTransactionBuilder
+import com.aura.app.data.AvatarPreferences
 import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
 
 private sealed class PromoteState {
     data object Idle : PromoteState()
@@ -336,6 +336,29 @@ fun ListingDetailScreen(
                 var showBuyConfirm by remember { mutableStateOf(false) }
                 val isSeller = walletAddress == listing.sellerWallet
 
+                // ── Seller Aura Rank ───────────────────────────────────────
+                if (!isSeller) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Orange500.copy(alpha = 0.15f))
+                                .border(0.5.dp, Orange500.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.Shield, null, modifier = Modifier.size(16.dp).pulseGlow(), tint = Orange500)
+                                Text("Aura Rank ${listing.sellerAuraScore}", style = MaterialTheme.typography.labelMedium, color = Orange500, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
                 // ── Action buttons (high up, prominent) ────────────────────
                 if (!isSeller) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -388,7 +411,7 @@ fun ListingDetailScreen(
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Orange500),
                             border = BorderStroke(1.dp, Orange500.copy(alpha = 0.6f)),
                         ) {
-                            Text("Message Seller", fontWeight = FontWeight.SemiBold)
+                            Text("Pay Aura to Chat", fontWeight = FontWeight.SemiBold)
                         }
                     }
 
@@ -513,16 +536,22 @@ fun ListingDetailScreen(
                                         }
                                     }
                                 } else {
+                                    val context = LocalContext.current
+                                    val credits by AvatarPreferences.creditsFlow(context).collectAsState(initial = 50)
+                                    val canAfford = credits >= AuraRepository.PROMOTE_AURA_POINTS
                                     Button(
                                         onClick = {
                                             AuraHaptics.lightTap(haptic)
                                             showPromoteConfirm = true
                                         },
-                                        enabled = promoteState !is PromoteState.Loading,
+                                        enabled = promoteState !is PromoteState.Loading && canAfford,
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(14.dp),
                                     ) {
-                                        Text("Promote Listing — 10 SOL for 24h")
+                                        Text(
+                                            if (canAfford) "Promote Listing — ${AuraRepository.PROMOTE_AURA_POINTS} Aura points for 24h"
+                                            else "Need ${AuraRepository.PROMOTE_AURA_POINTS} Aura points (you have $credits)"
+                                        )
                                     }
                                     if (showPromoteConfirm) {
                                         AlertDialog(
@@ -530,8 +559,8 @@ fun ListingDetailScreen(
                                             title = { Text("Promote listing", fontWeight = FontWeight.Bold) },
                                             text = {
                                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                    Text("Pay 10 SOL to pin your listing at the top for 24 hours. Your wallet will open to sign the transaction.", style = MaterialTheme.typography.bodyMedium)
-                                                    Text("Fee: 10 SOL", fontWeight = FontWeight.SemiBold, color = Orange500)
+                                                    Text("Spend ${AuraRepository.PROMOTE_AURA_POINTS} Aura points to pin your listing at the top for 24 hours with a \"Promoted\" badge.", style = MaterialTheme.typography.bodyMedium)
+                                                    Text("Cost: ${AuraRepository.PROMOTE_AURA_POINTS} Aura points", fontWeight = FontWeight.SemiBold, color = Orange500)
                                                 }
                                             },
                                             confirmButton = {
@@ -539,47 +568,22 @@ fun ListingDetailScreen(
                                                     AuraHaptics.lightTap(haptic)
                                                     showPromoteConfirm = false
                                                     promoteState = PromoteState.Loading
-                                                    val treasury = com.aura.app.BuildConfig.TREASURY_WALLET
-                                                    val wallet = walletAddress
-                                                    if (treasury.isBlank()) {
-                                                        promoteState = PromoteState.Error("Treasury not configured. Contact support.")
-                                                        return@TextButton
-                                                    }
-                                                    if (wallet == null) {
-                                                        promoteState = PromoteState.Error("Wallet not connected")
-                                                        return@TextButton
-                                                    }
                                                     scope.launch {
-                                                        try {
-                                                            val txBytes = withContext(Dispatchers.IO) {
-                                                                AnchorTransactionBuilder.buildSolTransferTx(
-                                                                    fromPubkey = wallet,
-                                                                    toPubkey = treasury,
-                                                                    lamports = AuraRepository.PROMOTE_FEE_LAMPORTS,
-                                                                )
-                                                            }
-                                                            val base64 = android.util.Base64.encodeToString(txBytes, android.util.Base64.NO_WRAP)
-                                                            WalletConnectionState.signAndSendTransaction(
-                                                                scope = scope,
-                                                                base64EncodedTx = base64,
-                                                                onSuccess = { sig ->
-                                                                    scope.launch {
-                                                                        val result = AuraRepository.promoteListing(listing.id, sig)
-                                                                        promoteState = result.fold(
-                                                                            onSuccess = { PromoteState.Success },
-                                                                            onFailure = { PromoteState.Error(it.message ?: "Promotion failed. Try again.") },
-                                                                        )
-                                                                    }
-                                                                },
-                                                                onError = { e ->
-                                                                    promoteState = PromoteState.Error(e.message ?: "Transaction failed")
-                                                                },
-                                                            )
-                                                        } catch (e: Exception) {
-                                                            promoteState = PromoteState.Error(e.message ?: "Failed to build transaction")
+                                                        val deducted = AvatarPreferences.deductCredits(context, AuraRepository.PROMOTE_AURA_POINTS)
+                                                        if (!deducted) {
+                                                            promoteState = PromoteState.Error("Not enough Aura points")
+                                                            return@launch
                                                         }
+                                                        val result = AuraRepository.promoteListingWithAuraPoints(listing.id)
+                                                        promoteState = result.fold(
+                                                            onSuccess = { PromoteState.Success },
+                                                            onFailure = {
+                                                                AvatarPreferences.addCredits(context, AuraRepository.PROMOTE_AURA_POINTS)
+                                                                PromoteState.Error(it.message ?: "Promotion failed. Try again.")
+                                                            },
+                                                        )
                                                     }
-                                                }) { Text("Pay 10 SOL & Promote", color = Orange500, fontWeight = FontWeight.Bold) }
+                                                }) { Text("Spend ${AuraRepository.PROMOTE_AURA_POINTS} Aura Points & Promote", color = Orange500, fontWeight = FontWeight.Bold) }
                                             },
                                             dismissButton = {
                                                 TextButton(onClick = { AuraHaptics.subtleTap(haptic); showPromoteConfirm = false }) {

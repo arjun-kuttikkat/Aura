@@ -83,6 +83,7 @@ data class ListingRow(
     @SerialName("promoted_until") val promotedUntil: String? = null,
     @SerialName("promoted_at") val promotedAt: String? = null,
     @SerialName("nfc_sun_url") val nfcSunUrl: String? = null,
+    @SerialName("meetup_radius_meters") val meetupRadiusMeters: Int? = null,
 )
 
 /** Insert DTO; is_promoted, promoted_*, nfc_sun_url optional for backward compatibility. */
@@ -104,6 +105,7 @@ private data class ListingRowInsert(
     @EncodeDefault @SerialName("is_active") val isActive: Boolean = true,
     @EncodeDefault @SerialName("is_published") val isPublished: Boolean = true,
     @SerialName("nfc_sun_url") val nfcSunUrl: String? = null,
+    @SerialName("meetup_radius_meters") val meetupRadiusMeters: Int? = null,
 )
 
 @Serializable
@@ -154,6 +156,9 @@ object AuraRepository {
     val favoriteListingIds: StateFlow<Set<String>> = _favoriteListingIds.asStateFlow()
 
     val activeQuickReceiveUri = MutableStateFlow<String?>(null)
+
+    private val _lastReceiptMintError = MutableStateFlow<String?>(null)
+    val lastReceiptMintError: StateFlow<String?> = _lastReceiptMintError.asStateFlow()
 
     init {
         refreshListings()
@@ -451,6 +456,7 @@ object AuraRepository {
         latitude: Double? = null,
         longitude: Double? = null,
         nfcSunUrl: String? = null,
+        meetupRadiusMeters: Int? = 50,
     ): Listing {
         // Ensure seller profile exists (required by FK: seller_wallet REFERENCES profiles)
         loadProfile(sellerWallet)
@@ -535,6 +541,7 @@ object AuraRepository {
             isActive = true,
             isPublished = true,
             nfcSunUrl = nfcSunUrl,
+            meetupRadiusMeters = meetupRadiusMeters,
         )
         try {
             db.from("marketplace_listings").insert(row)
@@ -557,12 +564,59 @@ object AuraRepository {
         return listing
     }
 
-    /** Promotion fee: 10 SOL. Must be paid to treasury before promoting. */
+    /** Promotion fee: 10 SOL (legacy). Use promoteListingWithAuraPoints for 50 Aura points. */
     val PROMOTE_FEE_LAMPORTS: Long = 10L * 1_000_000_000
 
+    /** Aura points cost for 24h promotion. */
+    const val PROMOTE_AURA_POINTS = 50
+
     /**
-     * Promote listing after payment is verified. Call this only after the user has successfully
-     * sent 10 SOL to the treasury; pass the transaction signature.
+     * Promote listing with 50 Aura points for 24h. Client must deduct credits before calling.
+     */
+    suspend fun promoteListingWithAuraPoints(listingId: String): Result<Unit> {
+        val listing = getListing(listingId)
+            ?: return Result.failure(Exception("Listing not found. Pull to refresh and try again."))
+        val wallet = com.aura.app.wallet.WalletConnectionState.walletAddress.value
+            ?: return Result.failure(Exception("Wallet not connected. Connect your wallet first."))
+        if (listing.sellerWallet != wallet)
+            return Result.failure(Exception("Only the seller can promote this listing."))
+
+        return try {
+            val reqBody = buildJsonObject {
+                put("listingId", listingId)
+                put("sellerWallet", wallet)
+                put("useAuraPoints", true)
+            }
+            val response = db.functions.invoke("promote-listing") {
+                setBody(reqBody.toString())
+                contentType(ContentType.Application.Json)
+            }
+            val text = response.bodyAsText()
+            val json = kotlinx.serialization.json.Json.parseToJsonElement(text).jsonObject
+            val error = json["error"]?.jsonPrimitive?.content
+            if (!error.isNullOrBlank()) {
+                return Result.failure(Exception(error))
+            }
+            _listings.value = _listings.value.map {
+                if (it.id == listingId) {
+                    it.copy(
+                        isPromoted = true,
+                        promotedAt = System.currentTimeMillis(),
+                        promotedUntil = System.currentTimeMillis() + 24 * 60 * 60 * 1000,
+                    )
+                } else it
+            }
+            refreshListingsAwait()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to promote listing with Aura points", e)
+            Result.failure(Exception(e.message ?: "Promotion failed. Check your connection and try again."))
+        }
+    }
+
+    /**
+     * Promote listing after SOL payment is verified (legacy). Call this only after the user has
+     * successfully sent 10 SOL to the treasury; pass the transaction signature.
      */
     suspend fun promoteListing(listingId: String, txSignature: String): Result<Unit> {
         val listing = getListing(listingId)
@@ -661,40 +715,19 @@ object AuraRepository {
     }
 
     /**
-     * Verify a photo against the listing (item match) or for Aura Check.
-     * @param listingId Required for item_match; used to fetch listing reference image server-side.
-     * @param checkType "item_match" for trade verify screen (match item to listing); "aura_check" for Aura Check flow.
+     * Verify a photo against the listing (item match). Uses Groq API directly — no Supabase.
      */
     suspend fun verifyPhoto(listingId: String, photoBytes: ByteArray, checkType: String = "item_match"): VerificationResult {
         if (photoBytes.isEmpty()) {
             return VerificationResult(score = 0f, pass = false, reason = "No photo provided.")
         }
-        try {
-            val base64Photo = android.util.Base64.encodeToString(photoBytes, android.util.Base64.NO_WRAP)
-            val reqBody = buildJsonObject {
-                put("listingId", listingId)
-                put("photoBase64", base64Photo)
-                put("checkType", checkType)
-            }
-            val response = db.functions.invoke("verify-photo") {
-                setBody(reqBody.toString())
-                contentType(ContentType.Application.Json)
-            }
-            // Parse the real AI Vision response
-            val responseText = response.bodyAsText()
-            val jsonElement = kotlinx.serialization.json.Json.parseToJsonElement(responseText).jsonObject
-            val rating = jsonElement["rating"]?.jsonPrimitive?.int ?: 50
-            val pass = jsonElement["pass"]?.jsonPrimitive?.boolean ?: false
-            val feedback = jsonElement["feedback"]?.jsonPrimitive?.content ?: "Analysis complete"
-            return VerificationResult(
-                score = rating / 100f,
-                pass = pass,
-                reason = feedback
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "verify-photo Edge Function failed", e)
-            return VerificationResult(score = 0f, pass = false, reason = "Verification service unavailable: ${e.message}")
+        if (checkType != "item_match") {
+            return VerificationResult(score = 0f, pass = false, reason = "Use aura_check via Supabase.")
         }
+        val listing = getListing(listingId) ?: return VerificationResult(score = 0f, pass = false, reason = "Listing not found.")
+        val refUrl = listing.images?.firstOrNull() ?: return VerificationResult(score = 0f, pass = false, reason = "Listing has no image.")
+        val (pass, feedback, rating) = GroqAIService.compareItemToListing(photoBytes, refUrl)
+        return VerificationResult(score = rating / 100f, pass = pass, reason = feedback)
     }
 
     // ── Trade Sessions ───────────────────────────────────────────────────────
@@ -754,7 +787,12 @@ object AuraRepository {
         return session
     }
 
+    fun setLastReceiptMintError(error: String?) {
+        _lastReceiptMintError.value = error
+    }
+
     fun updateTradeReceiptMints(receiptMintBuyer: String?, receiptMintSeller: String?) {
+        if (receiptMintBuyer != null || receiptMintSeller != null) _lastReceiptMintError.value = null
         _currentTradeSession.value?.let { session ->
             val updated = session.copy(
                 receiptMintBuyer = receiptMintBuyer,
@@ -763,6 +801,28 @@ object AuraRepository {
             )
             _currentTradeSession.value = updated
             appContext?.let { TradeSessionStore.save(it, updated) }
+        }
+    }
+
+    /** Re-fetch receipt mints from DB (e.g. after edge function mints asynchronously). */
+    suspend fun refreshTradeSessionReceiptMints(tradeId: String) {
+        try {
+            val rows = db.from("trade_sessions").select { filter { eq("id", tradeId) } }
+                .decodeList<TradeSessionRow>()
+            val row = rows.firstOrNull() ?: return
+            _currentTradeSession.value?.let { session ->
+                if (session.id == tradeId && (row.receiptMintBuyer != null || row.receiptMintSeller != null)) {
+                    val updated = session.copy(
+                        receiptMintBuyer = row.receiptMintBuyer ?: session.receiptMintBuyer,
+                        receiptMintSeller = row.receiptMintSeller ?: session.receiptMintSeller,
+                        lastUpdated = System.currentTimeMillis(),
+                    )
+                    _currentTradeSession.value = updated
+                    appContext?.let { TradeSessionStore.save(it, updated) }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "refreshTradeSessionReceiptMints failed", e)
         }
     }
 
@@ -929,6 +989,12 @@ object AuraRepository {
         val treasuryWallet = com.aura.app.BuildConfig.TREASURY_WALLET
         val feeBps = if (isRadiant) 0 else DEFAULT_PLATFORM_FEE_BPS
         val releaseAuth = com.aura.app.BuildConfig.RELEASE_AUTHORITY_PUBKEY
+        if (releaseAuth.isBlank()) {
+            throw IllegalStateException("RELEASE_AUTHORITY_PUBKEY or SOLANA_AUTHORITY_KEY required in local.properties for escrow.")
+        }
+        if (treasuryWallet.isBlank()) {
+            throw IllegalStateException("TREASURY_WALLET required in local.properties for escrow.")
+        }
         val txBytes = com.aura.app.wallet.AnchorTransactionBuilder.buildInitializeEscrowTx(
             listingId = listingId,
             amountLamports = amountLamports,
@@ -939,6 +1005,12 @@ object AuraRepository {
             feeExempt = isRadiant,
             releaseAuthority = releaseAuth,
         )
+        // Pre-flight simulate so we surface errors before wallet popup (avoids Phantom "Simulation failed")
+        val simResult = com.aura.app.wallet.SolanaRpc.simulateTransaction(txBytes)
+        if (simResult is com.aura.app.wallet.SolanaRpc.SimulateResult.Failed) {
+            Log.e(TAG, "Escrow init pre-flight simulate failed: ${simResult.message}")
+            throw IllegalStateException("Transaction would fail: ${simResult.message}. Ensure escrow program is deployed on mainnet and RPC matches your wallet.")
+        }
         // Do NOT call updateTradeState here — wait for wallet signing confirmation
         return txBytes
     }
@@ -974,6 +1046,7 @@ object AuraRepository {
         data class Success(
             val receiptMintBuyer: String? = null,
             val receiptMintSeller: String? = null,
+            val receiptMintError: String? = null,
         ) : ReleaseResult()
         data object OfflineQueued : ReleaseResult()
         data class Failed(val reason: String) : ReleaseResult()
@@ -1138,7 +1211,12 @@ object AuraRepository {
             Log.d(TAG, "Photo verified and escrow released. Response: $responseText")
             val receiptBuyer = jsonElement["receiptMintBuyer"]?.jsonPrimitive?.content
             val receiptSeller = jsonElement["receiptMintSeller"]?.jsonPrimitive?.content
-            return ReleaseResult.Success(receiptMintBuyer = receiptBuyer, receiptMintSeller = receiptSeller)
+            val mintErr = jsonElement["receiptMintError"]?.jsonPrimitive?.content
+            return ReleaseResult.Success(
+                receiptMintBuyer = receiptBuyer,
+                receiptMintSeller = receiptSeller,
+                receiptMintError = mintErr,
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Failed Edge Function release-escrow-photo", e)
             if (isNetworkError(e)) {
@@ -1276,6 +1354,7 @@ object AuraRepository {
         promotedAt = null,
         promotedUntil = null,
         nfcSunUrl = nfcSunUrl,
+        meetupRadiusMeters = meetupRadiusMeters,
     )
 
     private fun ListingRow.toDomain(userLat: Double? = null, userLng: Double? = null) = Listing(
@@ -1306,6 +1385,7 @@ object AuraRepository {
         promotedAt = promotedAt?.let { runCatching { OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull() },
         promotedUntil = promotedUntil?.let { runCatching { OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull() },
         nfcSunUrl = nfcSunUrl,
+        meetupRadiusMeters = meetupRadiusMeters,
     )
 
     private fun parseMintedStatus(s: String?): MintedStatus = runCatching {

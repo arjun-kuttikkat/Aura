@@ -10,12 +10,14 @@ import java.net.URL
 object SolanaRpc {
 
     /**
-     * Set this to your dedicated Helius or QuickNode RPC URL before calling any method.
-     * Example: "https://mainnet.helius-rpc.com/?api-key=YOUR_KEY"
+     * RPC URL. Uses HELIUS_RPC_URL from local.properties if set; else builds from HELIUS_API_KEY.
+     * Set SOLANA_NETWORK=devnet / devnet RPC when the escrow program is on devnet.
      */
-    var rpcUrl: String = "https://mainnet.helius-rpc.com/?api-key=${com.aura.app.BuildConfig.HELIUS_KEY}"
+    var rpcUrl: String = com.aura.app.BuildConfig.HELIUS_RPC_URL
+        .takeIf { it.isNotBlank() }
+        ?: "https://mainnet.helius-rpc.com/?api-key=${com.aura.app.BuildConfig.HELIUS_KEY}"
 
-    /** Fallback public RPC when primary fails (e.g. missing key, rate limit, network). Lets user still pay. */
+    /** Fallback public RPC when primary fails. */
     private const val FALLBACK_RPC = "https://api.mainnet-beta.solana.com"
 
     private const val TAG = "SolanaRpc"
@@ -100,6 +102,36 @@ object SolanaRpc {
             ?: return@withRetry false
         status == "confirmed" || status == "finalized"
     } ?: false
+
+    /**
+     * Pre-flight simulate the transaction before sending to the wallet.
+     * Uses replaceRecentBlockhash so the RPC substitutes a fresh blockhash for simulation.
+     * Returns null on success; on failure returns a SimulateResult with the RPC error.
+     * Call before signAndSendTransaction to surface simulation failures early.
+     */
+    suspend fun simulateTransaction(txBytes: ByteArray): SimulateResult? {
+        val base64 = android.util.Base64.encodeToString(txBytes, android.util.Base64.NO_WRAP)
+        val body = """{"jsonrpc":"2.0","id":1,"method":"simulateTransaction","params":["$base64",{"encoding":"base64","commitment":"confirmed","replaceRecentBlockhash":true}]}"""
+        val response = rpcPost(body, rpcUrl) ?: return SimulateResult.Failed("RPC connection failed")
+        if (response.contains("\"error\"")) {
+            val errMatch = """"message"\s*:\s*"([^"]*)"""".toRegex().find(response)
+            return SimulateResult.Failed(errMatch?.groupValues?.get(1) ?: response.take(200))
+        }
+        // result.value.err is null on success
+        if (""""err"\s*:\s*null""".toRegex().containsMatchIn(response)) return null
+        val errRegex = """"err"\s*:\s*"([^"]+)"|"InstructionError"\s*:\s*\[([^\]]+)\]""".toRegex()
+        val errMatch = errRegex.find(response)
+        val logsRegex = """"logs"\s*:\s*\[(.*?)\]""".toRegex(RegexOption.DOT_MATCHES_ALL)
+        val logsMatch = logsRegex.find(response)
+        val logs = logsMatch?.groupValues?.get(1)?.take(500) ?: ""
+        val errMsg = errMatch?.groupValues?.get(1) ?: errMatch?.groupValues?.get(2) ?: "Simulation failed"
+        Log.e(TAG, "simulateTransaction failed: $errMsg logs=$logs")
+        return SimulateResult.Failed("$errMsg. ${if (logs.isNotBlank()) "Logs: $logs" else ""}")
+    }
+
+    sealed class SimulateResult {
+        data class Failed(val message: String) : SimulateResult()
+    }
 
     /**
      * Poll transaction status until confirmed/finalized or timeout.

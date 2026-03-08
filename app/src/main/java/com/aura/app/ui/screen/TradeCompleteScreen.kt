@@ -61,14 +61,22 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import android.content.Intent
 import android.net.Uri
+import com.aura.app.data.AuraPreferences
 import com.aura.app.data.AuraRepository
+import com.aura.app.data.LocalReceipt
+import com.aura.app.data.LocalReceiptStore
 import com.aura.app.ui.components.AuraHaptics
 import com.aura.app.wallet.WalletConnectionState
 import com.aura.app.ui.theme.DarkBase
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SuccessGreen
+import com.aura.app.util.CryptoPriceFormatter
 import kotlinx.coroutines.delay
+import androidx.compose.material3.AlertDialog
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun TradeCompleteScreen(
@@ -78,6 +86,7 @@ fun TradeCompleteScreen(
     val context = LocalContext.current
     val session by AuraRepository.currentTradeSession.collectAsState(initial = null)
     val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
+    val receiptMintError by AuraRepository.lastReceiptMintError.collectAsState(initial = null)
     val myReceiptMint = when {
         walletAddress == session?.buyerWallet -> session?.receiptMintBuyer
         walletAddress == session?.sellerWallet -> session?.receiptMintSeller
@@ -87,9 +96,43 @@ fun TradeCompleteScreen(
     var showText by remember { mutableStateOf(false) }
     var showBadge by remember { mutableStateOf(false) }
     var showButton by remember { mutableStateOf(false) }
+    var showReceiptDetail by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
+    // Save local receipt when Supabase mint may fail (so user always has proof)
+    LaunchedEffect(session, walletAddress) {
+        val s = session ?: return@LaunchedEffect
+        if (s.state != com.aura.app.model.TradeState.BOTH_PRESENT) return@LaunchedEffect
+        val addr = walletAddress ?: return@LaunchedEffect
+        val role = if (addr == s.buyerWallet) "buyer" else if (addr == s.sellerWallet) "seller" else return@LaunchedEffect
+        val listing = AuraRepository.getListing(s.listingId)
+        LocalReceiptStore.save(
+            context,
+            s.id,
+            LocalReceipt(
+                tradeId = s.id,
+                listingTitle = listing?.title ?: "Trade",
+                amountLamports = listing?.priceLamports ?: 0L,
+                timestamp = s.lastUpdated,
+                role = role,
+                counterpartyWallet = if (role == "buyer") s.sellerWallet else s.buyerWallet,
+            ),
+        )
+    }
+
+    // Poll for receipt NFT when mint is still null (edge function may complete after release)
+    val sessionId = session?.id
+    LaunchedEffect(sessionId, myReceiptMint) {
+        if (sessionId != null && myReceiptMint == null) {
+            kotlinx.coroutines.delay(2000)
+            AuraRepository.refreshTradeSessionReceiptMints(sessionId)
+            kotlinx.coroutines.delay(3000)
+            AuraRepository.refreshTradeSessionReceiptMints(sessionId)
+        }
+    }
+
+    LaunchedEffect(session?.id ?: "") {
         AuraHaptics.successPattern(context)
+        if (!session?.id.isNullOrBlank()) AuraPreferences.tryAwardTradeBonus(session!!.id)
         showCheck = true
         delay(400)
         showText = true
@@ -167,16 +210,18 @@ fun TradeCompleteScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             AnimatedVisibility(
-                visible = showBadge && myReceiptMint != null,
+                visible = showBadge,
                 enter = fadeIn(tween(400)) + slideInVertically(initialOffsetY = { 60 }, animationSpec = spring(dampingRatio = 0.6f)),
             ) {
                 androidx.compose.material3.Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
-                            myReceiptMint?.let { mint ->
-                                val uri = Uri.parse("https://solscan.io/token/$mint")
+                            if (myReceiptMint != null) {
+                                val uri = Uri.parse("https://solscan.io/token/$myReceiptMint")
                                 context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                            } else {
+                                showReceiptDetail = true
                             }
                         },
                     colors = androidx.compose.material3.CardDefaults.cardColors(
@@ -185,27 +230,67 @@ fun TradeCompleteScreen(
                     shape = RoundedCornerShape(16.dp),
                 ) {
                     Column(
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Icon(Icons.Default.Image, contentDescription = null, tint = Gold500, modifier = Modifier.size(36.dp))
+                        Icon(Icons.Default.Token, contentDescription = null, tint = Gold500, modifier = Modifier.size(40.dp))
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Your Receipt NFT",
+                            if (myReceiptMint != null) "Your Receipt NFT" else "Trade Receipt",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
+                            textAlign = TextAlign.Center,
                         )
-                        Text(
-                            "${myReceiptMint?.take(8)}...${myReceiptMint?.takeLast(8)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            "Tap to view on Solscan",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Orange500,
-                        )
+                        if (myReceiptMint != null) {
+                            Text(
+                                "${myReceiptMint.take(8)}...${myReceiptMint.takeLast(8)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                "Tap to view on Solscan",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Orange500,
+                                textAlign = TextAlign.Center,
+                            )
+                        } else {
+                            // Local receipt fallback when Supabase mint fails
+                            val listing = session?.listingId?.let { AuraRepository.getListing(it) }
+                            Text(
+                                listing?.title ?: "Trade",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                CryptoPriceFormatter.formatLamports(listing?.priceLamports ?: 0L),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                "Trade ID: ${session?.id?.take(8) ?: "—"}…",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                            if (receiptMintError != null) {
+                                Text(
+                                    "On-chain receipt unavailable: $receiptMintError",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                            Text(
+                                "Tap to view receipt",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Orange500,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
                     }
                 }
             }
@@ -229,7 +314,7 @@ fun TradeCompleteScreen(
                         .padding(24.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.Token, contentDescription = null, tint = Gold500, modifier = Modifier.size(40.dp))
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
@@ -237,6 +322,7 @@ fun TradeCompleteScreen(
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
                             color = Gold500,
+                            textAlign = TextAlign.Center,
                         )
                         Text(
                             "Tap-to-Earn reward for completing a verified trade",
@@ -273,6 +359,44 @@ fun TradeCompleteScreen(
                     Text("Return to Marketplace", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                 }
             }
+        }
+
+        if (showReceiptDetail) {
+            val listing = session?.listingId?.let { AuraRepository.getListing(it) }
+            val dateStr = session?.lastUpdated?.let {
+                SimpleDateFormat("MMM d, yyyy · h:mm a", Locale.getDefault()).format(Date(it))
+            } ?: "—"
+            val role = when {
+                walletAddress == session?.buyerWallet -> "Buyer"
+                walletAddress == session?.sellerWallet -> "Seller"
+                else -> "Participant"
+            }
+            val counterparty = when {
+                walletAddress == session?.buyerWallet -> session?.sellerWallet
+                walletAddress == session?.sellerWallet -> session?.buyerWallet
+                else -> null
+            }
+            AlertDialog(
+                onDismissRequest = { showReceiptDetail = false },
+                title = { Text("Trade Receipt", style = MaterialTheme.typography.titleLarge) },
+                text = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(listing?.title ?: "Trade", style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(CryptoPriceFormatter.formatLamports(listing?.priceLamports ?: 0L), style = MaterialTheme.typography.bodyLarge)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Trade ID: ${session?.id ?: "—"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Date: $dateStr", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Your role: $role", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        counterparty?.let { Text("Counterparty: ${it.take(8)}…${it.takeLast(8)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = { showReceiptDetail = false }, colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black)) {
+                        Text("Close")
+                    }
+                },
+            )
         }
     }
 }

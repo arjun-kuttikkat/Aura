@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.aura.app.data.AuraPreferences
 import com.aura.app.data.AuraRepository
 import com.aura.app.model.AuraCheckResult
 import com.google.android.gms.location.LocationServices
@@ -179,7 +180,11 @@ fun AuraCheckScreen(
                                     lng = loc?.longitude
                                 } catch (_: SecurityException) { /* permission not granted */ }
                                 
-                                result = AuraRepository.performAuraCheck(photoBytes, lat, lng)
+                                val checkResult = AuraRepository.performAuraCheck(photoBytes, lat, lng)
+                                result = checkResult
+                                if (checkResult.creditsEarned > 0) {
+                                    AuraPreferences.addAuraReward(checkResult.creditsEarned)
+                                }
                             } catch (e: Exception) {
                                 result = AuraCheckResult(0, "Capture failed: ${e.message}", false, 0)
                             } finally {

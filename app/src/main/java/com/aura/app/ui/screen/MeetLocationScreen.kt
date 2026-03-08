@@ -57,10 +57,13 @@ import com.aura.app.util.MeetupLocationUtils
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.maps.android.compose.Circle
 import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
+import com.aura.app.ui.util.breathe
+import com.aura.app.ui.util.pulseGlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -101,7 +104,7 @@ fun MeetLocationScreen(
             }.getOrNull()
             if (loc != null && !loc.isFromMockProvider) {
                 val dist = com.aura.app.util.MeetupLocationUtils.distanceMeters(loc, lat, lng)
-                geofencePassed = MeetupLocationUtils.isWithinGeofence(dist, useStrictRadius = false)
+                geofencePassed = MeetupLocationUtils.isWithinGeofence(dist, customRadiusMeters = MeetupLocationUtils.RELEASE_GEOFENCE_METERS)
                 // Reverse geocode for live address (Location Text vs Map fix)
                 liveAddressText = withContext(Dispatchers.IO) {
                     runCatching {
@@ -125,6 +128,11 @@ fun MeetLocationScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    androidx.compose.material3.TextButton(onClick = onContinue) {
+                        Text("Help", style = MaterialTheme.typography.labelSmall)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -162,6 +170,13 @@ fun MeetLocationScreen(
                         state = MarkerState(position = LatLng(lat, lng)),
                         title = locationText,
                     )
+                    Circle(
+                        center = LatLng(lat, lng),
+                        radius = MeetupLocationUtils.RELEASE_GEOFENCE_METERS.toDouble(),
+                        fillColor = androidx.compose.ui.graphics.Color(0x15FF9500),
+                        strokeColor = Orange500.copy(alpha = 0.5f),
+                        strokeWidth = 4f,
+                    )
                 }
             }
 
@@ -184,7 +199,7 @@ fun MeetLocationScreen(
                         Icons.Default.LocationOn,
                         contentDescription = null,
                         tint = Orange500,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier.size(28.dp).then(if (geofencePassed) Modifier.pulseGlow() else Modifier),
                     )
                     Column {
                         Text(
@@ -230,10 +245,13 @@ fun MeetLocationScreen(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // Geofence fix (#4): "I am here" requires actual proximity — no couch bypass
+                // Live Meet Radar: Confirm Arrival when within 20m zone
                 Button(
                     onClick = onContinue,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .then(if (!geofencePassed && hasLocationPermission) Modifier.breathe() else Modifier),
                     shape = RoundedCornerShape(14.dp),
                     enabled = hasLocationPermission && geofencePassed,
                     colors = ButtonDefaults.buttonColors(
@@ -249,8 +267,8 @@ fun MeetLocationScreen(
                     Text(
                         when {
                             !hasLocationPermission -> "Enable location to continue"
-                            geofencePassed -> "I am here"
-                            else -> "Move within 50m of meetup"
+                            geofencePassed -> "Confirm Arrival"
+                            else -> "Move within 20m of meetup"
                         },
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium

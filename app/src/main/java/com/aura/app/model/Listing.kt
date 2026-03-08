@@ -26,6 +26,8 @@ data class Listing(
     val promotedAt: Long? = null,
     /** SUN URL from NFC tap at publish; used to verify same physical tag at meetup. */
     val nfcSunUrl: String? = null,
+    /** Seller-preferred meetup radius in meters (20–500). Default 50. */
+    val meetupRadiusMeters: Int? = null,
 )
 
 enum class MintedStatus {

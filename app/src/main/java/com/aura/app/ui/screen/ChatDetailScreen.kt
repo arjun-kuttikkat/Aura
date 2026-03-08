@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.aura.app.data.AiChatResponder
+import com.aura.app.data.AuraPreferences
 import com.aura.app.data.AuraRepository
 import com.aura.app.data.ChatRepository
 import com.aura.app.model.ChatMessage
@@ -34,7 +36,9 @@ import com.aura.app.ui.theme.DarkSurface
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SolanaGreen
 import com.aura.app.ui.theme.UltraViolet
+import com.aura.app.ui.components.GlassCardDark
 import com.aura.app.wallet.WalletConnectionState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
@@ -44,7 +48,8 @@ import java.util.UUID
 @Composable
 fun ChatDetailScreen(
     listingId: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onConfirmMeetupPlan: (() -> Unit)? = null,
 ) {
     val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     val listing = AuraRepository.getListing(listingId)
@@ -53,22 +58,32 @@ fun ChatDetailScreen(
     var messages by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var inputText by remember { mutableStateOf("") }
     var isAiTyping by remember { mutableStateOf(false) }
+    var showPlanMeetup by remember { mutableStateOf(true) }
+    var showInsufficientAuraModal by remember { mutableStateOf(false) }
+    var showSendConfirmModal by remember { mutableStateOf(false) }
+    var pendingMessageText by remember { mutableStateOf("") }
+    val auraBalance by AuraPreferences.totalAuraEarned.collectAsState(initial = 0)
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null && walletAddress != null && listing != null) {
-            val message = ChatMessage(
-                id = UUID.randomUUID().toString(),
-                listingId = listingId,
-                senderWallet = walletAddress!!,
-                receiverWallet = listing.sellerWallet,
-                content = "Shared an image",
-                imageUrl = uri.toString(),
-            )
-            messages = messages + message
-            scope.launch {
-                ChatRepository.sendMessage(message)
-                listState.animateScrollToItem(messages.lastIndex)
+            when {
+                AuraPreferences.spendAuraPoints(5) -> {
+                    val message = ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    listingId = listingId,
+                    senderWallet = walletAddress!!,
+                    receiverWallet = listing.sellerWallet,
+                    content = "Shared an image",
+                    imageUrl = uri.toString(),
+                )
+                messages = messages + message
+                scope.launch {
+                    ChatRepository.sendMessage(message)
+                    listState.animateScrollToItem(messages.lastIndex)
+                }
+                }
+                else -> showInsufficientAuraModal = true
             }
         }
     }
@@ -136,13 +151,74 @@ fun ChatDetailScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkSurface)
             )
         },
-        containerColor = Color.Black
+        containerColor = DarkSurface
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // Plan Meetup (buyer/seller chat only)
+            if (!isOfficialBot && listing != null && onConfirmMeetupPlan != null) {
+                GlassCardDark(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    glowColor = Orange500,
+                    cornerRadius = 16.dp,
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("Plan Meetup", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                            TextButton(onClick = { showPlanMeetup = !showPlanMeetup }) {
+                                Text(if (showPlanMeetup) "Collapse" else "Expand", color = Orange500)
+                            }
+                        }
+                        if (showPlanMeetup) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                listing.location ?: listing.emirate ?: "Meetup location",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "Agree on date & time in chat, then confirm below.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = {
+                                    walletAddress?.let { wallet ->
+                                        scope.launch {
+                                            AuraRepository.createTradeSession(
+                                                listingId = listingId,
+                                                buyerWallet = wallet,
+                                                sellerWallet = listing.sellerWallet,
+                                            )
+                                            delay(150)
+                                            onConfirmMeetupPlan()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
+                                enabled = walletAddress != null,
+                            ) {
+                                Text("Confirm Meetup Plan", fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+
             // Bot header banner
             if (isOfficialBot) {
                 Row(
@@ -223,7 +299,10 @@ fun ChatDetailScreen(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 IconButton(
-                    onClick = { imagePickerLauncher.launch("image/*") },
+                    onClick = {
+                        if (auraBalance < 5) showInsufficientAuraModal = true
+                        else imagePickerLauncher.launch("image/*")
+                    },
                     enabled = walletAddress != null && listing != null,
                 ) {
                     Icon(Icons.Default.Image, contentDescription = "Share image", tint = Orange500)
@@ -233,34 +312,13 @@ fun ChatDetailScreen(
                 IconButton(
                     onClick = {
                         if (canSend) {
-                            val userMsg = ChatMessage(
-                                id = UUID.randomUUID().toString(),
-                                listingId = listingId,
-                                senderWallet = walletAddress!!,
-                                receiverWallet = listing.sellerWallet,
-                                content = inputText.trim()
-                            )
-                            inputText = ""
-                            messages = messages + userMsg
-                            scope.launch {
-                                ChatRepository.sendMessage(userMsg)
-                                // Auto-reply for official bot
-                                if (isOfficialBot) {
-                                    isAiTyping = true
-                                    listState.animateScrollToItem(messages.size - 1)
-                                    val reply = AiChatResponder.generateReply(listing, messages)
-                                    val botMsg = ChatMessage(
-                                        id = UUID.randomUUID().toString(),
-                                        listingId = listingId,
-                                        senderWallet = AiChatResponder.AURA_OFFICIAL_WALLET,
-                                        receiverWallet = walletAddress!!,
-                                        content = reply
-                                    )
-                                    ChatRepository.sendMessage(botMsg)
-                                    messages = messages + botMsg
-                                    isAiTyping = false
-                                    listState.animateScrollToItem(messages.size - 1)
-                                }
+                            val text = inputText.trim()
+                            if (auraBalance < 5) {
+                                pendingMessageText = text
+                                showInsufficientAuraModal = true
+                            } else {
+                                pendingMessageText = text
+                                showSendConfirmModal = true
                             }
                         }
                     },
@@ -282,6 +340,113 @@ fun ChatDetailScreen(
                 }
             }
         }
+    }
+
+    // Insufficient Aura modal
+    if (showInsufficientAuraModal) {
+        AlertDialog(
+            onDismissRequest = { showInsufficientAuraModal = false },
+            title = { Text("Insufficient Aura Points", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        "You need 5 Aura points to send a message.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "Remaining balance: $auraBalance Aura points",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Orange500,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Earn more by completing Daily Aura Checks or verified trades.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showInsufficientAuraModal = false }) {
+                    Text("OK", color = Orange500)
+                }
+            },
+        )
+    }
+
+    // Send confirmation modal
+    if (showSendConfirmModal && listing != null) {
+        val remaining = auraBalance - 5
+        AlertDialog(
+            onDismissRequest = { showSendConfirmModal = false; pendingMessageText = "" },
+            title = { Text("Send Message?", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        "This will cost 5 Aura points.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "Remaining balance after send: $remaining Aura points",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = SolanaGreen,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (AuraPreferences.spendAuraPoints(5)) {
+                            val userMsg = ChatMessage(
+                                id = UUID.randomUUID().toString(),
+                                listingId = listingId,
+                                senderWallet = walletAddress!!,
+                                receiverWallet = listing.sellerWallet,
+                                content = pendingMessageText,
+                            )
+                            inputText = ""
+                            pendingMessageText = ""
+                            showSendConfirmModal = false
+                            messages = messages + userMsg
+                            scope.launch {
+                                ChatRepository.sendMessage(userMsg)
+                                if (isOfficialBot) {
+                                    isAiTyping = true
+                                    listState.animateScrollToItem(messages.size - 1)
+                                    val reply = AiChatResponder.generateReply(listing!!, messages)
+                                    val botMsg = ChatMessage(
+                                        id = UUID.randomUUID().toString(),
+                                        listingId = listingId,
+                                        senderWallet = AiChatResponder.AURA_OFFICIAL_WALLET,
+                                        receiverWallet = walletAddress!!,
+                                        content = reply,
+                                    )
+                                    ChatRepository.sendMessage(botMsg)
+                                    messages = messages + botMsg
+                                    isAiTyping = false
+                                    listState.animateScrollToItem(messages.size - 1)
+                                }
+                            }
+                        }
+                        showSendConfirmModal = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
+                ) {
+                    Text("Send")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSendConfirmModal = false; pendingMessageText = "" }) {
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+        )
     }
 }
 

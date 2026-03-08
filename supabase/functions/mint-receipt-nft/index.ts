@@ -54,34 +54,54 @@ serve(async (req) => {
         }
 
         const rpcUrl = Deno.env.get("HELIUS_RPC_URL");
-        if (!rpcUrl) throw new Error("HELIUS_RPC_URL is required");
+        if (!rpcUrl) throw new Error("mint-receipt-nft: HELIUS_RPC_URL secret not set. Add it in Supabase Dashboard → Edge Functions → Secrets.");
         const umi = createUmi(rpcUrl).use(mplCore());
 
         const secretKeyStr = Deno.env.get("SOLANA_AUTHORITY_KEY");
-        if (!secretKeyStr) throw new Error("SOLANA_AUTHORITY_KEY is required");
+        if (!secretKeyStr) throw new Error("mint-receipt-nft: SOLANA_AUTHORITY_KEY secret not set. Add it in Supabase Dashboard → Edge Functions → Secrets.");
         const keypair = umi.eddsa.createKeypairFromSecretKey(bs58.decode(secretKeyStr));
         umi.use(keypairIdentity(keypair));
 
         const title = (listingTitle || "Aura Trade").slice(0, 32);
         const receiptName = `Aura Receipt: ${title}`;
 
-        // Mint receipt to buyer
+        // Mint receipt to buyer (with retry for transient RPC errors)
         const buyerAsset = generateSigner(umi);
-        await createV1(umi, {
-            asset: buyerAsset,
-            name: receiptName,
-            uri: receiptMetadataUri,
-            owner: publicKey(buyerWallet),
-        }).sendAndConfirm(umi);
+        let lastErr: unknown = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                await createV1(umi, {
+                    asset: buyerAsset,
+                    name: receiptName,
+                    uri: receiptMetadataUri,
+                    owner: publicKey(buyerWallet),
+                }).sendAndConfirm(umi);
+                break;
+            } catch (e) {
+                lastErr = e;
+                if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+            }
+        }
+        if (lastErr) throw lastErr;
 
         // Mint receipt to seller
         const sellerAsset = generateSigner(umi);
-        await createV1(umi, {
-            asset: sellerAsset,
-            name: receiptName,
-            uri: receiptMetadataUri,
-            owner: publicKey(sellerWallet),
-        }).sendAndConfirm(umi);
+        lastErr = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                await createV1(umi, {
+                    asset: sellerAsset,
+                    name: receiptName,
+                    uri: receiptMetadataUri,
+                    owner: publicKey(sellerWallet),
+                }).sendAndConfirm(umi);
+                break;
+            } catch (e) {
+                lastErr = e;
+                if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+            }
+        }
+        if (lastErr) throw lastErr;
 
         const buyerMint = buyerAsset.publicKey.toString();
         const sellerMint = sellerAsset.publicKey.toString();

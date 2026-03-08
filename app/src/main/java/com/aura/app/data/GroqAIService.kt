@@ -56,6 +56,85 @@ object GroqAIService {
     )
 
     /**
+     * Anti-spoofing: strict validation that the image shows a 3D physical object in a real environment.
+     * Rejects screenshots, monitor photos, downloaded stock images, or AI-generated content.
+     * Output: binary Pass/Fail with reason.
+     */
+    data class AntiSpoofResult(
+        val pass: Boolean,
+        val reason: String
+    )
+
+    suspend fun runAntiSpoofing(imageBytes: ByteArray): AntiSpoofResult = withContext(Dispatchers.IO) {
+        try {
+            val base64Image = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
+            val systemPrompt = """You are a strict anti-spoofing validator for Aura marketplace.
+Analyze this image and determine if it shows a REAL 3D physical object in a REAL physical environment.
+
+PASS (true) ONLY if:
+- The image shows a tangible physical item (product, gadget, clothing, etc.)
+- The item appears to be photographed in a real-world setting (room, outdoors, hand-held)
+- There is evidence of depth, shadows, or natural lighting that suggests a physical scene
+
+FAIL (false) if:
+- Screenshot of a screen, monitor, or display
+- Photo of a photo or printed image
+- Downloaded stock image or catalog photo
+- AI-generated or synthetic image
+- Flat 2D representation without physical presence
+- Blurry or undiscernible content
+
+Respond ONLY with valid JSON:
+{"pass": true/false, "reason": "Brief 1-sentence explanation"}
+"""
+
+            val requestBody = buildJsonObject {
+                put("model", BuildConfig.GROQ_MODEL)
+                put("temperature", 0.1)
+                put("max_tokens", 128)
+                putJsonArray("messages") {
+                    add(buildJsonObject {
+                        put("role", "system")
+                        put("content", systemPrompt)
+                    })
+                    add(buildJsonObject {
+                        put("role", "user")
+                        putJsonArray("content") {
+                            add(buildJsonObject {
+                                put("type", "image_url")
+                                putJsonObject("image_url") {
+                                    put("url", "data:image/jpeg;base64,$base64Image")
+                                }
+                            })
+                            add(buildJsonObject {
+                                put("type", "text")
+                                put("text", "Is this a real physical object in a real environment? Respond in JSON.")
+                            })
+                        }
+                    })
+                }
+            }
+
+            val responseText = makeApiCall(requestBody.toString())
+            val jsonElement = Json.parseToJsonElement(responseText)
+            val content = jsonElement.jsonObject["choices"]
+                ?.jsonArray?.getOrNull(0)
+                ?.jsonObject?.get("message")
+                ?.jsonObject?.get("content")
+                ?.jsonPrimitive?.content ?: return@withContext AntiSpoofResult(false, "Empty response from AI")
+
+            val cleanContent = content.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            val parsed = Json.parseToJsonElement(cleanContent).jsonObject
+            val pass = parsed["pass"]?.jsonPrimitive?.content?.toBoolean() ?: false
+            val reason = parsed["reason"]?.jsonPrimitive?.content ?: (if (pass) "Physical object verified." else "Could not verify physical presence.")
+            AntiSpoofResult(pass, reason)
+        } catch (e: Exception) {
+            Log.e(TAG, "Anti-spoofing failed", e)
+            AntiSpoofResult(false, "Verification failed. Please try again.")
+        }
+    }
+
+    /**
      * Analyzes a product image to determine if it's a valid physical item
      * suitable for the Aura marketplace, and generates tags/labels.
      *
@@ -380,6 +459,72 @@ Scoring rubric:
         } catch (e: Exception) {
             Log.e(TAG, "Mission verification failed", e)
             Triple(false, "Could not verify at this time. Please try again.", 0)
+        }
+    }
+
+    /**
+     * Compare buyer's photo to listing reference image. Uses Groq vision directly — no Supabase.
+     * @param userPhotoBytes Buyer's captured photo
+     * @param listingImageUrl URL of the listing's reference image (from listing.images.first())
+     * @return pass, feedback, score (0-100)
+     */
+    suspend fun compareItemToListing(
+        userPhotoBytes: ByteArray,
+        listingImageUrl: String,
+    ): Triple<Boolean, String, Int> = withContext(Dispatchers.IO) {
+        try {
+            val userBase64 = Base64.encodeToString(userPhotoBytes, Base64.NO_WRAP)
+            val listingBase64 = runCatching {
+                val conn = URL(listingImageUrl).openConnection() as HttpURLConnection
+                conn.requestMethod = "GET"
+                conn.connectTimeout = 10_000
+                conn.readTimeout = 15_000
+                conn.inputStream.use { Base64.encodeToString(it.readBytes(), Base64.NO_WRAP) }
+            }.getOrNull()
+            if (listingBase64 == null) {
+                return@withContext Triple(false, "Could not load listing image.", 0)
+            }
+            val systemPrompt = """You are a lenient item-matching inspector.
+Image 1: The buyer's photo of the physical item.
+Image 2: The listing's reference photo.
+
+Does Image 1 show the SAME physical item as Image 2? Be lenient — pass if it is reasonably likely the same product.
+DO NOT reject for: different lighting, angle, packaging, shadows, partial view, slight blur. When in doubt, pass.
+Respond ONLY with valid JSON: {"pass": true/false, "feedback": "1-2 sentences", "rating": 0-100}"""
+            val requestBody = buildJsonObject {
+                put("model", BuildConfig.GROQ_MODEL)
+                put("temperature", 0.1)
+                put("max_tokens", 256)
+                put("response_format", buildJsonObject { put("type", "json_object") })
+                putJsonArray("messages") {
+                    add(buildJsonObject {
+                        put("role", "user")
+                        putJsonArray("content") {
+                            add(buildJsonObject { put("type", "text"); put("text", systemPrompt) })
+                            add(buildJsonObject {
+                                put("type", "image_url")
+                                putJsonObject("image_url") { put("url", "data:image/jpeg;base64,$userBase64") }
+                            })
+                            add(buildJsonObject {
+                                put("type", "image_url")
+                                putJsonObject("image_url") { put("url", "data:image/jpeg;base64,$listingBase64") }
+                            })
+                        }
+                    })
+                }
+            }
+            val responseText = makeApiCall(requestBody.toString())
+            val content = Json.parseToJsonElement(responseText).jsonObject["choices"]
+                ?.jsonArray?.firstOrNull()?.jsonObject?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.content
+                ?: return@withContext Triple(false, "No response from AI.", 0)
+            val parsed = Json.parseToJsonElement(content).jsonObject
+            val pass = parsed["pass"]?.jsonPrimitive?.content?.toBoolean() ?: false
+            val feedback = parsed["feedback"]?.jsonPrimitive?.content ?: "Could not verify."
+            val rating = parsed["rating"]?.jsonPrimitive?.content?.toIntOrNull() ?: (if (pass) 70 else 30)
+            Triple(pass || rating >= 55, feedback, rating.coerceIn(0, 100))
+        } catch (e: Exception) {
+            Log.e(TAG, "compareItemToListing failed", e)
+            Triple(false, e.message ?: "Verification failed. Please try again.", 0)
         }
     }
 

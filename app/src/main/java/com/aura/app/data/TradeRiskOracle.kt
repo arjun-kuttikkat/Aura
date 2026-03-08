@@ -55,10 +55,8 @@ object TradeRiskOracle {
                 riskScore += 10
                 flags.add("Unable to verify account age")
             }
-        } else {
-            riskScore += 15
-            flags.add("No account creation date available")
         }
+        // No penalty for missing account creation date — not a reliable risk signal
 
         // ── Aura Score Check ─────────────────────────────────────
         val aura = seller?.auraScore ?: 0
