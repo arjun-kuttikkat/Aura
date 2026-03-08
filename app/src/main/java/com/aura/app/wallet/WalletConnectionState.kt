@@ -12,6 +12,7 @@ import com.solana.mobilewalletadapter.clientlib.scenario.Scenario
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.functions.functions
 import io.ktor.client.request.setBody
+import io.ktor.client.request.timeout
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
@@ -27,6 +28,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.delay
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -35,6 +37,8 @@ object WalletConnectionState {
     private const val TAG = "WalletConnection"
     private const val ASSOCIATION_TIMEOUT_MS = 60000L
     private const val CLIENT_TIMEOUT_MS = 90000L
+    private const val WALLET_AUTH_TIMEOUT_MS = 60_000L
+    private const val WALLET_AUTH_RETRIES = 3
 
     private val _walletAddress = MutableStateFlow<String?>(null)
     val walletAddress: StateFlow<String?> = _walletAddress.asStateFlow()
@@ -112,10 +116,20 @@ object WalletConnectionState {
                 onError(Exception("No MWA-compatible wallet found. Install Phantom or Solflare."))
             } catch (e: Exception) {
                 Log.e(TAG, "Connection failed", e)
-                onError(e)
+                onError(Exception(toUserFriendlyMessage(e), e))
             } finally {
                 _walletPendingMessage.value = null
             }
+        }
+    }
+
+    private fun toUserFriendlyMessage(e: Exception): String {
+        val msg = e.message?.lowercase() ?: ""
+        return when {
+            msg.contains("socket timeout") || msg.contains("request timeout") || msg.contains("timeout") -> "Connection timed out. Check your network and try again."
+            msg.contains("unreachable") || msg.contains("connection refused") || msg.contains("network") -> "No internet connection. Check your network and try again."
+            msg.contains("failed with message") -> "Server connection failed. Please try again."
+            else -> e.message ?: "Connection failed. Please try again."
         }
     }
 
@@ -216,48 +230,81 @@ object WalletConnectionState {
 
     /** Request a nonce from the wallet-auth Edge Function for a specific wallet address. */
     private suspend fun fetchNonceForWallet(walletAddress: String): String {
-        val db = com.aura.app.data.SupabaseClient.client
-        val reqBody = buildJsonObject {
-            put("action", "nonce")
-            put("walletAddress", walletAddress)
+        return withRetry(WALLET_AUTH_RETRIES) {
+            val db = com.aura.app.data.SupabaseClient.client
+            val reqBody = buildJsonObject {
+                put("action", "nonce")
+                put("walletAddress", walletAddress)
+            }
+            val response = db.functions.invoke("wallet-auth") {
+                setBody(reqBody.toString())
+                contentType(ContentType.Application.Json)
+                timeout {
+                    requestTimeoutMillis = WALLET_AUTH_TIMEOUT_MS
+                    connectTimeoutMillis = 30_000
+                    socketTimeoutMillis = WALLET_AUTH_TIMEOUT_MS
+                }
+            }
+            val text = response.bodyAsText()
+            val json = Json.parseToJsonElement(text).jsonObject
+            val error = json["error"]?.jsonPrimitive?.content
+            if (!error.isNullOrBlank()) throw Exception("wallet-auth nonce failed: $error")
+            json["nonce"]?.jsonPrimitive?.content
+                ?: throw Exception("No nonce returned from wallet-auth")
         }
-        val response = db.functions.invoke("wallet-auth") {
-            setBody(reqBody.toString())
-            contentType(ContentType.Application.Json)
+    }
+
+    private suspend fun <T> withRetry(maxAttempts: Int, block: suspend () -> T): T {
+        var lastEx: Exception? = null
+        repeat(maxAttempts) { attempt ->
+            try {
+                return block()
+            } catch (e: Exception) {
+                lastEx = e
+                if (attempt < maxAttempts - 1) {
+                    val delayMs = 1000L * (1 shl attempt)
+                    Log.w(TAG, "wallet-auth attempt ${attempt + 1}/$maxAttempts failed, retrying in ${delayMs}ms: ${e.message}")
+                    delay(delayMs)
+                } else {
+                    throw e
+                }
+            }
         }
-        val text = response.bodyAsText()
-        val json = Json.parseToJsonElement(text).jsonObject
-        val error = json["error"]?.jsonPrimitive?.content
-        if (!error.isNullOrBlank()) throw Exception("wallet-auth nonce failed: $error")
-        return json["nonce"]?.jsonPrimitive?.content
-            ?: throw Exception("No nonce returned from wallet-auth")
+        throw lastEx ?: Exception("Retry exhausted")
     }
 
     /** Exchange signed nonce for a Supabase JWT. */
     private suspend fun exchangeSignatureForJwt(walletAddress: String, signedNonce: ByteArray) {
-        val db = com.aura.app.data.SupabaseClient.client
-        val signatureBase64 = android.util.Base64.encodeToString(signedNonce, android.util.Base64.NO_WRAP)
-        val reqBody = buildJsonObject {
-            put("action", "verify")
-            put("walletAddress", walletAddress)
-            put("signatureBase64", signatureBase64)
+        withRetry(WALLET_AUTH_RETRIES) {
+            val db = com.aura.app.data.SupabaseClient.client
+            val signatureBase64 = android.util.Base64.encodeToString(signedNonce, android.util.Base64.NO_WRAP)
+            val reqBody = buildJsonObject {
+                put("action", "verify")
+                put("walletAddress", walletAddress)
+                put("signatureBase64", signatureBase64)
+            }
+            val response = db.functions.invoke("wallet-auth") {
+                setBody(reqBody.toString())
+                contentType(ContentType.Application.Json)
+                timeout {
+                    requestTimeoutMillis = WALLET_AUTH_TIMEOUT_MS
+                    connectTimeoutMillis = 30_000
+                    socketTimeoutMillis = WALLET_AUTH_TIMEOUT_MS
+                }
+            }
+            val text = response.bodyAsText()
+            val json = Json.parseToJsonElement(text).jsonObject
+            val error = json["error"]?.jsonPrimitive?.content
+            if (!error.isNullOrBlank()) {
+                Log.w(TAG, "wallet-auth verify failed: $error (non-fatal, continuing with anon)")
+                return@withRetry
+            }
+            val jwt = json["token"]?.jsonPrimitive?.content ?: return@withRetry
+            _supabaseJwt.value = jwt
+            com.aura.app.data.AuraPreferences.setSupabaseJwt(jwt)
+            applyJwtToSupabase(jwt)
+            Log.i(TAG, "Wallet-auth: Supabase JWT acquired for $walletAddress")
         }
-        val response = db.functions.invoke("wallet-auth") {
-            setBody(reqBody.toString())
-            contentType(ContentType.Application.Json)
-        }
-        val text = response.bodyAsText()
-        val json = Json.parseToJsonElement(text).jsonObject
-        val error = json["error"]?.jsonPrimitive?.content
-        if (!error.isNullOrBlank()) {
-            Log.w(TAG, "wallet-auth verify failed: $error (non-fatal, continuing with anon)")
-            return
-        }
-        val jwt = json["token"]?.jsonPrimitive?.content ?: return
-        _supabaseJwt.value = jwt
-        com.aura.app.data.AuraPreferences.setSupabaseJwt(jwt)
-        applyJwtToSupabase(jwt)
-        Log.i(TAG, "Wallet-auth: Supabase JWT acquired for $walletAddress")
     }
 
     /** Apply JWT to the Supabase client for authenticated RLS access. */
@@ -288,7 +335,7 @@ object WalletConnectionState {
                 onSuccess(txSignature)
             } catch (e: Exception) {
                 Log.e(TAG, "Transaction failed", e)
-                onError(e)
+                onError(Exception(toUserFriendlyMessage(e), e))
             } finally {
                 _walletPendingMessage.value = null
             }
