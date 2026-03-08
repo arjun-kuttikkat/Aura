@@ -120,6 +120,17 @@ object AuraPreferences {
         if (isInitialized()) prefs.edit().putInt("avatar_color_index", index).apply()
     }
 
+    fun getRecentMissionHashes(): List<String> {
+        return if (isInitialized()) prefs.getString("recent_mission_hashes", "")?.split(",")?.filter { it.isNotEmpty() } ?: emptyList() else emptyList()
+    }
+
+    fun addMissionHash(hash: String) {
+        val currentHashes = getRecentMissionHashes().toMutableList()
+        currentHashes.add(0, hash)
+        val trimmed = currentHashes.take(5).joinToString(",")
+        if (isInitialized()) prefs.edit().putString("recent_mission_hashes", trimmed).apply()
+    }
+
     fun setWalletInfo(address: String?, authToken: String?) {
         _walletAddress.value = address
         if (isInitialized()) prefs.edit().apply {

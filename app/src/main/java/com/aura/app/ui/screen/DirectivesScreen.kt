@@ -1,18 +1,6 @@
 package com.aura.app.ui.screen
 
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -26,7 +14,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -40,133 +27,51 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.aura.app.data.AuraRepository
-import com.aura.app.data.AvatarPreferences
 import com.aura.app.data.GroqAIService
 import com.aura.app.ui.theme.*
-import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.File
-
-// ── Data models ────────────────────────────────────────────────────────────────
-
-private data class ChatMsg(val role: String, val text: String)
-
-enum class MissionPhase {
-    IDLE,          // No mission active, chatting
-    PROPOSED,      // AI proposed a mission, showing Accept card
-    GENERATING,    // Fetching structured mission from AI
-    ACTIVE,        // User accepted — showing step-by-step flow
-    CAPTURING,     // Camera open for photo proof
-    VERIFYING,     // AI verifying submitted photo
-    COMPLETE       // Mission done, showing celebration
-}
-
-private data class ActiveMission(
-    val mission: GroqAIService.AIMission,
-    val currentStep: Int = 0,
-    val proofPhotoPath: String? = null,
-    val verificationResult: Triple<Boolean, String, Int>? = null  // passed, feedback, score
-)
-
-// ── Main Screen ─────────────────────────────────────────────────────────────────
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DirectivesScreen(
+    viewModel: DirectivesViewModel,
+    onNavigateToMission: () -> Unit,
     onBack: () -> Unit,
     onCameraOpenChange: (Boolean) -> Unit = {}
 ) {
-    val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
-    // ── Chat State ──
-    var chatHistory by remember {
-        mutableStateOf(listOf(
-            ChatMsg("assistant", "Hey! 👋 I'm your Aura guide. How are you feeling today? Tell me what's on your mind and I'll put together a mission just for you.")
-        ))
-    }
+    // ViewModel State
+    val chatHistory by viewModel.chatHistory.collectAsState()
+    val isAiThinking by viewModel.isAiThinking.collectAsState()
+    val phase by viewModel.phase.collectAsState()
+    val pendingMission by viewModel.pendingMission.collectAsState()
+    val completedMissions by viewModel.completedMissions.collectAsState()
+
+    val profile by AuraRepository.currentProfile.collectAsState()
+
     var chatInput by remember { mutableStateOf("") }
-    var isAiThinking by remember { mutableStateOf(false) }
+    var showFullChat by remember { mutableStateOf(false) }
 
-    // ── Mission State ──
-    var phase by remember { mutableStateOf(MissionPhase.IDLE) }
-    var pendingMission by remember { mutableStateOf<ActiveMission?>(null) }
-    var completedMissions by remember { mutableStateOf(listOf<ActiveMission>()) }
-
-    // ── Camera ──
-    val imageCapture = remember { ImageCapture.Builder().build() }
-    val hasCameraPermission = context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) phase = MissionPhase.CAPTURING
+    // Init load history
+    LaunchedEffect(Unit) {
+        viewModel.loadHistory(context)
+        onCameraOpenChange(false) // Never full screen on this hub page
     }
 
-    // Auto-scroll chat when new messages arrive
+    // Auto-scroll chat
     LaunchedEffect(chatHistory.size) {
         if (chatHistory.size > 1) {
             delay(100)
             listState.animateScrollToItem(0)
         }
-    }
-
-    // Hide top bar & bottom nav when camera is fullscreen
-    LaunchedEffect(phase) {
-        onCameraOpenChange(phase == MissionPhase.CAPTURING)
-    }
-
-    // Fullscreen camera — no Scaffold, no top/bottom bars
-    if (phase == MissionPhase.CAPTURING) {
-        var verificationError by remember { mutableStateOf<String?>(null) }
-        // Show error from previous failed verification
-        LaunchedEffect(pendingMission?.verificationResult) {
-            val res = pendingMission?.verificationResult
-            if (res != null && !res.first) verificationError = res.second
-        }
-        CameraProofOverlay(
-            imageCapture = imageCapture,
-            lifecycleOwner = lifecycleOwner,
-            context = context,
-            verificationError = verificationError,
-            onDismissError = { verificationError = null },
-            onPhotoTaken = { path ->
-                verificationError = null
-                pendingMission = pendingMission?.copy(proofPhotoPath = path)
-                phase = MissionPhase.VERIFYING
-                scope.launch {
-                    delay(500)
-                    val mission = pendingMission?.mission
-                    if (mission != null && path != null) {
-                        val photoBytes = java.io.File(path).readBytes()
-                        val (passed, feedback, score) = GroqAIService.verifyMissionCompletion(
-                            missionDescription = mission.description,
-                            imageBytes = photoBytes
-                        )
-                        pendingMission = pendingMission?.copy(
-                            verificationResult = Triple(passed, feedback, score)
-                        )
-                        phase = if (passed) MissionPhase.COMPLETE else MissionPhase.CAPTURING
-                        if (!passed) {
-                            verificationError = feedback
-                            chatHistory = chatHistory + ChatMsg("assistant", "Hmm, I couldn't verify that one. Try again! 📸")
-                        } else {
-                            val creditsEarned = (score * 0.5f).toInt().coerceAtLeast(1)
-                            AvatarPreferences.addCredits(context, creditsEarned)
-                        }
-                    } else {
-                        phase = MissionPhase.COMPLETE
-                    }
-                }
-            },
-            onCancel = { phase = MissionPhase.ACTIVE }
-        )
-        return
     }
 
     Scaffold(
@@ -180,65 +85,78 @@ fun DirectivesScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-                contentPadding = PaddingValues(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(0.dp),
+                contentPadding = PaddingValues(bottom = 80.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
                 reverseLayout = false
             ) {
-
-                // ── 1. Completed Missions History ──────────────────────────────
-                if (completedMissions.isNotEmpty()) {
-                    item {
+                // Header (Stats Row)
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Total Aura Card
                         Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp)
-                                .padding(top = 16.dp, bottom = 8.dp)
+                                .weight(1f)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.5f))
+                                .padding(16.dp)
                         ) {
-                            Text("Your Achievements", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Brush.linearGradient(listOf(Orange500.copy(alpha = 0.12f), Gold500.copy(alpha = 0.08f))))
-                                    .border(1.dp, GlassBorder, RoundedCornerShape(16.dp))
-                                    .padding(16.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text("Missions Done", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("${completedMissions.size}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Orange500)
-                                }
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("+${completedMissions.sumOf { it.mission.auraReward }}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = SolanaGreen)
-                                    Text("Aura Earned", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
+                            Text("Total Aura", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Star, contentDescription = null, tint = Gold500, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("${profile?.auraScore ?: 0}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Gold500)
                             }
                         }
-                    }
-                    items(completedMissions) { cm ->
-                        Row(
+                        // Active Streak Card
+                        Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                .weight(1f)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Orange500.copy(alpha=0.15f))
+                                .padding(16.dp)
                         ) {
-                            Text(cm.mission.emoji, fontSize = 16.sp)
-                            Text(cm.mission.title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                            Text("+${cm.mission.auraReward} ✦", style = MaterialTheme.typography.labelMedium, color = SolanaGreen, fontWeight = FontWeight.Bold)
+                            Text("Active Streak", style = MaterialTheme.typography.labelSmall, color = Orange500.copy(alpha=0.8f))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.LocalFireDepartment, contentDescription = null, tint = Orange500, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("${profile?.streakDays ?: 0} Days", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Orange500)
+                            }
                         }
                     }
                 }
 
-                // ── 2. AI Chat ─────────────────────────────────────────────────
+                // Daily Inspiration (Bug 5 enhancement)
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Brush.linearGradient(listOf(SolanaGreen.copy(alpha=0.2f), UltraViolet.copy(alpha=0.1f))))
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            "\"Every small step builds your Aura. What will you do today?\"",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // ── 1. AI Chat Block ─────────────────────────────────────────────────
                 item {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
-                            .padding(top = 16.dp)
                             .clip(RoundedCornerShape(24.dp))
                             .background(Brush.linearGradient(listOf(UltraViolet.copy(alpha = 0.1f), DarkVoid.copy(alpha = 0.3f))))
                             .border(1.dp, UltraViolet.copy(alpha = 0.25f), RoundedCornerShape(24.dp))
@@ -262,8 +180,28 @@ fun DirectivesScreen(
 
                         Spacer(modifier = Modifier.height(14.dp))
 
+                        // Chat Logs Toggle Button
+                        if (chatHistory.size > 2) {
+                            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Surface(
+                                    modifier = Modifier.clickable { showFullChat = !showFullChat },
+                                    color = Color.Transparent
+                                ) {
+                                    Text(
+                                        text = if (showFullChat) "Hide Chat Logs ⬆" else "View Chat Logs (${chatHistory.size - 1}) ⬇",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = UltraViolet,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(vertical = 4.dp, horizontal = 8.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
                         // Chat messages
-                        chatHistory.takeLast(8).forEach { msg ->
+                        val messagesToShow = if (showFullChat) chatHistory else listOfNotNull(chatHistory.lastOrNull())
+                        messagesToShow.forEach { msg ->
                             val isAi = msg.role == "assistant"
                             val displayText = msg.text.replace("[MISSION_READY]", "").trim()
                             Row(
@@ -311,27 +249,8 @@ fun DirectivesScreen(
                             )
                             IconButton(
                                 onClick = {
-                                    val userMsg = chatInput.trim()
-                                    if (userMsg.isBlank()) return@IconButton
-                                    val newChat = chatHistory + ChatMsg("user", userMsg)
-                                    chatHistory = newChat
+                                    viewModel.sendMessage(chatInput)
                                     chatInput = ""
-                                    isAiThinking = true
-                                    scope.launch {
-                                        val groqHistory = newChat.map { GroqAIService.ChatMessage(it.role, it.text) }
-                                        val response = GroqAIService.chatWithDirectiveAI(groqHistory.dropLast(1), userMsg)
-                                        chatHistory = chatHistory + ChatMsg("assistant", response)
-                                        isAiThinking = false
-                                        // If AI signals mission is ready, transition to PROPOSED phase
-                                        if (response.contains("[MISSION_READY]")) {
-                                            phase = MissionPhase.GENERATING
-                                            val mission = GroqAIService.generateMission(
-                                                chatHistory.map { GroqAIService.ChatMessage(it.role, it.text) }
-                                            )
-                                            pendingMission = ActiveMission(mission)
-                                            phase = MissionPhase.PROPOSED
-                                        }
-                                    }
                                 },
                                 enabled = !isAiThinking && chatInput.isNotBlank() && phase == MissionPhase.IDLE,
                                 modifier = Modifier
@@ -352,13 +271,13 @@ fun DirectivesScreen(
                     }
                 }
 
-                // ── 3. Generating Mission Indicator ───────────────────────────
+                // ── 2. Generating Mission Indicator ───────────────────────────
                 if (phase == MissionPhase.GENERATING) {
                     item {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -369,94 +288,121 @@ fun DirectivesScreen(
                     }
                 }
 
-                // ── 4. Mission Proposal Card ───────────────────────────────────
+                // ── 3. Mission Proposal Card ───────────────────────────────────
                 if (phase == MissionPhase.PROPOSED && pendingMission != null) {
                     item {
                         MissionProposalCard(
                             mission = pendingMission!!.mission,
-                            onAccept = { phase = MissionPhase.ACTIVE },
-                            onDecline = {
-                                phase = MissionPhase.IDLE
-                                pendingMission = null
-                                chatHistory = chatHistory + ChatMsg("assistant", "No worries! Let me know when you're ready or if you'd like a different kind of mission. 😊")
-                            }
+                            onAccept = {
+                                viewModel.acceptMission()
+                                onNavigateToMission()
+                            },
+                            onDecline = { viewModel.declineMission() }
                         )
                     }
                 }
-
-                // ── 5. Active Mission Steps ────────────────────────────────────
-                if (phase == MissionPhase.ACTIVE && pendingMission != null) {
+                
+                // If mission is ACTIVE, CAPTURING, VERIFYING, or COMPLETE, show a jump back in button
+                if ((phase == MissionPhase.ACTIVE || phase == MissionPhase.CAPTURING || phase == MissionPhase.VERIFYING || phase == MissionPhase.COMPLETE) && pendingMission != null) {
                     item {
-                        ActiveMissionCard(
-                            activeMission = pendingMission!!,
-                            onStepComplete = { step ->
-                                val current = pendingMission!!
-                                if (step < current.mission.steps.size - 1) {
-                                    // Move to next step
-                                    pendingMission = current.copy(currentStep = step + 1)
-                                } else {
-                                    // Final step = take photo
-                                    if (hasCameraPermission) {
-                                        phase = MissionPhase.CAPTURING
-                                    } else {
-                                        permissionLauncher.launch(Manifest.permission.CAMERA)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Orange500.copy(alpha=0.15f))
+                                .border(1.dp, Orange500.copy(alpha=0.5f), RoundedCornerShape(16.dp))
+                                .padding(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Mission in Progress", style = MaterialTheme.typography.labelSmall, color = Orange500)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(pendingMission!!.mission.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                }
+                                Button(
+                                    onClick = onNavigateToMission,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Orange500)
+                                ) {
+                                    Text("Resume")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── 4. Past Missions History ──────────────────────────────────
+                if (completedMissions.isNotEmpty()) {
+                    item {
+                        var showPastMissions by remember { mutableStateOf(false) }
+                        
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .clickable { showPastMissions = !showPastMissions }
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                if (showPastMissions) "Hide Past Missions ⬆" else "View Past Missions (${completedMissions.size}) ⬇",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        AnimatedVisibility(visible = showPastMissions) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                completedMissions.forEach { record ->
+                                    val dateString = SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(record.completedAtMillis))
+                                    var expanded by remember { mutableStateOf(false) }
+
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp)
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                            .clickable { expanded = !expanded }
+                                            .padding(16.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(record.emoji, fontSize = 28.sp)
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(record.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                                Text(dateString, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            Column(horizontalAlignment = Alignment.End) {
+                                                Text("+${record.auraReward} ✦", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = SolanaGreen)
+                                            }
+                                        }
+
+                                        AnimatedVisibility(visible = expanded) {
+                                            Column(modifier = Modifier.padding(top = 12.dp)) {
+                                                Divider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+                                                Spacer(modifier = Modifier.height(10.dp))
+                                                Text("🤖 AI verify result:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text("\"${record.aiFeedback}\"", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        )
-                    }
-                }
-
-                // ── 6. Mission Complete Celebration ────────────────────────────
-                if (phase == MissionPhase.COMPLETE && pendingMission != null) {
-                    item {
-                        MissionCompleteCard(
-                            mission = pendingMission!!,
-                            onDone = {
-                                completedMissions = completedMissions + pendingMission!!
-                                // Award Aura points
-                                scope.launch {
-                                    walletAddress?.let { wallet ->
-                                        AuraRepository.loadProfile(wallet)
-                                    }
-                                }
-                                pendingMission = null
-                                phase = MissionPhase.IDLE
-                                chatHistory = chatHistory + ChatMsg(
-                                    "assistant",
-                                    "Amazing work! 🎉 You just earned ${completedMissions.lastOrNull()?.mission?.auraReward ?: 0} Aura points. Ready for another mission? Tell me how you're feeling!"
-                                )
-                            }
-                        )
-                    }
-                }
-
-                item { Spacer(modifier = Modifier.height(80.dp)) }
-            }
-
-            // ── Verifying overlay ─────────────────────────────────────────────
-            if (phase == MissionPhase.VERIFYING) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.75f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(20.dp)
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(60.dp), color = UltraViolet, strokeWidth = 5.dp)
-                        Text("Aura AI is verifying your mission...", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text("Hold tight! ✨", color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
+                        }
                     }
                 }
             }
         }
     }
 }
-
-// ── Mission Proposal Card ──────────────────────────────────────────────────────
 
 @Composable
 private fun MissionProposalCard(
@@ -470,7 +416,7 @@ private fun MissionProposalCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .padding(horizontal = 16.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(Brush.linearGradient(listOf(UltraViolet.copy(alpha = 0.18f), SolanaGreen.copy(alpha = 0.08f))))
                 .border(1.5.dp, UltraViolet.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
@@ -486,24 +432,8 @@ private fun MissionProposalCard(
 
             Spacer(modifier = Modifier.height(12.dp))
             Text(mission.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // Steps preview
-            mission.steps.forEachIndexed { i, step ->
-                Row(modifier = Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .background(UltraViolet.copy(alpha = 0.15f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("${i + 1}", style = MaterialTheme.typography.labelSmall, color = UltraViolet, fontWeight = FontWeight.Bold)
-                    }
-                    Text(step, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -525,314 +455,14 @@ private fun MissionProposalCard(
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = UltraViolet)
                 ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Accept Mission", fontWeight = FontWeight.Bold)
+                    Text("Start Mission →", fontWeight = FontWeight.Bold)
                 }
-                OutlinedButton(
+                TextButton(
                     onClick = onDecline,
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(14.dp)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Not Now")
+                    Text("Not Now", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            }
-        }
-    }
-}
-
-// ── Active Mission Step-by-Step Card ──────────────────────────────────────────
-
-@Composable
-private fun ActiveMissionCard(
-    activeMission: ActiveMission,
-    onStepComplete: (Int) -> Unit
-) {
-    val mission = activeMission.mission
-    val currentStep = activeMission.currentStep
-    val progress by animateFloatAsState(
-        targetValue = (currentStep.toFloat() + 1f) / mission.steps.size.toFloat(),
-        animationSpec = tween(600), label = "progress"
-    )
-    val isLastStep = currentStep == mission.steps.size - 1
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(Brush.linearGradient(listOf(Orange500.copy(alpha = 0.1f), Gold500.copy(alpha = 0.06f))))
-            .border(1.5.dp, Orange500.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
-            .padding(20.dp)
-    ) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(mission.emoji, fontSize = 22.sp)
-                Text(mission.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            }
-            Text("${currentStep + 1}/${mission.steps.size}", style = MaterialTheme.typography.labelMedium, color = Orange500, fontWeight = FontWeight.Bold)
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Progress bar
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-            color = Orange500,
-            trackColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // All steps — past ones struck through, current one highlighted
-        mission.steps.forEachIndexed { i, step ->
-            val isDone = i < currentStep
-            val isCurrent = i == currentStep
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 5.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        if (isCurrent) Orange500.copy(alpha = 0.12f)
-                        else Color.Transparent
-                    )
-                    .padding(if (isCurrent) 10.dp else 2.dp),
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .background(
-                            when {
-                                isDone -> SolanaGreen.copy(alpha = 0.2f)
-                                isCurrent -> Orange500.copy(alpha = 0.2f)
-                                else -> MaterialTheme.colorScheme.surfaceVariant
-                            },
-                            CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isDone) {
-                        Icon(Icons.Default.Check, contentDescription = null, tint = SolanaGreen, modifier = Modifier.size(14.dp))
-                    } else {
-                        Text("${i + 1}", style = MaterialTheme.typography.labelSmall,
-                            color = if (isCurrent) Orange500 else MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Bold)
-                    }
-                }
-                Text(
-                    step,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = when {
-                        isDone -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        isCurrent -> MaterialTheme.colorScheme.onSurface
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    },
-                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Button(
-            onClick = { onStepComplete(currentStep) },
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (isLastStep) UltraViolet else Orange500
-            )
-        ) {
-            when {
-                isLastStep -> {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Take Proof Photo 📸", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                }
-                else -> {
-                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Done — Next Step ➜", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                }
-            }
-        }
-    }
-}
-
-// ── Camera Proof Overlay ──────────────────────────────────────────────────────
-
-@Composable
-private fun CameraProofOverlay(
-    imageCapture: ImageCapture,
-    lifecycleOwner: androidx.lifecycle.LifecycleOwner,
-    context: android.content.Context,
-    verificationError: String? = null,
-    onDismissError: () -> Unit = {},
-    onPhotoTaken: (String?) -> Unit,
-    onCancel: () -> Unit
-) {
-    // AI verification error popup — clear, dismissible, no repeating text
-    if (verificationError != null) {
-        AlertDialog(
-            onDismissRequest = onDismissError,
-            title = { Text("Verification Failed", fontWeight = FontWeight.Bold) },
-            text = { Text(verificationError, style = MaterialTheme.typography.bodyMedium) },
-            confirmButton = {
-                TextButton(onClick = onDismissError) {
-                    Text("Try Again", color = UltraViolet, fontWeight = FontWeight.SemiBold)
-                }
-            },
-            containerColor = DarkSurface
-        )
-    }
-
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(
-            factory = { ctx ->
-                val previewView = PreviewView(ctx).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                cameraProviderFuture.addListener({
-                    val provider = cameraProviderFuture.get()
-                    val preview = Preview.Builder().build().apply { setSurfaceProvider(previewView.surfaceProvider) }
-                    provider.unbindAll()
-                    provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
-                }, ContextCompat.getMainExecutor(ctx))
-                previewView
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        // TOP bar instruction
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
-                .padding(20.dp)
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Text("📸 Mission Proof", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("Capture a photo to prove you completed the mission", color = Color.White.copy(alpha = 0.75f), fontSize = 13.sp)
-            }
-        }
-
-        // BOTTOM controls
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))))
-                .padding(30.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Cancel
-                IconButton(
-                    onClick = onCancel,
-                    modifier = Modifier.size(56.dp).background(Color.White.copy(alpha = 0.15f), CircleShape)
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color.White, modifier = Modifier.size(24.dp))
-                }
-
-                // Shutter
-                Box(
-                    modifier = Modifier
-                        .size(76.dp)
-                        .border(4.dp, Color.White, CircleShape)
-                        .padding(6.dp)
-                        .background(Color.White, CircleShape)
-                        .clickable {
-                            val photoFile = File(context.cacheDir, "mission_proof_${System.currentTimeMillis()}.jpg")
-                            val options = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-                            imageCapture.takePicture(
-                                options,
-                                ContextCompat.getMainExecutor(context),
-                                object : ImageCapture.OnImageSavedCallback {
-                                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                                        onPhotoTaken(photoFile.absolutePath)
-                                    }
-                                    override fun onError(exception: ImageCaptureException) {
-                                        onPhotoTaken(null)
-                                    }
-                                }
-                            )
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = "Capture", tint = Color.Black, modifier = Modifier.size(30.dp))
-                }
-
-                // Spacer for symmetry
-                Spacer(modifier = Modifier.size(56.dp))
-            }
-        }
-    }
-}
-
-// ── Mission Complete Card ────────────────────────────────────────────────────
-
-@Composable
-private fun MissionCompleteCard(
-    mission: ActiveMission,
-    onDone: () -> Unit
-) {
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { delay(200); visible = true }
-    AnimatedVisibility(visible = visible, enter = fadeIn(tween(500)) + slideInVertically(initialOffsetY = { 80 })) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Brush.linearGradient(listOf(SolanaGreen.copy(alpha = 0.15f), UltraViolet.copy(alpha = 0.08f))))
-                .border(2.dp, SolanaGreen.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text("🎉", fontSize = 48.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Mission Complete!", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = SolanaGreen)
-            Text(mission.mission.title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(modifier = Modifier.height(12.dp))
-
-            mission.verificationResult?.let { (_, feedback, score) ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .padding(14.dp)
-                ) {
-                    Column {
-                        Text("🤖 AI says: $feedback", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("Photo Quality Score: $score/100", style = MaterialTheme.typography.labelMedium, color = Orange500, fontWeight = FontWeight.Bold)
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.Default.Star, contentDescription = null, tint = Gold500, modifier = Modifier.size(22.dp))
-                Text("+${mission.mission.auraReward} Aura Earned", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Gold500)
-            }
-            Spacer(modifier = Modifier.height(20.dp))
-            Button(
-                onClick = onDone,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = SolanaGreen)
-            ) {
-                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(20.dp), tint = Color.Black)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Claim Aura Points", fontWeight = FontWeight.Bold, color = Color.Black)
             }
         }
     }

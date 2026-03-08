@@ -47,6 +47,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.File
 import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.UUID
@@ -147,7 +148,68 @@ object AuraRepository {
                 .decodeList<ProfileDto>()
             
             if (profiles.isNotEmpty()) {
-                _currentProfile.value = profiles.first()
+                var p = profiles.first()
+                
+                // --- Decay Logic ---
+                val lastScanStr = p.lastScanAt
+                var updatedAuraScore = p.auraScore
+                var updated = false
+                if (lastScanStr != null) {
+                    try {
+                        val lastScanDate = OffsetDateTime.parse(lastScanStr).withOffsetSameInstant(ZoneOffset.UTC).toLocalDate()
+                        val nowDate = OffsetDateTime.now(ZoneOffset.UTC).toLocalDate()
+                        val daysSince = ChronoUnit.DAYS.between(lastScanDate, nowDate).toInt()
+                        
+                        if (daysSince > 1) {
+                            val decayDays = daysSince - 1
+                            var actualDecayDays = decayDays
+                            
+                            // Check for Star Protection Card
+                            appContext?.let { ctx ->
+                                while (AvatarPreferences.getOwnedProtectionCards(ctx) > 0 && actualDecayDays > 0) {
+                                    AvatarPreferences.consumeProtectionCard(ctx)
+                                    actualDecayDays -= 1
+                                    Log.i(TAG, "Consumed 1 Star Protection Card. Decay reduced. Remaining decay days: $actualDecayDays")
+                                }
+                            }
+                            
+                            if (actualDecayDays > 0) {
+                                updatedAuraScore = (p.auraScore - (actualDecayDays * 100)).coerceAtLeast(0)
+                            }
+                            updated = true
+                        } else {
+                            // Even if no decay, update lastScanAt to NOW on login 
+                            // to reset the 24h grace window and prevent drift.
+                            updated = true
+                        }
+                    } catch (e: Exception) {
+                        updated = true
+                    }
+                } else {
+                    // First time or missing date - set it now
+                    updated = true
+                }
+                
+                if (updated) {
+                    val finalNowStr = OffsetDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                    val rankInfo = com.aura.app.model.RankSystem.getRankInfo(updatedAuraScore)
+                    val rankTitle = "${rankInfo.rankName} ${rankInfo.tierString}".trim()
+
+                    p = p.copy(
+                        auraScore = updatedAuraScore,
+                        lastScanAt = finalNowStr
+                    )
+                    try {
+                        supabase.postgrest["profiles"].update({
+                            set("aura_score", p.auraScore)
+                            set("last_scan_at", p.lastScanAt)
+                            set("rank_title", rankTitle)
+                        }) { filter { eq("wallet_address", p.walletAddress) } }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error updating profile sync", e)
+                    }
+                }
+                _currentProfile.value = p
             } else {
                 val newProfile = ProfileDto(walletAddress = walletAddress)
                 val insertedList = supabase.postgrest["profiles"]
@@ -165,27 +227,37 @@ object AuraRepository {
     suspend fun performMirrorRitual() {
         val profile = _currentProfile.value ?: return
         try {
-            val nowStr = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            val nowStr = OffsetDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
             val lastScanStr = profile.lastScanAt
             var streak = profile.streakDays
             val scoreGained = 5
-            val newScore = (profile.auraScore + scoreGained).coerceAtMost(100)
+            val newScore = profile.auraScore + scoreGained
 
             if (lastScanStr != null) {
                 try {
-                    val lastScan = OffsetDateTime.parse(lastScanStr)
-                    val now = OffsetDateTime.now()
-                    val hoursSince = ChronoUnit.HOURS.between(lastScan, now)
-                    if (hoursSince > 48) streak = 1 else if (hoursSince >= 24) streak += 1
+                    val lastScanDate = OffsetDateTime.parse(lastScanStr).withOffsetSameInstant(ZoneOffset.UTC).toLocalDate()
+                    val nowDate = OffsetDateTime.now(ZoneOffset.UTC).toLocalDate()
+                    val daysBetween = ChronoUnit.DAYS.between(lastScanDate, nowDate)
+                    
+                    if (daysBetween == 1L) {
+                        streak += 1
+                    } else if (daysBetween > 1L) {
+                        streak = 1
+                    }
+                    // If same day (0), streak stays as is (already incremented)
                 } catch (e:Exception) { streak += 1 }
             } else streak += 1
 
             val updatedProfile = profile.copy(auraScore = newScore, streakDays = streak, lastScanAt = nowStr)
 
+            val rankInfo = com.aura.app.model.RankSystem.getRankInfo(updatedProfile.auraScore)
+            val rankTitleValue = "${rankInfo.rankName} ${rankInfo.tierString}".trim()
+
             supabase.postgrest["profiles"].update({
                 set("aura_score", updatedProfile.auraScore)
                 set("streak_days", updatedProfile.streakDays)
                 set("last_scan_at", updatedProfile.lastScanAt)
+                set("rank_title", rankTitleValue)
             }) { filter { eq("wallet_address", profile.walletAddress) } }
 
             _currentProfile.value = updatedProfile
@@ -201,6 +273,17 @@ object AuraRepository {
     }
 
     suspend fun performAuraCheck(photoBytes: ByteArray, lat: Double?, lng: Double?): com.aura.app.model.AuraCheckResult {
+        val submissionOriginTime = OffsetDateTime.now(ZoneOffset.UTC)
+        
+        // 1. Anti-Cheat: Reject Hash Duplicates
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        val photoHash = md.digest(photoBytes).joinToString("") { "%02x".format(it) }
+        val recentHashes = AuraPreferences.getRecentMissionHashes()
+        if (recentHashes.contains(photoHash)) {
+            Log.w(TAG, "Duplicate submission detected. Match found in recent hashes.")
+            return com.aura.app.model.AuraCheckResult(0, "Duplicate photo detected. Please capture a live image.", false, 0)
+        }
+
         // Enforce strict AI validation on the Edge
         var rating: Int
         var feedback: String
@@ -223,6 +306,7 @@ object AuraRepository {
             rating = jsonElement["rating"]?.jsonPrimitive?.int ?: (80..100).random()
             feedback = jsonElement["feedback"]?.jsonPrimitive?.content ?: "Verified securely via Live Edge AI Vision endpoint."
             pass = jsonElement["pass"]?.jsonPrimitive?.boolean ?: true
+            if (pass) AuraPreferences.addMissionHash(photoHash)
         } catch (e: Exception) {
             Log.e(TAG, "Edge Function verify-photo failed critically. Sybil defense active: rejecting check.", e)
             return com.aura.app.model.AuraCheckResult(0, "Network or Server Validation Error. Request Denied.", false, 0)
@@ -231,39 +315,42 @@ object AuraRepository {
         val creditsEarned = (rating * 1.5).toInt()
         val profile = _currentProfile.value ?: return com.aura.app.model.AuraCheckResult(rating, feedback, true, creditsEarned)
 
-        val nowStr = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-        var streak = profile.streakDays
         val lastScanStr = profile.lastScanAt
+        val nowStr = submissionOriginTime.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        val lastScanDate = if (lastScanStr != null) OffsetDateTime.parse(lastScanStr).withOffsetSameInstant(ZoneOffset.UTC).toLocalDate() else null
+        val nowDate = submissionOriginTime.toLocalDate()
+        var streak = profile.streakDays
         var streakMaintained = false
 
-        if (lastScanStr != null) {
-            try {
-                val lastScan = OffsetDateTime.parse(lastScanStr)
-                val now = OffsetDateTime.now()
-                val hoursSince = ChronoUnit.HOURS.between(lastScan, now)
-                if (hoursSince in 20..48) {
-                    streak += 1
-                    streakMaintained = true
-                } else if (hoursSince > 48) {
-                    streak = 1
-                    streakMaintained = false
-                } else {
-                    streakMaintained = true
-                }
-            } catch (e: Exception) { streak += 1; streakMaintained = true }
+        if (lastScanDate != null) {
+            val daysBetween = ChronoUnit.DAYS.between(lastScanDate, nowDate)
+            if (daysBetween == 1L) {
+                streak += 1
+                streakMaintained = true
+            } else if (daysBetween > 1L) {
+                streak = 1
+                streakMaintained = false
+            } else {
+                // Same day or somehow retroactive
+                streakMaintained = true
+            }
         } else {
             streak += 1
             streakMaintained = true
         }
 
-        val newScore = (profile.auraScore + creditsEarned).coerceAtMost(100)
+        val newScore = profile.auraScore + creditsEarned
         val updatedProfile = profile.copy(auraScore = newScore, streakDays = streak, lastScanAt = nowStr)
+
+        val rankInfo = com.aura.app.model.RankSystem.getRankInfo(updatedProfile.auraScore)
+        val rankTitleValue = "${rankInfo.rankName} ${rankInfo.tierString}".trim()
 
         try {
             supabase.postgrest["profiles"].update({
                 set("aura_score", updatedProfile.auraScore)
                 set("streak_days", updatedProfile.streakDays)
                 set("last_scan_at", updatedProfile.lastScanAt)
+                set("rank_title", rankTitleValue)
             }) { filter { eq("wallet_address", profile.walletAddress) } }
         } catch (e: Exception) {
             Log.e(TAG, "Error updating profile after Aura check", e)
@@ -281,6 +368,63 @@ object AuraRepository {
         }
 
         return com.aura.app.model.AuraCheckResult(rating, feedback, streakMaintained, creditsEarned)
+    }
+
+    suspend fun addMissionAuraPoints(walletAddress: String, auraReward: Int, missionTitle: String) {
+        val profile = _currentProfile.value ?: return
+        if (profile.walletAddress != walletAddress) return
+
+        val submissionOriginTime = OffsetDateTime.now(ZoneOffset.UTC)
+        val nowStr = submissionOriginTime.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        var streak = profile.streakDays
+        val lastScanStr = profile.lastScanAt
+
+        if (lastScanStr != null) {
+            try {
+                val lastScanDate = OffsetDateTime.parse(lastScanStr).withOffsetSameInstant(ZoneOffset.UTC).toLocalDate()
+                val nowDate = submissionOriginTime.toLocalDate()
+                val daysBetween = ChronoUnit.DAYS.between(lastScanDate, nowDate)
+                
+                if (daysBetween == 1L) {
+                    streak += 1
+                } else if (daysBetween > 1L) {
+                    streak = 1
+                }
+            } catch (e: Exception) { streak += 1 }
+        } else {
+            streak += 1
+        }
+
+        val newScore = profile.auraScore + auraReward
+        val updatedProfile = profile.copy(auraScore = newScore, streakDays = streak, lastScanAt = nowStr)
+
+        val rankInfo = com.aura.app.model.RankSystem.getRankInfo(updatedProfile.auraScore)
+        val rankTitleValue = "${rankInfo.rankName} ${rankInfo.tierString}".trim()
+
+        try {
+            supabase.postgrest["profiles"].update({
+                set("aura_score", updatedProfile.auraScore)
+                set("streak_days", updatedProfile.streakDays)
+                set("last_scan_at", updatedProfile.lastScanAt)
+                set("rank_title", rankTitleValue)
+            }) { filter { eq("wallet_address", profile.walletAddress) } }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating profile after completed mission", e)
+        }
+
+        _currentProfile.value = updatedProfile
+
+        profile.id?.let { uuid ->
+            scope.launch {
+                try {
+                    val history = AuraHistoryDto(userId = uuid, changeAmount = auraReward, reason = "Completed Mission: $missionTitle")
+                    supabase.postgrest["aura_history"].insert(history)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error inserting aura history for completed mission: ${e.message}")
+                }
+            }
+        }
+        Log.i(TAG, "Mission Completed: +$auraReward score, streak now $streak")
     }
 
     // ── Listings ──────────────────────────────────────────────────────────────
@@ -399,6 +543,8 @@ object AuraRepository {
             }
         }
 
+        val currentAuraScore = _currentProfile.value?.auraScore ?: 50
+
         val row = ListingRow(
             id = listingId,
             sellerWallet = sellerWallet,
@@ -413,6 +559,7 @@ object AuraRepository {
             location = location ?: emirate,
             latitude = latitude,
             longitude = longitude,
+            sellerAuraScore = currentAuraScore,
             isActive = true,
             isPublished = true,
         )

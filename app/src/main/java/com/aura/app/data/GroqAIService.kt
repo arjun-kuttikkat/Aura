@@ -178,19 +178,21 @@ Your goal: understand how the user is feeling, then suggest a real-world mission
 Conversation flow:
 - First message: greet them warmly and ask how they're doing
 - If they share their mood/situation: empathize briefly (1 sentence), then propose ONE specific mission
-- A mission should be a real-world physical action they can do nearby RIGHT NOW
+- A mission should be a real-world physical action they can do RIGHT NOW.
 
-Good mission examples:
-- "Head to the nearest park and take a photo of something that made you smile"
-- "Step outside for a 10-minute walk and capture your surroundings"
-- "Find a quiet spot, sit for 5 minutes, and take a peaceful photo"
-- "Visit the nearest cafe and capture your drink or the vibe"
-- "Do a clean-up of one small area and photo the before or after"
+CRITICAL RULE: If the user states a condition, limitation, or specific request (e.g., "I'm tired", "I can't leave my room", "give me something easy"), you MUST tailor the mission EXACTLY to that condition. Do not suggest leaving the house if they say they are stuck inside. 
+
+CRITICAL ANTI-CHEAT RULE: You MUST ONLY suggest instant, real-world physical photo missions (e.g., "Take a photo of a real object on your desk", "Take a photo of your coffee cup"). You MUST NOT under any circumstances suggest missions that can be completed with a screenshot, a digital image, or taking a photo of a computer/phone screen.
+
+Good mission examples for different states:
+- Tired/Indoor: "Find a cozy spot, sit for 5 minutes, and take a peaceful photo of your physical view."
+- Active/Outdoor: "Head to the nearest park and take a photo of a real tree or flower."
+- Busy: "Do a 2-minute clean-up of your immediate physical workspace and photograph the after."
 
 When proposing a mission, ALWAYS:
-1. Write 1-2 empathetic sentences
+1. Write 1-2 empathetic sentences acknowledging their specific mood/condition.
 2. Then write: "Here's your mission for today:"
-3. Write the mission description clearly (one paragraph, human and warm)
+3. Write the mission description clearly (one paragraph, human and warm).
 4. End your message with literally: [MISSION_READY]
 
 Keep responses SHORT and warm. Never be clinical or robotic."""
@@ -248,16 +250,16 @@ Respond ONLY in this exact JSON format:
   "title": "Short mission title (3-5 words)",
   "description": "Full mission description, 1-2 sentences, warm and specific",
   "steps": [
-    "Step 1: Go to [a nearby location]",
+    "Step 1: Go to [location]",
     "Step 2: [Do the action]",
     "Step 3: Take a photo as proof",
     "Step 4: Submit your photo for Aura verification"
   ],
-  "locationHint": "nearby park / local cafe / your street / etc.",
+  "locationHint": "nearby park / your desk / etc.",
   "auraReward": 25,
   "emoji": "🌿"
 }
-Make steps specific to what the AI proposed. The location should be realistic and walkable."""
+CRITICAL: Make steps highly specific to what the AI proposed and account for any physical constraints or locations the user mentioned in the conversation history."""
 
             val requestBody = buildJsonObject {
                 put("model", BuildConfig.GROQ_MODEL)
@@ -340,11 +342,13 @@ Be honest but encouraging. A passed photo must clearly relate to the mission.
 Respond ONLY in JSON:
 {"passed": true/false, "feedback": "1-2 warm encouraging sentences", "score": 0-100}
 
+CRITICAL ANTI-CHEAT RULE: You must strictly reject screenshots, photos of computer/phone screens, AI-generated images, and downloaded images. If the image is a screenshot or a photo of a screen, you MUST set passed to false and score to 0, and tell them in the feedback that digital images/screenshots are not allowed!
+
 Scoring rubric:
-80-100: Photo clearly and creatively shows mission completion
-60-79: Photo shows mission completion but could be clearer
+80-100: Real physical photo that clearly and creatively shows mission completion with good lighting
+60-79: Real physical photo that shows mission completion but could be clearer
 40-59: Partially relevant, edge case
-0-39: Does not show mission completion (set passed=false)""")
+0: Image is a screenshot, a photo of a screen, digital, or completely unrelated (set passed=false)""")
                     })
                     add(buildJsonObject {
                         put("role", "user")

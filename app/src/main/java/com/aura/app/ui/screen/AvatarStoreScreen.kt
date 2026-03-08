@@ -76,7 +76,7 @@ fun AvatarStoreScreen(onBack: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Icon(Icons.Default.Star, contentDescription = null, tint = Gold500, modifier = Modifier.size(16.dp))
-                        Text("$credits credits", fontWeight = FontWeight.Bold, color = Gold500, fontSize = 13.sp)
+                        Text("$credits Shards", fontWeight = FontWeight.Bold, color = Gold500, fontSize = 13.sp)
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                 },
@@ -107,6 +107,71 @@ fun AvatarStoreScreen(onBack: () -> Unit) {
                 }
             }
 
+            // ── Star Protection Card ──
+            item {
+                val ownedCards by AvatarPreferences.protectionCardsFlow(context).collectAsState(initial = 0)
+                var buyingProtection by remember { mutableStateOf(false) }
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, Gold500.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Brush.linearGradient(listOf(Gold500.copy(alpha = 0.3f), Orange500.copy(alpha = 0.2f)))),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Shield, contentDescription = null, tint = Gold500, modifier = Modifier.size(28.dp))
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Star Protection Card", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, color = Gold500)
+                            Text("Prevents 1 Star loss if you break your streak. Owned: $ownedCards", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Button(
+                            onClick = {
+                                buyingProtection = true
+                                scope.launch {
+                                    val success = AvatarPreferences.buyProtectionCard(context)
+                                    if (success) {
+                                        purchaseMsg = "🛡️ Protection Card secured!"
+                                        showNotEnoughCredits = false
+                                    } else {
+                                        showNotEnoughCredits = true
+                                        purchaseMsg = "Need 500 Shards or limit reached (1/week)."
+                                    }
+                                    buyingProtection = false
+                                }
+                            },
+                            enabled = !buyingProtection,
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Gold500, contentColor = Color.Black),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            if (buyingProtection) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black, strokeWidth = 2.dp)
+                            } else {
+                                Text("500", fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
             // ── Not enough credits dialog ───────────────────────────────────
             if (showNotEnoughCredits) {
                 item {
@@ -121,7 +186,7 @@ fun AvatarStoreScreen(onBack: () -> Unit) {
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFE53935))
-                            Text("Not enough credits. Complete Directives to earn more!", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE53935))
+                            Text("Not enough Aura Shards or weekly limit reached.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE53935))
                         }
                     }
                 }
@@ -174,6 +239,7 @@ fun AvatarStoreScreen(onBack: () -> Unit) {
                     rowItems.forEach { item ->
                         StoreItemCard(
                             item       = item,
+                            avatarConfig = avatarConfig,
                             isUnlocked = item.id in unlockedIds,
                             isEquipped = item.id in avatarConfig.equippedItems,
                             modifier   = Modifier.weight(1f),
@@ -207,12 +273,15 @@ fun AvatarStoreScreen(onBack: () -> Unit) {
 @Composable
 private fun StoreItemCard(
     item: StoreItem,
+    avatarConfig: com.aura.app.model.AvatarConfig,
     isUnlocked: Boolean,
     isEquipped: Boolean,
     modifier: Modifier = Modifier,
     onBuy: () -> Unit,
     onEquip: () -> Unit,
 ) {
+    var isPurchasing by remember { mutableStateOf(false) }
+    
     val borderColor = when {
         isEquipped -> SolanaGreen
         isUnlocked -> UltraViolet.copy(alpha = 0.5f)
@@ -241,7 +310,19 @@ private fun StoreItemCard(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Text(item.emoji, fontSize = 30.sp)
+                val previewConfig = avatarConfig.copy(
+                    hairStyle = if (item.avatarSlot == "hairStyle") item.slotIndex else avatarConfig.hairStyle,
+                    outfitTop = if (item.avatarSlot == "outfitTop") item.slotIndex else avatarConfig.outfitTop,
+                    hat       = if (item.avatarSlot == "hat") item.slotIndex else avatarConfig.hat,
+                    glasses   = if (item.avatarSlot == "glasses") item.slotIndex else avatarConfig.glasses,
+                    background= if (item.avatarSlot == "background") item.slotIndex else avatarConfig.background,
+                    expression= if (item.avatarSlot == "expression") item.slotIndex else avatarConfig.expression
+                )
+                AvatarCanvas(
+                    config = previewConfig,
+                    animate = false,
+                    modifier = Modifier.size(54.dp).padding(top = 10.dp)
+                )
                 if (!isUnlocked) {
                     Box(
                         modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
@@ -277,15 +358,26 @@ private fun StoreItemCard(
                 }
                 else -> {
                     Button(
-                        onClick  = onBuy,
+                        onClick  = {
+                            isPurchasing = true
+                            onBuy()
+                            // Note: we don't reset isPurchasing here 
+                            // because the screen will recompose with 
+                            // isUnlocked=true which removes this button.
+                        },
+                        enabled = !isPurchasing,
                         modifier = Modifier.fillMaxWidth().height(34.dp),
                         shape    = RoundedCornerShape(10.dp),
                         colors   = ButtonDefaults.buttonColors(containerColor = Gold500),
                         contentPadding = PaddingValues(0.dp)
                     ) {
-                        Icon(Icons.Default.Star, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("${item.creditCost}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                        if (isPurchasing) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black, strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Star, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("${item.creditCost}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                        }
                     }
                 }
             }

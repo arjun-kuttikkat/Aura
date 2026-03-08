@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextButton
@@ -73,6 +76,7 @@ import com.aura.app.ui.theme.SlateElevated
 import com.aura.app.ui.theme.SlateLight
 import com.aura.app.util.CryptoPriceFormatter
 import com.aura.app.wallet.WalletConnectionState
+import com.aura.app.model.RankSystem
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -500,26 +504,71 @@ fun ListingDetailScreen(
                 }
 
                 // ── Seller footer ────────────────────────────────────────────
+                val sellerRankInfo = remember(listing.sellerAuraScore) {
+                    RankSystem.getRankInfo(listing.sellerAuraScore)
+                }
+                val rankColor = when (sellerRankInfo.rankName) {
+                    "Ember" -> Color(0xFFE57373)
+                    "Spark" -> Color(0xFF64B5F6)
+                    "Flame" -> Orange500
+                    "Nova" -> Gold500
+                    "Radiant" -> Color(0xFFBA68C8)
+                    else -> MaterialTheme.colorScheme.onSurface
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        "Seller ${listing.sellerWallet.take(6)}…${listing.sellerWallet.takeLast(4)}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                     Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(GlassSurface)
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Shield, null, modifier = Modifier.size(14.dp), tint = riskColor)
                         Text(
-                            riskAssessment.level.name,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = riskColor,
-                            fontWeight = FontWeight.Medium,
+                            sellerRankInfo.emoji,
+                            fontSize = 20.sp
+                        )
+                        Column {
+                            Text(
+                                "Seller ${listing.sellerWallet.take(4)}…${listing.sellerWallet.takeLast(4)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    sellerRankInfo.rankName,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = rankColor
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                if (sellerRankInfo.rankName != "Radiant") {
+                                    Text(sellerRankInfo.tierString, style = MaterialTheme.typography.labelSmall, color = rankColor.copy(alpha=0.8f))
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(riskColor.copy(alpha = 0.1f))
+                            .border(0.5.dp, riskColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(Icons.Default.Star, null, modifier = Modifier.size(14.dp), tint = Gold500)
+                        Text(
+                            "${sellerRankInfo.absoluteStars} Stars",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Gold500,
+                            fontWeight = FontWeight.Bold,
                         )
                     }
                 }

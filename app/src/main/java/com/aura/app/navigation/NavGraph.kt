@@ -23,6 +23,8 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.aura.app.ui.screen.DirectivesViewModel
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -83,8 +85,12 @@ fun NavGraph(
     }
     val hideBottomBarForCamera = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(currentRoute) {
-        if (currentRoute != Routes.DIRECTIVES) hideBottomBarForCamera.value = false
+        if (currentRoute != Routes.DIRECTIVES && currentRoute != Routes.MISSION_DETAIL) hideBottomBarForCamera.value = false
     }
+    
+    // Create shared DirectivesViewModel for use across Directives and MissionDetail screens
+    val sharedDirectivesViewModel: DirectivesViewModel = viewModel()
+    
     val showBottomBar = currentRoute in MAIN_TAB_ROUTES && !hideBottomBarForCamera.value
     val navBarsBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottomPadding = if (showBottomBar) BOTTOM_NAV_HEIGHT + navBarsBottom else 0.dp
@@ -290,8 +296,16 @@ fun NavGraph(
         }
         composable(Routes.DIRECTIVES) {
             com.aura.app.ui.screen.DirectivesScreen(
+                viewModel = sharedDirectivesViewModel,
+                onNavigateToMission = { navController.navigate(Routes.MISSION_DETAIL) },
                 onBack = { navController.popBackStack() },
                 onCameraOpenChange = { hideBottomBarForCamera.value = it }
+            )
+        }
+        composable(Routes.MISSION_DETAIL) {
+            com.aura.app.ui.screen.MissionDetailScreen(
+                viewModel = sharedDirectivesViewModel,
+                onBack = { navController.popBackStack() }
             )
         }
         composable(Routes.AVATAR_CREATOR) {
