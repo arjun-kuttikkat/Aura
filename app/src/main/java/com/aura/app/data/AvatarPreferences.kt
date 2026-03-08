@@ -15,12 +15,17 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "aura_prefs")
 
 /**
  * Persists avatar config, credits balance, purchased items, and onboarding state.
  */
 object AvatarPreferences {
+    private val purchaseMutex = Mutex()
+
 
     private val KEY_CREDITS       = intPreferencesKey("credits")
     private val KEY_AVATAR_DONE   = booleanPreferencesKey("avatar_created")
@@ -43,6 +48,10 @@ object AvatarPreferences {
     private val KEY_UNLOCKED      = stringPreferencesKey("av_unlocked_items")
     private val KEY_EQUIPPED      = stringPreferencesKey("av_equipped_items")
 
+    // ── Store Mechanics ────────────────────────────────────────────────────────
+    private val KEY_OWNED_PROTECTION_CARDS = intPreferencesKey("owned_protection_cards")
+    private val KEY_LAST_PROTECTION_PURCHASE = androidx.datastore.preferences.core.longPreferencesKey("last_protection_purchase_time")
+
     // ── Credits ──────────────────────────────────────────────────────────────
 
     fun creditsFlow(context: Context): Flow<Int> =
@@ -59,6 +68,52 @@ object AvatarPreferences {
         val current = getCredits(context)
         if (current < amount) return false
         context.dataStore.edit { it[KEY_CREDITS] = current - amount }
+        return true
+    }
+
+    // ── Protection Cards ──────────────────────────────────────────────────────
+
+    fun protectionCardsFlow(context: Context): Flow<Int> =
+        context.dataStore.data.map { it[KEY_OWNED_PROTECTION_CARDS] ?: 0 }
+
+    suspend fun getOwnedProtectionCards(context: Context): Int =
+        context.dataStore.data.first()[KEY_OWNED_PROTECTION_CARDS] ?: 0
+
+    suspend fun getLastProtectionPurchaseTime(context: Context): Long =
+        context.dataStore.data.first()[KEY_LAST_PROTECTION_PURCHASE] ?: 0L
+
+    suspend fun buyProtectionCard(context: Context): Boolean = purchaseMutex.withLock {
+        // Allow buying once per week (7 * 24 * 60 * 60 * 1000)
+        val ONE_WEEK_MS = 604800000L
+        val lastBuy = getLastProtectionPurchaseTime(context)
+        val now = System.currentTimeMillis()
+        if (now - lastBuy < ONE_WEEK_MS) return false
+
+        // Perform ATOMIC deduction and grant
+        context.dataStore.edit { prefs ->
+            val currentCredits = prefs[KEY_CREDITS] ?: 50
+            if (currentCredits < 500) {
+                // Return implicitly fails the edit if we throw or return early, 
+                // but we can just check and return false later.
+            } else {
+                prefs[KEY_CREDITS] = currentCredits - 500
+                prefs[KEY_OWNED_PROTECTION_CARDS] = (prefs[KEY_OWNED_PROTECTION_CARDS] ?: 0) + 1
+                prefs[KEY_LAST_PROTECTION_PURCHASE] = now
+            }
+        }
+        
+        // Final verification check
+        val finalLastBuy = getLastProtectionPurchaseTime(context)
+        return finalLastBuy == now
+    }
+
+    suspend fun consumeProtectionCard(context: Context): Boolean {
+        val owned = getOwnedProtectionCards(context)
+        if (owned <= 0) return false
+        
+        context.dataStore.edit {
+            it[KEY_OWNED_PROTECTION_CARDS] = owned - 1
+        }
         return true
     }
 
@@ -126,15 +181,21 @@ object AvatarPreferences {
         }
 
     suspend fun purchaseItem(context: Context, item: StoreItem): Boolean {
-        val canAfford = deductCredits(context, item.creditCost)
-        if (!canAfford) return false
+        var success = false
         context.dataStore.edit { prefs ->
-            val current = prefs[KEY_UNLOCKED] ?: ""
-            val ids = current.split(",").filter { it.isNotBlank() }.toMutableSet()
-            ids.add(item.id)
-            prefs[KEY_UNLOCKED] = ids.joinToString(",")
+            val currentCredits = prefs[KEY_CREDITS] ?: 50
+            if (currentCredits >= item.creditCost) {
+                // Atomic deduction + Grant
+                prefs[KEY_CREDITS] = currentCredits - item.creditCost
+                
+                val currentUnlocked = prefs[KEY_UNLOCKED] ?: ""
+                val ids = currentUnlocked.split(",").filter { it.isNotBlank() }.toMutableSet()
+                ids.add(item.id)
+                prefs[KEY_UNLOCKED] = ids.joinToString(",")
+                success = true
+            }
         }
-        return true
+        return success
     }
 
     suspend fun equipItem(context: Context, item: StoreItem) {

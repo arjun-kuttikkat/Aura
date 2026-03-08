@@ -60,19 +60,22 @@ object TradeRiskOracle {
 
         // ── Aura Score Check ─────────────────────────────────────
         val aura = seller?.auraScore ?: 0
+        val rankInfo = com.aura.app.model.RankSystem.getRankInfo(aura)
+        val absoluteStars = rankInfo.absoluteStars
+
         when {
-            aura < 20 -> {
+            absoluteStars < 2 -> {
                 riskScore += 35
-                flags.add("⚠️ Critically low Aura Score ($aura/100)")
+                flags.add("⚠️ Critically low Aura (New Account)")
             }
-            aura < 40 -> {
+            absoluteStars < 5 -> {
                 riskScore += 20
-                flags.add("Low Aura Score ($aura/100)")
+                flags.add("Low Aura Rank (${rankInfo.rankName})")
             }
-            aura < 60 -> {
+            absoluteStars < 10 -> {
                 riskScore += 10
             }
-            aura >= 80 -> {
+            absoluteStars >= 20 -> {
                 riskScore -= 10 // Reward high reputation
             }
         }
@@ -99,7 +102,7 @@ object TradeRiskOracle {
             riskScore += 25
             flags.add("⚠️ High-value item (${com.aura.app.util.CryptoPriceFormatter.formatSolShort(priceSOL)} SOL) from low-history seller")
         }
-        if (priceSOL > 10.0 && aura < 50) {
+        if (priceSOL > 10.0 && absoluteStars < 10) {
             riskScore += 15
             flags.add("Premium listing with below-average reputation")
         }
