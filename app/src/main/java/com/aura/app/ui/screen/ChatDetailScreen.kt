@@ -14,7 +14,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.aura.app.data.AiChatResponder
-import com.aura.app.data.AuraPreferences
 import com.aura.app.data.AuraRepository
 import com.aura.app.data.ChatRepository
 import com.aura.app.model.ChatMessage
@@ -37,12 +40,15 @@ import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SolanaGreen
 import com.aura.app.ui.theme.UltraViolet
 import com.aura.app.ui.components.GlassCardDark
+import com.aura.app.ui.components.RequestLocationTimingSheet
 import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+
+private const val MEETUP_CONFIRMED = "Confirmed"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,32 +64,25 @@ fun ChatDetailScreen(
     var messages by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var inputText by remember { mutableStateOf("") }
     var isAiTyping by remember { mutableStateOf(false) }
-    var showPlanMeetup by remember { mutableStateOf(true) }
-    var showInsufficientAuraModal by remember { mutableStateOf(false) }
-    var showSendConfirmModal by remember { mutableStateOf(false) }
-    var pendingMessageText by remember { mutableStateOf("") }
-    val auraBalance by AuraPreferences.totalAuraEarned.collectAsState(initial = 0)
+    var showPlanMeetup by remember { mutableStateOf(false) }
+    var helpClicked by remember { mutableStateOf(false) }
+    var showLocationTimingSheet by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null && walletAddress != null && listing != null) {
-            when {
-                AuraPreferences.spendAuraPoints(5) -> {
-                    val message = ChatMessage(
-                    id = UUID.randomUUID().toString(),
-                    listingId = listingId,
-                    senderWallet = walletAddress!!,
-                    receiverWallet = listing.sellerWallet,
-                    content = "Shared an image",
-                    imageUrl = uri.toString(),
-                )
-                messages = messages + message
-                scope.launch {
-                    ChatRepository.sendMessage(message)
-                    listState.animateScrollToItem(messages.lastIndex)
-                }
-                }
-                else -> showInsufficientAuraModal = true
+            val message = ChatMessage(
+                id = UUID.randomUUID().toString(),
+                listingId = listingId,
+                senderWallet = walletAddress!!,
+                receiverWallet = listing.sellerWallet,
+                content = "Shared an image",
+                imageUrl = uri.toString(),
+            )
+            messages = messages + message
+            scope.launch {
+                ChatRepository.sendMessage(message)
+                listState.animateScrollToItem(messages.lastIndex)
             }
         }
     }
@@ -148,6 +147,13 @@ fun ChatDetailScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    if (!isOfficialBot && listing != null && onConfirmMeetupPlan != null) {
+                        IconButton(onClick = { helpClicked = true }) {
+                            Text("Help", fontSize = 12.sp, color = Orange500)
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkSurface)
             )
         },
@@ -160,6 +166,11 @@ fun ChatDetailScreen(
         ) {
             // Plan Meetup (buyer/seller chat only)
             if (!isOfficialBot && listing != null && onConfirmMeetupPlan != null) {
+                val hasMeetupRequest = messages.any { it.senderWallet != listing.sellerWallet && it.content.contains("📍 Meetup requested:") }
+                val hasSellerConfirmed = messages.any { it.senderWallet == listing.sellerWallet && it.content == MEETUP_CONFIRMED }
+                val isSeller = walletAddress == listing.sellerWallet
+                val confirmMeetupEnabled = walletAddress != null && hasMeetupRequest && (hasSellerConfirmed || helpClicked)
+
                 GlassCardDark(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -177,8 +188,10 @@ fun ChatDetailScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text("Plan Meetup", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                            TextButton(onClick = { showPlanMeetup = !showPlanMeetup }) {
-                                Text(if (showPlanMeetup) "Collapse" else "Expand", color = Orange500)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                TextButton(onClick = { showPlanMeetup = !showPlanMeetup }) {
+                                    Text(if (showPlanMeetup) "Collapse" else "Expand", color = Orange500)
+                                }
                             }
                         }
                         if (showPlanMeetup) {
@@ -194,25 +207,71 @@ fun ChatDetailScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Spacer(modifier = Modifier.height(12.dp))
-                            Button(
-                                onClick = {
-                                    walletAddress?.let { wallet ->
-                                        scope.launch {
-                                            AuraRepository.createTradeSession(
+                            // Buyer: request location & time
+                            if (!isSeller) {
+                                OutlinedButton(
+                                    onClick = { showLocationTimingSheet = true },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Orange500),
+                                    border = BorderStroke(1.dp, Orange500.copy(alpha = 0.6f)),
+                                ) {
+                                    Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Request your preferred location and timing", fontWeight = FontWeight.Medium)
+                                }
+                            }
+                            // Seller: confirm meetup when buyer requested
+                            if (isSeller && hasMeetupRequest && !hasSellerConfirmed) {
+                                Button(
+                                    onClick = {
+                                        walletAddress?.let { wallet ->
+                                            val msg = ChatMessage(
+                                                id = UUID.randomUUID().toString(),
                                                 listingId = listingId,
-                                                buyerWallet = wallet,
-                                                sellerWallet = listing.sellerWallet,
+                                                senderWallet = wallet,
+                                                receiverWallet = messages.find { it.content.contains("📍 Meetup requested:") }?.senderWallet ?: "",
+                                                content = MEETUP_CONFIRMED,
                                             )
-                                            delay(150)
-                                            onConfirmMeetupPlan()
+                                            messages = messages + msg
+                                            scope.launch {
+                                                ChatRepository.sendMessage(msg)
+                                                listState.animateScrollToItem(messages.size - 1)
+                                            }
                                         }
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
-                                enabled = walletAddress != null,
-                            ) {
-                                Text("Confirm Meetup Plan", fontWeight = FontWeight.SemiBold)
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = SolanaGreen, contentColor = Color.Black),
+                                    enabled = walletAddress != null,
+                                ) {
+                                    Text("Confirm Meetup", fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            // Confirm Meetup Plan: only show after buyer requested AND seller confirmed
+                            if (hasMeetupRequest) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = {
+                                        walletAddress?.let { wallet ->
+                                            scope.launch {
+                                                AuraRepository.createTradeSession(
+                                                    listingId = listingId,
+                                                    buyerWallet = wallet,
+                                                    sellerWallet = listing.sellerWallet,
+                                                )
+                                                delay(150)
+                                                onConfirmMeetupPlan()
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
+                                    enabled = confirmMeetupEnabled,
+                                ) {
+                                    Text(
+                                        if (confirmMeetupEnabled) "Start Meetup" else "Waiting for seller to confirm...",
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
                         }
                     }
@@ -299,10 +358,7 @@ fun ChatDetailScreen(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 IconButton(
-                    onClick = {
-                        if (auraBalance < 5) showInsufficientAuraModal = true
-                        else imagePickerLauncher.launch("image/*")
-                    },
+                    onClick = { imagePickerLauncher.launch("image/*") },
                     enabled = walletAddress != null && listing != null,
                 ) {
                     Icon(Icons.Default.Image, contentDescription = "Share image", tint = Orange500)
@@ -313,12 +369,35 @@ fun ChatDetailScreen(
                     onClick = {
                         if (canSend) {
                             val text = inputText.trim()
-                            if (auraBalance < 5) {
-                                pendingMessageText = text
-                                showInsufficientAuraModal = true
-                            } else {
-                                pendingMessageText = text
-                                showSendConfirmModal = true
+                            val userMsg = ChatMessage(
+                                id = UUID.randomUUID().toString(),
+                                listingId = listingId,
+                                senderWallet = walletAddress!!,
+                                receiverWallet = listing!!.sellerWallet,
+                                content = text,
+                            )
+                            inputText = ""
+                            messages = messages + userMsg
+                            scope.launch {
+                                ChatRepository.sendMessage(userMsg)
+                                if (isOfficialBot) {
+                                    isAiTyping = true
+                                    listState.animateScrollToItem(messages.size - 1)
+                                    val reply = AiChatResponder.generateReply(listing!!, messages)
+                                    val botMsg = ChatMessage(
+                                        id = UUID.randomUUID().toString(),
+                                        listingId = listingId,
+                                        senderWallet = AiChatResponder.AURA_OFFICIAL_WALLET,
+                                        receiverWallet = walletAddress!!,
+                                        content = reply,
+                                    )
+                                    ChatRepository.sendMessage(botMsg)
+                                    messages = messages + botMsg
+                                    isAiTyping = false
+                                    listState.animateScrollToItem(messages.size - 1)
+                                } else {
+                                    listState.animateScrollToItem(messages.size - 1)
+                                }
                             }
                         }
                     },
@@ -342,108 +421,25 @@ fun ChatDetailScreen(
         }
     }
 
-    // Insufficient Aura modal
-    if (showInsufficientAuraModal) {
-        AlertDialog(
-            onDismissRequest = { showInsufficientAuraModal = false },
-            title = { Text("Insufficient Aura Points", fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    Text(
-                        "You need 5 Aura points to send a message.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    if (showLocationTimingSheet && listing != null) {
+        RequestLocationTimingSheet(
+            listingId = listing.id,
+            onDismiss = { showLocationTimingSheet = false },
+            onSaved = { address, time ->
+                showLocationTimingSheet = false
+                walletAddress?.let { wallet ->
+                    val msg = ChatMessage(
+                        id = UUID.randomUUID().toString(),
+                        listingId = listingId,
+                        senderWallet = wallet,
+                        receiverWallet = listing.sellerWallet,
+                        content = "📍 Meetup requested: $address at $time. Seller, please confirm.",
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        "Remaining balance: $auraBalance Aura points",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Orange500,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "Earn more by completing Daily Aura Checks or verified trades.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showInsufficientAuraModal = false }) {
-                    Text("OK", color = Orange500)
-                }
-            },
-        )
-    }
-
-    // Send confirmation modal
-    if (showSendConfirmModal && listing != null) {
-        val remaining = auraBalance - 5
-        AlertDialog(
-            onDismissRequest = { showSendConfirmModal = false; pendingMessageText = "" },
-            title = { Text("Send Message?", fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    Text(
-                        "This will cost 5 Aura points.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        "Remaining balance after send: $remaining Aura points",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = SolanaGreen,
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (AuraPreferences.spendAuraPoints(5)) {
-                            val userMsg = ChatMessage(
-                                id = UUID.randomUUID().toString(),
-                                listingId = listingId,
-                                senderWallet = walletAddress!!,
-                                receiverWallet = listing.sellerWallet,
-                                content = pendingMessageText,
-                            )
-                            inputText = ""
-                            pendingMessageText = ""
-                            showSendConfirmModal = false
-                            messages = messages + userMsg
-                            scope.launch {
-                                ChatRepository.sendMessage(userMsg)
-                                if (isOfficialBot) {
-                                    isAiTyping = true
-                                    listState.animateScrollToItem(messages.size - 1)
-                                    val reply = AiChatResponder.generateReply(listing!!, messages)
-                                    val botMsg = ChatMessage(
-                                        id = UUID.randomUUID().toString(),
-                                        listingId = listingId,
-                                        senderWallet = AiChatResponder.AURA_OFFICIAL_WALLET,
-                                        receiverWallet = walletAddress!!,
-                                        content = reply,
-                                    )
-                                    ChatRepository.sendMessage(botMsg)
-                                    messages = messages + botMsg
-                                    isAiTyping = false
-                                    listState.animateScrollToItem(messages.size - 1)
-                                }
-                            }
-                        }
-                        showSendConfirmModal = false
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Orange500, contentColor = Color.Black),
-                ) {
-                    Text("Send")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSendConfirmModal = false; pendingMessageText = "" }) {
-                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    scope.launch {
+                        ChatRepository.sendMessage(msg)
+                        messages = messages + msg
+                        listState.animateScrollToItem(messages.size - 1)
+                    }
                 }
             },
         )

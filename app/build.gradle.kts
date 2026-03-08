@@ -59,6 +59,7 @@ android {
         buildConfigField("String", "RELEASE_AUTHORITY_PUBKEY", "\"${localProps.getProperty("RELEASE_AUTHORITY_PUBKEY", localProps.getProperty("SOLANA_AUTHORITY_KEY", ""))}\"")
         buildConfigField("String", "SUPABASE_JWT_SECRET", "\"${localProps.getProperty("SUPABASE_JWT_SECRET", "")}\"")
         manifestPlaceholders["MAPS_API_KEY"] = localProps.getProperty("MAPS_API_KEY", "PLACEHOLDER_KEY")
+        buildConfigField("String", "MAPS_API_KEY", "\"${localProps.getProperty("MAPS_API_KEY", "")}\"")
     }
 
     buildTypes {
@@ -149,6 +150,7 @@ dependencies {
     // New Additions: Maps, 3D Avatars, Confetti Animations
     implementation(libs.maps.compose)
     implementation(libs.play.services.maps)
+    implementation("com.google.android.libraries.places:places:5.0.0")
     implementation(libs.sceneview.arsceneview)
     implementation(libs.konfetti.compose)
     

@@ -61,7 +61,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
+import com.aura.app.data.AiChatResponder
+import com.aura.app.data.AuraPreferences
 import com.aura.app.data.AuraRepository
+import com.aura.app.data.ChatRepository
 import com.aura.app.data.TradeRiskOracle
 import com.aura.app.model.Listing
 import com.aura.app.model.MintedStatus
@@ -79,7 +82,6 @@ import com.aura.app.ui.theme.SlateLight
 import com.aura.app.util.CryptoPriceFormatter
 import com.aura.app.data.AvatarPreferences
 import com.aura.app.wallet.WalletConnectionState
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private sealed class PromoteState {
@@ -331,9 +333,10 @@ fun ListingDetailScreen(
                 }
 
                 val scope = rememberCoroutineScope()
-                var isStartingTrade by remember { mutableStateOf(false) }
-                var tradeError by remember { mutableStateOf<String?>(null) }
-                var showBuyConfirm by remember { mutableStateOf(false) }
+                var isCheckingChat by remember { mutableStateOf(false) }
+                var showPayAuraDialog by remember { mutableStateOf(false) }
+                var showInsufficientAura by remember { mutableStateOf(false) }
+                val auraBalance by AuraPreferences.totalAuraEarned.collectAsState(initial = 0)
                 val isSeller = walletAddress == listing.sellerWallet
 
                 // ── Seller Aura Rank ───────────────────────────────────────
@@ -361,97 +364,106 @@ fun ListingDetailScreen(
 
                 // ── Action buttons (high up, prominent) ────────────────────
                 if (!isSeller) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(
-                            onClick = { AuraHaptics.lightTap(haptic); showBuyConfirm = true },
-                            enabled = walletAddress != null && listing.mintedStatus != MintedStatus.SOLD && !isStartingTrade,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.Transparent,
-                                disabledContainerColor = SlateLight.copy(alpha = 0.5f),
-                            ),
-                            contentPadding = PaddingValues(),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(
-                                        Brush.linearGradient(listOf(Orange500, Gold500)),
-                                    ),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (isStartingTrade) {
-                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = DarkVoid)
-                                } else {
-                                    Text(
-                                        when {
-                                            listing.mintedStatus == MintedStatus.SOLD -> "Sold"
-                                            walletAddress != null -> "Buy Now"
-                                            else -> "Connect Wallet"
-                                        },
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = DarkVoid,
-                                        fontWeight = FontWeight.Bold,
-                                    )
+                    Button(
+                        onClick = {
+                            AuraHaptics.lightTap(haptic)
+                            if (walletAddress == null) return@Button
+                            scope.launch {
+                                isCheckingChat = true
+                                val messages = ChatRepository.getMessagesForListing(listing.id)
+                                val isOfficialBot = listing.sellerWallet == AiChatResponder.AURA_OFFICIAL_WALLET
+                                val hasPreviousChats = messages.any {
+                                    it.senderWallet == walletAddress || it.receiverWallet == walletAddress
+                                }
+                                isCheckingChat = false
+                                when {
+                                    isOfficialBot || hasPreviousChats -> onChatClicked()
+                                    auraBalance >= 5 -> showPayAuraDialog = true
+                                    else -> showInsufficientAura = true
                                 }
                             }
-                        }
-                        OutlinedButton(
-                            onClick = { AuraHaptics.subtleTap(haptic); onChatClicked() },
-                            enabled = walletAddress != null,
+                        },
+                        enabled = walletAddress != null && !isCheckingChat,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.Transparent,
+                            disabledContainerColor = SlateLight.copy(alpha = 0.5f),
+                        ),
+                        contentPadding = PaddingValues(),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                    ) {
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .height(52.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Orange500),
-                            border = BorderStroke(1.dp, Orange500.copy(alpha = 0.6f)),
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(
+                                    Brush.linearGradient(listOf(Orange500, Gold500)),
+                                ),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Text("Pay Aura to Chat", fontWeight = FontWeight.SemiBold)
+                            if (isCheckingChat) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = DarkVoid)
+                            } else {
+                                Text(
+                                    when {
+                                        walletAddress == null -> "Connect Wallet"
+                                        else -> "Pay Aura to Chat"
+                                    },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = DarkVoid,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
                         }
                     }
 
-                    if (showBuyConfirm) {
+                    if (showPayAuraDialog) {
                         AlertDialog(
-                            onDismissRequest = { showBuyConfirm = false },
-                            title = { Text("Start trade", fontWeight = FontWeight.Bold) },
-                            text = { Text("Meet the seller and verify the item before payment.", style = MaterialTheme.typography.bodyMedium) },
+                            onDismissRequest = { showPayAuraDialog = false },
+                            title = { Text("Start chat", fontWeight = FontWeight.Bold) },
+                            text = {
+                                Text(
+                                    "Pay 5 Aura points to open chat with the seller.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
                             confirmButton = {
                                 TextButton(onClick = {
                                     AuraHaptics.lightTap(haptic)
-                                    showBuyConfirm = false
-                                    walletAddress?.let { wallet ->
-                                        isStartingTrade = true
-                                        scope.launch {
-                                            try {
-                                                AuraRepository.createTradeSession(
-                                                    listingId = listing.id,
-                                                    buyerWallet = wallet,
-                                                    sellerWallet = listing.sellerWallet,
-                                                )
-                                                // Defer navigation so the dialog can fully dismiss first (prevents crash)
-                                                delay(150)
-                                                onStartMeetup()
-                                            } catch (e: Throwable) {
-                                                tradeError = e.message ?: "Failed to start trade"
-                                            } finally {
-                                                isStartingTrade = false
-                                            }
-                                        }
+                                    if (AuraPreferences.spendAuraPoints(5)) {
+                                        showPayAuraDialog = false
+                                        onChatClicked()
                                     }
-                                }) { Text("Start Meetup", color = Orange500, fontWeight = FontWeight.Bold) }
+                                }) { Text("Pay 5 Aura & Chat", color = Orange500, fontWeight = FontWeight.Bold) }
                             },
                             dismissButton = {
-                                TextButton(onClick = { AuraHaptics.subtleTap(haptic); showBuyConfirm = false }) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                TextButton(onClick = { AuraHaptics.subtleTap(haptic); showPayAuraDialog = false }) {
+                                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             },
                         )
                     }
-                    tradeError?.let {
-                        Text(it, color = Color.Red, style = MaterialTheme.typography.bodySmall)
+                    if (showInsufficientAura) {
+                        AlertDialog(
+                            onDismissRequest = { showInsufficientAura = false },
+                            title = { Text("Insufficient Aura", fontWeight = FontWeight.Bold) },
+                            text = {
+                                Text(
+                                    "You need 5 Aura points to start a chat. You have $auraBalance. Earn more by completing Daily Aura Checks or verified trades.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            confirmButton = {
+                                TextButton(onClick = { showInsufficientAura = false }) {
+                                    Text("OK", color = Orange500)
+                                }
+                            },
+                        )
                     }
                 } else {
                     var promoteState by remember { mutableStateOf<PromoteState>(PromoteState.Idle) }
