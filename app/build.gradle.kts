@@ -12,6 +12,28 @@ val localProps = Properties().apply {
     if (f.exists()) load(f.inputStream())
 }
 
+// Fail early if Supabase config is missing or invalid (prevents localhost / broken auth)
+val supabaseUrl = localProps.getProperty("SUPABASE_URL", "").trim()
+val supabaseKey = localProps.getProperty("SUPABASE_KEY", "").trim()
+if (supabaseUrl.isBlank()) {
+    throw GradleException(
+        "SUPABASE_URL is required in local.properties. " +
+            "Copy local.properties.example and set SUPABASE_URL=https://your-project.supabase.co"
+    )
+}
+if (supabaseUrl.contains("localhost", ignoreCase = true) || supabaseUrl.contains("127.0.0.1")) {
+    throw GradleException(
+        "SUPABASE_URL cannot be localhost. Use your hosted Supabase URL (e.g. https://xxx.supabase.co). " +
+            "localhost does not work on physical devices."
+    )
+}
+if (!supabaseUrl.startsWith("https://")) {
+    throw GradleException("SUPABASE_URL must use https:// in local.properties")
+}
+if (supabaseKey.isBlank()) {
+    throw GradleException("SUPABASE_KEY is required in local.properties")
+}
+
 android {
     namespace = "com.aura.app"
     compileSdk = 36
