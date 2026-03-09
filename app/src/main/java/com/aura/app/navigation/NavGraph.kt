@@ -65,11 +65,6 @@ private val MAIN_TAB_ROUTES = setOf(
     Routes.PROFILE,
 )
 
-/** MainBottomBar height: 72dp bar + 10dp vertical padding + 4dp bottom. Used for content inset. */
-private val BOTTOM_NAV_HEIGHT = 88.dp
-
-/** Single source of truth for bottom reserve when navbar is visible. Screens use as content padding. */
-internal val LocalBottomNavInset = compositionLocalOf { 0.dp }
 
 @Composable
 fun NavGraph(
@@ -92,12 +87,31 @@ fun NavGraph(
     val sharedDirectivesViewModel: DirectivesViewModel = viewModel()
     
     val showBottomBar = currentRoute in MAIN_TAB_ROUTES && !hideBottomBarForCamera.value
-    val navBarsBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val bottomPadding = if (showBottomBar) BOTTOM_NAV_HEIGHT + navBarsBottom else 0.dp
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
-            CompositionLocalProvider(LocalBottomNavInset provides bottomPadding) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            bottomBar = {
+                if (showBottomBar) {
+                    MainBottomBar(
+                        currentRoute = currentRoute ?: Routes.HOME,
+                        onNavigate = { route ->
+                            if (route != currentRoute) {
+                                val popped = navController.popBackStack(route, inclusive = false)
+                                if (!popped) {
+                                    navController.navigate(route) {
+                                        popUpTo(Routes.HOME) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            }
+                        },
+                    )
+                }
+            }
+        ) { padding ->
+
                 NavHost(
                     navController = navController,
                     startDestination = startDestination,
@@ -107,7 +121,7 @@ fun NavGraph(
                         .fillMaxSize()
                         .padding(padding),
                 ) {
-            composable(Routes.ONBOARDING) {
+                    composable(Routes.ONBOARDING) {
                 OnboardingScreen(
                     onWalletConnected = {
                         navController.navigate(Routes.EMIRATE_PICKER) { popUpTo(0) { inclusive = true } }
@@ -135,7 +149,8 @@ fun NavGraph(
             composable(Routes.CHATS) {
                 com.aura.app.ui.screen.ChatsScreen(
                     onNavigateToChat = { listingId, counterpartyWallet -> navController.navigate(Routes.chatDetail(listingId, counterpartyWallet)) },
-                    onNavigateToHome = { navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } } }
+                    onNavigateToHome = { navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } } },
+                    onNavigateToCreateListing = { navController.navigate(Routes.CREATE_LISTING) { popUpTo(Routes.HOME) { inclusive = false } } }
                 )
             }
             composable(Routes.REWARDS) {
@@ -320,49 +335,14 @@ fun NavGraph(
                 onBack = { navController.popBackStack() }
             )
         }
-                }
-            }
+        composable(Routes.MY_LISTINGS) {
+            com.aura.app.ui.screen.MyListingsScreen(
+                onBack = { navController.popBackStack() }
+            )
         }
-        if (showBottomBar) {
-            Box(
-                modifier = Modifier.align(Alignment.BottomCenter),
-            ) {
-                // Fade behind navbar — content extends to bottom, fades under bar
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(140.dp)
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    MaterialTheme.colorScheme.background.copy(alpha = 0.7f),
-                                    MaterialTheme.colorScheme.background,
-                                    MaterialTheme.colorScheme.background,
-                                ),
-                            ),
-                        )
-                        .blur(32.dp),
-                )
-                MainBottomBar(
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    currentRoute = currentRoute ?: Routes.HOME,
-                    onNavigate = { route ->
-                        if (route != currentRoute) {
-                            val popped = navController.popBackStack(route, inclusive = false)
-                            if (!popped) {
-                                navController.navigate(route) {
-                                    popUpTo(Routes.HOME) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        }
-                    },
-                )
-            }
-        }
+        } // end NavHost
+        } // end Scaffold content
+
         WalletLoadingOverlay()
     }
 }

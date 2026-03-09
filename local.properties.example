@@ -4,23 +4,23 @@
 # Supabase
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-anon-key
+SUPABASE_JWT_SECRET=your-supabase-jwt-secret
 
-# Groq AI (Vision + Chat) — meta-llama/llama-4-scout-17b-16e-instruct
+# Groq AI (Vision + Chat)
+# Get key at https://console.groq.com
 GROQ_API_KEY=your-groq-api-key
 GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 
-# Solana / Helius RPC (use full URL or API key)
+# Solana / Helius RPC
+# Get key at https://helius.dev
 HELIUS_RPC_URL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
-# Or: HELIUS_API_KEY=your-helius-api-key
 
-# Platform wallets (required for escrow)
+# Platform wallets (Base58 encoded)
+# TREASURY_WALLET: The public key for fee collection
 TREASURY_WALLET=your-treasury-wallet-base58
-RELEASE_AUTHORITY_PUBKEY=your-release-authority-pubkey-base58
-# Fallback: SOLANA_AUTHORITY_KEY=... (used if RELEASE_AUTHORITY_PUBKEY unset)
+# SOLANA_AUTHORITY_KEY: The PRIVATE key for the platform authority wallet
+SOLANA_AUTHORITY_KEY=your-authority-private-key-base58
 
-# Auth
-SUPABASE_JWT_SECRET=your-supabase-jwt-secret
-
-# Optional
-CEREBRAS_API_KEY=
-MAPS_API_KEY=
+# Optional: Google Maps SDK for Android
+# Get key at https://console.cloud.google.com
+MAPS_API_KEY=your-maps-api-key

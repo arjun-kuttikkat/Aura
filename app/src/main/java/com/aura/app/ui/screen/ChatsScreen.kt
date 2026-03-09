@@ -1,40 +1,32 @@
 package com.aura.app.ui.screen
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.aura.app.data.AuraRepository
 import com.aura.app.data.ChatRepository
@@ -55,11 +47,16 @@ import java.time.format.DateTimeFormatter
 fun ChatsScreen(
     onNavigateToChat: (String, String) -> Unit = { _, _ -> },
     onNavigateToHome: () -> Unit = {},
+    onNavigateToCreateListing: () -> Unit = {}
 ) {
     val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     var activeChats by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
-
     var isLoading by remember { mutableStateOf(true) }
+
+    // Dual-Window Tabs state
+    var selectedTabIndex by remember { mutableStateOf(0) }
+    val tabs = listOf("Buying", "Selling")
+
     LaunchedEffect(walletAddress) {
         isLoading = true
         walletAddress?.let { wallet ->
@@ -68,6 +65,22 @@ fun ChatsScreen(
         isLoading = false
     }
     
+    // Filter chats based on tab
+    val buyingChats = remember(activeChats, walletAddress) {
+        activeChats.filter { msg ->
+            val listing = AuraRepository.getListing(msg.listingId)
+            listing?.sellerWallet != walletAddress
+        }
+    }
+    val sellingChats = remember(activeChats, walletAddress) {
+        activeChats.filter { msg ->
+            val listing = AuraRepository.getListing(msg.listingId)
+            listing?.sellerWallet == walletAddress
+        }
+    }
+    
+    val currentChats = if (selectedTabIndex == 0) buyingChats else sellingChats
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -77,29 +90,57 @@ fun ChatsScreen(
         },
         containerColor = DarkSurface
     ) { padding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
-            contentAlignment = Alignment.Center
+                .padding(padding)
         ) {
-            if (isLoading) {
-                androidx.compose.material3.CircularProgressIndicator(color = Gold500)
-            } else if (activeChats.isEmpty()) {
-                EmptyChatsState(onNavigateToHome = onNavigateToHome)
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)
-                ) {
-                    items(activeChats) { lastMsg ->
-                        ChatInboxRow(
-                            chatMessage = lastMsg,
-                            onClick = { 
-                                val counterparty = if (lastMsg.senderWallet == walletAddress) lastMsg.receiverWallet else lastMsg.senderWallet
-                                onNavigateToChat(lastMsg.listingId, counterparty) 
-                            }
+            // Sleek, top-level custom Tab switcher with horizontal sliding animation
+            CustomTabSwitcher(
+                tabs = tabs,
+                selectedTabIndex = selectedTabIndex,
+                onTabSelected = { selectedTabIndex = it }
+            )
+
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(color = Gold500)
+                } else if (currentChats.isEmpty()) {
+                    if (selectedTabIndex == 0) {
+                        EmptyChatsState(
+                            title = "No active conversations",
+                            message = "You haven't messaged any sellers yet. Start exploring the marketplace.",
+                            buttonText = "Discover Items",
+                            buttonIcon = Icons.Default.Search,
+                            onClick = onNavigateToHome
                         )
+                    } else {
+                        EmptyChatsState(
+                            title = "No inquiries yet",
+                            message = "You have no inquiries. List an item to start receiving messages from buyers.",
+                            buttonText = "Create Listing",
+                            buttonIcon = Icons.Default.Add,
+                            onClick = onNavigateToCreateListing
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 16.dp)
+                    ) {
+                        items(currentChats) { lastMsg ->
+                            ChatInboxRow(
+                                chatMessage = lastMsg,
+                                isBuyingTab = selectedTabIndex == 0,
+                                onClick = { 
+                                    val counterparty = if (lastMsg.senderWallet == walletAddress) lastMsg.receiverWallet else lastMsg.senderWallet
+                                    onNavigateToChat(lastMsg.listingId, counterparty) 
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -108,28 +149,115 @@ fun ChatsScreen(
 }
 
 @Composable
-fun ChatInboxRow(chatMessage: ChatMessage, onClick: () -> Unit) {
+fun CustomTabSwitcher(
+    tabs: List<String>,
+    selectedTabIndex: Int,
+    onTabSelected: (Int) -> Unit
+) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .height(52.dp)
+            .clip(RoundedCornerShape(26.dp))
+            .background(DarkCard)
+            .border(1.dp, GlassBorder, RoundedCornerShape(26.dp))
+    ) {
+        val tabWidth = maxWidth / tabs.size
+        val indicatorOffset by animateDpAsState(
+            targetValue = tabWidth * selectedTabIndex,
+            animationSpec = tween(durationMillis = 300),
+            label = "tab_indicator_offset"
+        )
+
+        // Animated Pill Indicator
+        Box(
+            modifier = Modifier
+                .offset(x = indicatorOffset)
+                .width(tabWidth)
+                .fillMaxHeight()
+                .padding(4.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Orange500)
+        )
+
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            tabs.forEachIndexed { index, title ->
+                val isSelected = selectedTabIndex == index
+                val textColor by animateColorAsState(
+                    targetValue = if (isSelected) DarkSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    animationSpec = tween(300),
+                    label = "tab_text_color_$index"
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { onTabSelected(index) }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = title,
+                        color = textColor,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChatInboxRow(chatMessage: ChatMessage, isBuyingTab: Boolean, onClick: () -> Unit) {
     val listing = AuraRepository.getListing(chatMessage.listingId)
     val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
     val isMine = chatMessage.senderWallet == walletAddress
-    val role = when {
-        listing != null && chatMessage.senderWallet == listing.sellerWallet -> "Seller"
-        else -> "Buyer"
+    
+    val titleUserId = if (isBuyingTab) {
+        listing?.sellerWallet ?: "Aura Bot"
+    } else {
+        if (chatMessage.senderWallet == walletAddress) chatMessage.receiverWallet else chatMessage.senderWallet
+    }
+
+    val displayTitle = if (titleUserId.length > 10) {
+        "${titleUserId.take(4)}...${titleUserId.takeLast(4)}"
+    } else {
+        titleUserId
     }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .shadow(
+                elevation = 8.dp, 
+                shape = RoundedCornerShape(16.dp),
+                spotColor = Orange500.copy(alpha = 0.2f), 
+                ambientColor = Orange500.copy(alpha = 0.1f)
+            )
+            .clip(RoundedCornerShape(16.dp))
+            .background(GlassSurface)
+            .border(1.dp, GlassBorder, RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Thumbnail
+        // Premium Avatar Placeholder
         Box(
             modifier = Modifier
                 .size(56.dp)
-                .clip(CircleShape)
-                .background(DarkCard),
+                .shadow(4.dp, RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(14.dp))
+                .background(DarkCard)
+                .border(1.dp, GlassBorder, RoundedCornerShape(14.dp)),
             contentAlignment = Alignment.Center
         ) {
             val imageUrl = listing?.images?.firstOrNull()
@@ -149,9 +277,13 @@ fun ChatInboxRow(chatMessage: ChatMessage, onClick: () -> Unit) {
         
         // Content
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically, 
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text(
-                    text = listing?.title ?: "Listing Item",
+                    text = displayTitle,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -159,19 +291,38 @@ fun ChatInboxRow(chatMessage: ChatMessage, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = runCatching {
-                        OffsetDateTime.parse(chatMessage.createdAt).format(DateTimeFormatter.ofPattern("HH:mm"))
+                        val dt = OffsetDateTime.parse(chatMessage.createdAt)
+                        val now = OffsetDateTime.now()
+                        if (dt.toLocalDate() == now.toLocalDate()) {
+                            dt.format(DateTimeFormatter.ofPattern("HH:mm"))
+                        } else {
+                            dt.format(DateTimeFormatter.ofPattern("MMM dd"))
+                        }
                     }.getOrDefault(""),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.End
                 )
             }
-            Spacer(modifier = Modifier.height(4.dp))
+            
+            // Subtitle emphasizing the product name
+            Text(
+                text = listing?.title ?: "Listing Item",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = Gold500,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            
+            Spacer(modifier = Modifier.height(6.dp))
+            
+            // Latest Message Preview
             Text(
                 text = buildString {
-                    append("$role")
-                    append(" • ")
                     if (isMine) append("You: ")
                     append(chatMessage.content)
                 },
@@ -185,7 +336,13 @@ fun ChatInboxRow(chatMessage: ChatMessage, onClick: () -> Unit) {
 }
 
 @Composable
-private fun EmptyChatsState(onNavigateToHome: () -> Unit = {}) {
+private fun EmptyChatsState(
+    title: String,
+    message: String,
+    buttonText: String,
+    buttonIcon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
     Column(
         modifier = Modifier.padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -210,16 +367,17 @@ private fun EmptyChatsState(onNavigateToHome: () -> Unit = {}) {
         Spacer(modifier = Modifier.height(24.dp))
         
         Text(
-            text = "No active conversations",
+            text = title,
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center
         )
         
         Spacer(modifier = Modifier.height(8.dp))
         
         Text(
-            text = "Start exploring the marketplace to chat with sellers about their items.",
+            text = message,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
@@ -228,14 +386,14 @@ private fun EmptyChatsState(onNavigateToHome: () -> Unit = {}) {
         Spacer(modifier = Modifier.height(32.dp))
         
         Button(
-            onClick = onNavigateToHome,
+            onClick = onClick,
             colors = ButtonDefaults.buttonColors(containerColor = Gold500),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth().height(56.dp)
         ) {
-            Icon(Icons.Default.Search, contentDescription = null, tint = DarkSurface)
+            Icon(buttonIcon, contentDescription = null, tint = DarkSurface)
             Spacer(modifier = Modifier.padding(4.dp))
-            Text("Discover Items", fontWeight = FontWeight.Bold, color = DarkSurface)
+            Text(buttonText, fontWeight = FontWeight.Bold, color = DarkSurface)
         }
     }
 }

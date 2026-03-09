@@ -48,7 +48,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import com.aura.app.data.AuraRepository
-import com.aura.app.navigation.LocalBottomNavInset
 import com.aura.app.wallet.WalletConnectionState
 import androidx.compose.runtime.LaunchedEffect
 import com.aura.app.ui.components.GlassCard
@@ -205,8 +204,6 @@ fun RewardsScreen() {
                 description = "Your on-chain Aura NFT evolves as your streak grows: Seed → Sprout → Tree → Aura. Higher tiers unlock exclusive features.",
                 leftBorderColor = Orange700,
             )
-
-            Spacer(modifier = Modifier.height(LocalBottomNavInset.current))
         }
     }
 }

@@ -14,5 +14,7 @@ data class ProfileDto(
     @SerialName("apex_zones") val apexZones: List<String> = emptyList(),
     @SerialName("directives_completed") val directivesCompleted: Int = 0,
     @SerialName("created_at") val createdAt: String? = null,
-    @SerialName("updated_at") val updatedAt: String? = null
+    @SerialName("updated_at") val updatedAt: String? = null,
+    @SerialName("rank_title") val rankTitle: String? = null,
+    @SerialName("points_to_next_rank") val pointsToNextRank: Int? = null
 )

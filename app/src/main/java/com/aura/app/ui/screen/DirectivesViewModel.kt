@@ -87,6 +87,16 @@ class DirectivesViewModel : ViewModel() {
         }
     }
 
+    fun refreshHistory(context: Context) {
+        viewModelScope.launch {
+            val wallet = WalletConnectionState.walletAddress.value
+            if (!wallet.isNullOrBlank()) {
+                val records = MissionHistoryStore.fetchHistoryOnce(wallet)
+                _completedMissions.value = records
+            }
+        }
+    }
+
     // ── Chat Actions ──
     fun sendMessage(userMsg: String) {
         if (userMsg.isBlank() || _isAiThinking.value) return
@@ -213,6 +223,7 @@ class DirectivesViewModel : ViewModel() {
                     )
                 }
                 
+<<<<<<< HEAD
                 // 3. Persist to Mission History (local + Supabase for account-level persistence)
                 val record = CompletedMissionRecord(
                     id = java.util.UUID.randomUUID().toString(),
@@ -231,6 +242,21 @@ class DirectivesViewModel : ViewModel() {
                         profileId = profile?.id,
                         record = record,
                     )
+=======
+                // 3. Persist to Mission History 
+                if (wallet != null) {
+                    val record = CompletedMissionRecord(
+                        id = java.util.UUID.randomUUID().toString(),
+                        userWallet = wallet,
+                        title = missionData.mission.title,
+                        emoji = missionData.mission.emoji,
+                        auraReward = scaledAuraReward,
+                        aiFeedback = missionData.verificationResult?.second ?: "Completed outside camera context.",
+                        completedAtMillis = System.currentTimeMillis()
+                    )
+                    MissionHistoryStore.addRecord(appContext, record)
+                    refreshHistory(appContext)
+>>>>>>> 520fdca (Finished updates for March 10)
                 }
                 
                 // 4. Reset state
