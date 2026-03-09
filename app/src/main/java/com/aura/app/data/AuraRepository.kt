@@ -203,11 +203,7 @@ object AuraRepository {
                 // --- Aura System: Decay Logic & Star Protection ---
                 val lastScanStr = p.lastScanAt
                 var updatedAuraScore = p.auraScore
-<<<<<<< HEAD
-                var updatedStreakDays = p.streakDays
-=======
                 var updatedStreak = p.streakDays
->>>>>>> 520fdca (Finished updates for March 10)
                 var updated = false
                 if (lastScanStr != null) {
                     try {
@@ -217,7 +213,7 @@ object AuraRepository {
                         
                         if (daysSince > 1) {
                             // Streak broken — reset to 0
-                            updatedStreakDays = 0
+                            updatedStreak = 0
                             val decayDays = daysSince - 1
                             var actualDecayDays = decayDays
                             
@@ -255,15 +251,10 @@ object AuraRepository {
 
                     p = p.copy(
                         auraScore = updatedAuraScore,
-<<<<<<< HEAD
-                        streakDays = updatedStreakDays,
-                        lastScanAt = finalNowStr
-=======
                         streakDays = updatedStreak,
                         lastScanAt = finalNowStr,
                         rankTitle = rankTitle,
                         pointsToNextRank = rankInfo.pointsToNextStar
->>>>>>> 520fdca (Finished updates for March 10)
                     )
                     try {
                         supabase.postgrest["profiles"].update({
@@ -548,7 +539,7 @@ object AuraRepository {
                 ZoneOffset.UTC
             ).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
             val row = CompletedMissionRow(
-                id = record.id,
+                id = record.id ?: UUID.randomUUID().toString(),
                 profileId = profileId,
                 walletAddress = walletAddress,
                 title = record.title,
@@ -579,6 +570,7 @@ object AuraRepository {
                 } ?: System.currentTimeMillis()
                 com.aura.app.model.CompletedMissionRecord(
                     id = row.id,
+                    userWallet = row.walletAddress,
                     title = row.title,
                     emoji = row.emoji,
                     auraReward = row.auraReward,

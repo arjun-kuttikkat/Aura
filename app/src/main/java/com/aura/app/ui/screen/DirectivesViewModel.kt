@@ -223,27 +223,7 @@ class DirectivesViewModel : ViewModel() {
                     )
                 }
                 
-<<<<<<< HEAD
                 // 3. Persist to Mission History (local + Supabase for account-level persistence)
-                val record = CompletedMissionRecord(
-                    id = java.util.UUID.randomUUID().toString(),
-                    title = missionData.mission.title,
-                    emoji = missionData.mission.emoji,
-                    auraReward = scaledAuraReward,
-                    aiFeedback = missionData.verificationResult?.second ?: "Completed outside camera context.",
-                    completedAtMillis = System.currentTimeMillis()
-                )
-                MissionHistoryStore.addRecord(appContext, record)
-                // Persist to Supabase so missions survive logout/reinstall (only when wallet connected)
-                if (wallet != null) {
-                    val profile = AuraRepository.currentProfile.value
-                    AuraRepository.insertCompletedMission(
-                        walletAddress = wallet,
-                        profileId = profile?.id,
-                        record = record,
-                    )
-=======
-                // 3. Persist to Mission History 
                 if (wallet != null) {
                     val record = CompletedMissionRecord(
                         id = java.util.UUID.randomUUID().toString(),
@@ -255,8 +235,13 @@ class DirectivesViewModel : ViewModel() {
                         completedAtMillis = System.currentTimeMillis()
                     )
                     MissionHistoryStore.addRecord(appContext, record)
-                    refreshHistory(appContext)
->>>>>>> 520fdca (Finished updates for March 10)
+                    val profile = AuraRepository.currentProfile.value
+                    AuraRepository.insertCompletedMission(
+                        walletAddress = wallet,
+                        profileId = profile?.id,
+                        record = record,
+                    )
+                    loadHistory(appContext)
                 }
                 
                 // 4. Reset state
