@@ -67,8 +67,8 @@ fun DirectivesScreen(
     }
     var showFullChat by remember { mutableStateOf(false) }
 
-    // Init load history
-    LaunchedEffect(Unit) {
+    // Init load history (reload when wallet connects so we fetch from Supabase)
+    LaunchedEffect(walletAddress) {
         viewModel.loadHistory(context)
         onCameraOpenChange(false) // Never full screen on this hub page
     }

@@ -57,8 +57,32 @@ class DirectivesViewModel : ViewModel() {
     // ── Initialization ──
     fun loadHistory(context: Context) {
         viewModelScope.launch {
-            MissionHistoryStore.historyFlow(context).collect { records ->
-                _completedMissions.value = records
+            try {
+                val appCtx = context.applicationContext
+                val wallet = WalletConnectionState.walletAddress.value
+                // Primary: fetch from Supabase (account-level persistence)
+                val remote = try {
+                    wallet?.let { AuraRepository.fetchCompletedMissions(it) } ?: emptyList()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+                if (remote.isNotEmpty()) {
+                    _completedMissions.value = remote
+                }
+                // Also collect local cache (offline completions, merged on next sync)
+                MissionHistoryStore.historyFlow(appCtx).collect { local ->
+                if (remote.isEmpty()) {
+                    _completedMissions.value = local
+                } else {
+                    // Merge: remote is source of truth, add local-only records
+                    val remoteIds = remote.map { it.id }.toSet()
+                    val localOnly = local.filter { it.id !in remoteIds }
+                    _completedMissions.value = (remote + localOnly).sortedByDescending { it.completedAtMillis }
+                }
+            }
+            } catch (e: Exception) {
+                android.util.Log.e("DirectivesViewModel", "loadHistory failed", e)
+                _completedMissions.value = emptyList()
             }
         }
     }
@@ -72,19 +96,27 @@ class DirectivesViewModel : ViewModel() {
         _isAiThinking.value = true
 
         viewModelScope.launch {
-            val groqHistory = newChat.map { GroqAIService.ChatMessage(it.role, it.text) }
-            val response = GroqAIService.chatWithDirectiveAI(groqHistory.dropLast(1), userMsg)
-            _chatHistory.value = _chatHistory.value + ChatMsg("assistant", response)
-            _isAiThinking.value = false
+            try {
+                val groqHistory = newChat.map { GroqAIService.ChatMessage(it.role, it.text) }
+                val response = GroqAIService.chatWithDirectiveAI(groqHistory.dropLast(1), userMsg)
+                _chatHistory.value = _chatHistory.value + ChatMsg("assistant", response)
 
-            // If AI signals mission is ready, transition to PROPOSED phase
-            if (response.contains("[MISSION_READY]")) {
+                // If AI signals mission is ready, transition to PROPOSED phase
+                if (response.contains("[MISSION_READY]")) {
                 _phase.value = MissionPhase.GENERATING
                 val mission = GroqAIService.generateMission(
                     _chatHistory.value.map { GroqAIService.ChatMessage(it.role, it.text) }
                 )
                 _pendingMission.value = ActiveMission(mission)
                 _phase.value = MissionPhase.PROPOSED
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("DirectivesViewModel", "Chat/AI error", e)
+                _chatHistory.value = _chatHistory.value + ChatMsg("assistant", "Sorry, I hit a snag. Try again in a moment! 🙏")
+                _phase.value = MissionPhase.IDLE
+                _pendingMission.value = null
+            } finally {
+                _isAiThinking.value = false
             }
         }
     }
@@ -129,18 +161,28 @@ class DirectivesViewModel : ViewModel() {
         viewModelScope.launch {
             val mission = current.mission
             if (path != null) {
-                val photoBytes = java.io.File(path).readBytes()
-                val (passed, feedback, score) = GroqAIService.verifyMissionCompletion(
-                    missionDescription = mission.description,
-                    imageBytes = photoBytes
-                )
-                _pendingMission.value = _pendingMission.value?.copy(
-                    verificationResult = Triple(passed, feedback, score)
-                )
-                _phase.value = if (passed) MissionPhase.COMPLETE else MissionPhase.CAPTURING
-                
-                if (!passed) {
-                    _chatHistory.value = _chatHistory.value + ChatMsg("assistant", "Hmm, I couldn't verify that one. Try again! 📸")
+                try {
+                    val photoBytes = java.io.File(path).readBytes()
+                    if (photoBytes.isEmpty()) {
+                        _phase.value = MissionPhase.CAPTURING
+                        _chatHistory.value = _chatHistory.value + ChatMsg("assistant", "Couldn't read the photo. Try again! 📸")
+                        return@launch
+                    }
+                    val (passed, feedback, score) = GroqAIService.verifyMissionCompletion(
+                        missionDescription = mission.description,
+                        imageBytes = photoBytes
+                    )
+                    _pendingMission.value = _pendingMission.value?.copy(
+                        verificationResult = Triple(passed, feedback, score)
+                    )
+                    _phase.value = if (passed) MissionPhase.COMPLETE else MissionPhase.CAPTURING
+                    if (!passed) {
+                        _chatHistory.value = _chatHistory.value + ChatMsg("assistant", "Hmm, I couldn't verify that one. Try again! 📸")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("DirectivesViewModel", "Photo verify failed", e)
+                    _phase.value = MissionPhase.CAPTURING
+                    _chatHistory.value = _chatHistory.value + ChatMsg("assistant", "Something went wrong. Try again! 📸")
                 }
             } else {
                 _phase.value = MissionPhase.COMPLETE
@@ -171,7 +213,7 @@ class DirectivesViewModel : ViewModel() {
                     )
                 }
                 
-                // 3. Persist to Mission History 
+                // 3. Persist to Mission History (local + Supabase for account-level persistence)
                 val record = CompletedMissionRecord(
                     id = java.util.UUID.randomUUID().toString(),
                     title = missionData.mission.title,
@@ -181,6 +223,15 @@ class DirectivesViewModel : ViewModel() {
                     completedAtMillis = System.currentTimeMillis()
                 )
                 MissionHistoryStore.addRecord(appContext, record)
+                // Persist to Supabase so missions survive logout/reinstall (only when wallet connected)
+                if (wallet != null) {
+                    val profile = AuraRepository.currentProfile.value
+                    AuraRepository.insertCompletedMission(
+                        walletAddress = wallet,
+                        profileId = profile?.id,
+                        record = record,
+                    )
+                }
                 
                 // 4. Reset state
                 _pendingMission.value = null

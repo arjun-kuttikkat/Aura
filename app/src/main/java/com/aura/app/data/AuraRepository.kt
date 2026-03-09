@@ -111,6 +111,18 @@ private data class ListingRowInsert(
 )
 
 @Serializable
+data class CompletedMissionRow(
+    val id: String = "",
+    @SerialName("profile_id") val profileId: String? = null,
+    @SerialName("wallet_address") val walletAddress: String = "",
+    val title: String = "",
+    @EncodeDefault val emoji: String = "✨",
+    @SerialName("aura_reward") val auraReward: Int = 0,
+    @SerialName("ai_feedback") val aiFeedback: String? = null,
+    @SerialName("completed_at") val completedAt: String? = null,
+)
+
+@Serializable
 data class TradeSessionRow(
     val id: String = "",
     @SerialName("listing_id") val listingId: String = "",
@@ -191,6 +203,7 @@ object AuraRepository {
                 // --- Aura System: Decay Logic & Star Protection ---
                 val lastScanStr = p.lastScanAt
                 var updatedAuraScore = p.auraScore
+                var updatedStreakDays = p.streakDays
                 var updated = false
                 if (lastScanStr != null) {
                     try {
@@ -199,6 +212,8 @@ object AuraRepository {
                         val daysSince = ChronoUnit.DAYS.between(lastScanDate, nowDate).toInt()
                         
                         if (daysSince > 1) {
+                            // Streak broken — reset to 0
+                            updatedStreakDays = 0
                             val decayDays = daysSince - 1
                             var actualDecayDays = decayDays
                             
@@ -235,11 +250,13 @@ object AuraRepository {
 
                     p = p.copy(
                         auraScore = updatedAuraScore,
+                        streakDays = updatedStreakDays,
                         lastScanAt = finalNowStr
                     )
                     try {
                         supabase.postgrest["profiles"].update({
                             set("aura_score", p.auraScore)
+                            set("streak_days", p.streakDays)
                             set("last_scan_at", p.lastScanAt)
                             set("rank_title", rankTitle)
                         }) { filter { eq("wallet_address", p.walletAddress) } }
@@ -485,6 +502,63 @@ object AuraRepository {
         }
         loadProfile(walletAddress)
         Log.i(TAG, "Mission Completed: +$auraReward score, streak now $streak")
+    }
+
+    /** Insert completed mission into Supabase so it persists to account (survives logout/reinstall). */
+    suspend fun insertCompletedMission(
+        walletAddress: String,
+        profileId: String?,
+        record: com.aura.app.model.CompletedMissionRecord,
+    ) {
+        if (walletAddress.isEmpty()) return
+        try {
+            val completedAtIso = OffsetDateTime.ofInstant(
+                java.time.Instant.ofEpochMilli(record.completedAtMillis),
+                ZoneOffset.UTC
+            ).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            val row = CompletedMissionRow(
+                id = record.id,
+                profileId = profileId,
+                walletAddress = walletAddress,
+                title = record.title,
+                emoji = record.emoji,
+                auraReward = record.auraReward,
+                aiFeedback = record.aiFeedback.ifBlank { null },
+                completedAt = completedAtIso,
+            )
+            supabase.postgrest["completed_missions"].insert(row)
+            Log.d(TAG, "Inserted completed mission to Supabase: ${record.title}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to insert completed mission to Supabase: ${e.message}")
+        }
+    }
+
+    /** Fetch completed missions from Supabase for the given wallet. */
+    suspend fun fetchCompletedMissions(walletAddress: String): List<com.aura.app.model.CompletedMissionRecord> {
+        if (walletAddress.isEmpty()) return emptyList()
+        return try {
+            val rows = supabase.postgrest["completed_missions"]
+                .select { filter { eq("wallet_address", walletAddress) } }
+                .decodeList<CompletedMissionRow>()
+            rows.map { row ->
+                val millis = row.completedAt?.let { str ->
+                    runCatching {
+                        OffsetDateTime.parse(str).toInstant().toEpochMilli()
+                    }.getOrElse { System.currentTimeMillis() }
+                } ?: System.currentTimeMillis()
+                com.aura.app.model.CompletedMissionRecord(
+                    id = row.id,
+                    title = row.title,
+                    emoji = row.emoji,
+                    auraReward = row.auraReward,
+                    aiFeedback = row.aiFeedback ?: "",
+                    completedAtMillis = millis,
+                )
+            }.sortedByDescending { it.completedAtMillis }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to fetch completed missions: ${e.message}")
+            emptyList()
+        }
     }
 
     /** Spend Aura points (deduct from profile). Returns true if successful. Ultra-reliable with retry. */

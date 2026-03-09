@@ -57,14 +57,24 @@ object WalletConnectionState {
     // Store a reference for starting the intent
     private var intentLauncher: ((Intent) -> Unit)? = null
 
-    // Attempt to restore session on init
+    // Attempt to restore session on init — critical for returning users who skip onboarding
     fun init(launcher: (Intent) -> Unit) {
         intentLauncher = launcher
         val savedAddress = com.aura.app.data.AuraPreferences.walletAddress.value
         val savedToken = com.aura.app.data.AuraPreferences.getAuthToken()
+        val savedJwt = com.aura.app.data.AuraPreferences.getSupabaseJwt()
         if (savedAddress != null && savedToken != null) {
             _walletAddress.value = savedAddress
             _authToken.value = savedToken
+        }
+        // Restore Supabase JWT so profile updates (aura, streak, missions) succeed with RLS
+        if (savedAddress != null && !savedJwt.isNullOrBlank()) {
+            _supabaseJwt.value = savedJwt
+            try {
+                applyJwtToSupabase(savedJwt)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to restore Supabase JWT on init: ${e.message}")
+            }
         }
     }
 
