@@ -134,7 +134,7 @@ fun NavGraph(
             }
             composable(Routes.CHATS) {
                 com.aura.app.ui.screen.ChatsScreen(
-                    onNavigateToChat = { listingId -> navController.navigate(Routes.chatDetail(listingId)) },
+                    onNavigateToChat = { listingId, counterpartyWallet -> navController.navigate(Routes.chatDetail(listingId, counterpartyWallet)) },
                     onNavigateToHome = { navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } } }
                 )
             }
@@ -217,17 +217,19 @@ fun NavGraph(
                 tradeSession = session,
                 onStartMeetup = { navController.navigate(Routes.ESCROW_PAY) },
                 onBack = { navController.popBackStack() },
-                onChatClicked = { navController.navigate(Routes.chatDetail(listingId)) }
+                onChatClicked = { counterpartyWallet -> navController.navigate(Routes.chatDetail(listingId, counterpartyWallet)) }
             )
         }
         composable(Routes.CHAT_DETAIL) { backStackEntry ->
             val listingId = backStackEntry.arguments?.getString("listingId")
-            if (listingId.isNullOrBlank()) {
+            val counterpartyWallet = backStackEntry.arguments?.getString("counterpartyWallet")
+            if (listingId.isNullOrBlank() || counterpartyWallet.isNullOrBlank()) {
                 androidx.compose.runtime.LaunchedEffect(Unit) { navController.popBackStack() }
                 return@composable
             }
             com.aura.app.ui.screen.ChatDetailScreen(
                 listingId = listingId,
+                counterpartyWallet = counterpartyWallet,
                 onBack = { navController.popBackStack() },
                 onConfirmMeetupPlan = { navController.navigate(Routes.ESCROW_PAY) },
             )

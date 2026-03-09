@@ -101,7 +101,7 @@ fun ListingDetailScreen(
     tradeSession: TradeSession?,
     onStartMeetup: () -> Unit,
     onBack: () -> Unit,
-    onChatClicked: () -> Unit = {},
+    onChatClicked: (String) -> Unit = {},
 ) {
     val listings by AuraRepository.listings.collectAsState(initial = emptyList())
     val listing = listings.find { it.id == listingId }
@@ -378,14 +378,14 @@ fun ListingDetailScreen(
                             if (walletAddress == null) return@Button
                             scope.launch {
                                 isCheckingChat = true
-                                val messages = ChatRepository.getMessagesForListing(listing.id)
+                                val messages = ChatRepository.getMessagesForConversation(listing.id, walletAddress!!, listing.sellerWallet)
                                 val isOfficialBot = listing.sellerWallet == AiChatResponder.AURA_OFFICIAL_WALLET
                                 val hasPreviousChats = messages.any {
                                     it.senderWallet == walletAddress || it.receiverWallet == walletAddress
                                 }
                                 isCheckingChat = false
                                 when {
-                                    isOfficialBot || hasPreviousChats -> onChatClicked()
+                                    isOfficialBot || hasPreviousChats -> onChatClicked(listing.sellerWallet)
                                     auraBalance >= 5 -> showPayAuraDialog = true
                                     else -> showInsufficientAura = true
                                 }
@@ -477,7 +477,7 @@ fun ListingDetailScreen(
                                                 if (AuraRepository.spendAuraPoints(5)) {
                                                     showPayAuraDialog = false
                                                     payAuraError = null
-                                                    onChatClicked()
+                                                    onChatClicked(listing.sellerWallet)
                                                 } else {
                                                     payAuraError = "Could not process. Please try again."
                                                 }

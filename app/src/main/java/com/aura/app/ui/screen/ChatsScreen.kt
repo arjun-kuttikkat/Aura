@@ -53,7 +53,7 @@ import java.time.format.DateTimeFormatter
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatsScreen(
-    onNavigateToChat: (String) -> Unit = {},
+    onNavigateToChat: (String, String) -> Unit = { _, _ -> },
     onNavigateToHome: () -> Unit = {},
 ) {
     val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
@@ -95,7 +95,10 @@ fun ChatsScreen(
                     items(activeChats) { lastMsg ->
                         ChatInboxRow(
                             chatMessage = lastMsg,
-                            onClick = { onNavigateToChat(lastMsg.listingId) }
+                            onClick = { 
+                                val counterparty = if (lastMsg.senderWallet == walletAddress) lastMsg.receiverWallet else lastMsg.senderWallet
+                                onNavigateToChat(lastMsg.listingId, counterparty) 
+                            }
                         )
                     }
                 }

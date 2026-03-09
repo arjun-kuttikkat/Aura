@@ -77,26 +77,32 @@ object WalletConnectionState {
             try {
                 if (_walletAddress.value == null || _authToken.value == null) {
                     _walletPendingMessage.value = "Opening wallet…"
-                    // Step 1: Fetch nonce from wallet-auth Edge Function
-                    val address: String
-                    val mwaToken: String
-                    val signedNonce: ByteArray
-
-                    val nonceResult = withContext(Dispatchers.IO) { fetchAuthNonce() }
-
-                    // Step 2: Perform MWA authorization and sign nonce in one session
-                    val result = withContext(Dispatchers.IO) {
-                        performAuthorizationWithNonce(null, nonceResult.first, nonceResult.second)
+                    // Step 1: Perform MWA authorization to get wallet address
+                    val authResult = withContext(Dispatchers.IO) {
+                        performAuthorizationOnly(null)
                     }
-                    address = result.address
-                    mwaToken = result.mwaToken
-                    signedNonce = result.signedNonce
+                    val address = authResult.first
+                    val mwaToken = authResult.second
 
                     _walletAddress.value = address
                     _authToken.value = mwaToken
+                    // Save info early so if sign fails, they don't have to connect MWA again
                     com.aura.app.data.AuraPreferences.setWalletInfo(address, mwaToken)
 
-                    // Step 3: Exchange signature for Supabase JWT
+                    // Step 2: Fetch nonce from network (MWA session is closed, user is in Aura)
+                    _walletPendingMessage.value = "Authenticating with Aura..."
+                    val actualNonce = withContext(Dispatchers.IO) { fetchNonceForWallet(address) }
+
+                    // Step 3: Perform MWA sign operation with a new session
+                    _walletPendingMessage.value = "Please sign the authentication message"
+                    val nonceMessage = "Aura wallet-auth nonce: $actualNonce".toByteArray(Charsets.UTF_8)
+                    val pubKeyBytes = Base58.decode(address)
+                    val signedNonce = withContext(Dispatchers.IO) {
+                        performSignMessageOnly(mwaToken, nonceMessage, pubKeyBytes)
+                    }
+
+                    // Step 4: Exchange signature for Supabase JWT
+                    _walletPendingMessage.value = "Verifying..."
                     withContext(Dispatchers.IO) {
                         exchangeSignatureForJwt(address, signedNonce)
                     }
@@ -134,29 +140,10 @@ object WalletConnectionState {
         }
     }
 
-    /** Fetch a one-time nonce from the wallet-auth Edge Function. Returns (walletAddress_placeholder, nonce). */
-    private suspend fun fetchAuthNonce(): Pair<String, String> {
-        // We don't know the wallet address yet, so we'll use a temp placeholder
-        // The nonce endpoint doesn't need the wallet address upfront for new users
-        // We'll request the nonce after we have the wallet address from MWA
-        // For now, return empty - we'll fetch the nonce during the MWA session
-        return Pair("", "")
-    }
-
-    data class AuthResult(val address: String, val mwaToken: String, val signedNonce: ByteArray)
-
-    private suspend fun performAuthorizationWithNonce(
-        token: String?,
-        @Suppress("UNUSED_PARAMETER") placeholder: String,
-        @Suppress("UNUSED_PARAMETER") nonce: String,
-    ): AuthResult {
+    private suspend fun performAuthorizationOnly(token: String?): Pair<String, String> {
         val scenario = LocalAssociationScenario(Scenario.DEFAULT_CLIENT_TIMEOUT_MS)
-
-        val associationIntent = LocalAssociationIntentCreator.createAssociationIntent(
-            null,
-            scenario.port,
-            scenario.session
-        )
+        val associationIntent = LocalAssociationIntentCreator.createAssociationIntent(null, scenario.port, scenario.session)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
         withContext(Dispatchers.Main) {
             intentLauncher?.invoke(associationIntent)
@@ -165,9 +152,7 @@ object WalletConnectionState {
 
         return try {
             val client = scenario.start()
-                .get(ASSOCIATION_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                as MobileWalletAdapterClient
-
+                .get(ASSOCIATION_TIMEOUT_MS, TimeUnit.MILLISECONDS) as MobileWalletAdapterClient
             try {
                 val authResult = if (token != null) {
                     try {
@@ -198,27 +183,51 @@ object WalletConnectionState {
                 if (accounts.isEmpty()) {
                     throw Exception("Wallet returned no accounts. Please try again.")
                 }
-                val pubKeyBytes = accounts[0].publicKey
-                val address = Base58.encodeToString(pubKeyBytes)
-                val newToken = authResult.authToken
+                
+                val address = Base58.encodeToString(accounts[0].publicKey)
+                Pair(address, authResult.authToken ?: "")
+            } finally {
+                scenario.close().get(ASSOCIATION_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            }
+        } catch (e: ExecutionException) {
+            scenario.close()
+            throw e.cause ?: e
+        } catch (e: TimeoutException) {
+            scenario.close()
+            throw Exception("Wallet connection timed out. Please try again.")
+        }
+    }
 
-                // Now fetch nonce using the real wallet address
-                val actualNonce = fetchNonceForWallet(address)
+    private suspend fun performSignMessageOnly(token: String, message: ByteArray, pubKey: ByteArray): ByteArray {
+        val scenario = LocalAssociationScenario(Scenario.DEFAULT_CLIENT_TIMEOUT_MS)
+        val associationIntent = LocalAssociationIntentCreator.createAssociationIntent(null, scenario.port, scenario.session)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-                // Sign the nonce message with the wallet
-                val nonceMessage = "Aura wallet-auth nonce: $actualNonce".toByteArray(Charsets.UTF_8)
-                val signResult = client.signMessages(
-                    arrayOf(nonceMessage),
-                    arrayOf(pubKeyBytes)
+        withContext(Dispatchers.Main) {
+            intentLauncher?.invoke(associationIntent)
+                ?: throw IllegalStateException("WalletConnectionState not initialized. Call init() first.")
+        }
+
+        return try {
+            val client = scenario.start()
+                .get(ASSOCIATION_TIMEOUT_MS, TimeUnit.MILLISECONDS) as MobileWalletAdapterClient
+            try {
+                client.reauthorize(
+                    Uri.parse("https://aura.app"),
+                    Uri.parse("favicon.ico"),
+                    "Aura",
+                    token
                 ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
 
-                val signedNonce = signResult.signedPayloads?.firstOrNull()
-                    ?: throw Exception("Wallet did not return a signed message.")
+                val signResult = client.signMessages(
+                    arrayOf(message),
+                    arrayOf(pubKey)
+                ).get(CLIENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
 
-                AuthResult(address, newToken ?: "", signedNonce)
+                signResult.signedPayloads?.firstOrNull()
+                    ?: throw Exception("Wallet did not return a signed message.")
             } finally {
-                scenario.close()
-                    .get(ASSOCIATION_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                scenario.close().get(ASSOCIATION_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             }
         } catch (e: ExecutionException) {
             scenario.close()
@@ -355,7 +364,7 @@ object WalletConnectionState {
             null,
             scenario.port,
             scenario.session
-        )
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
         withContext(Dispatchers.Main) {
             intentLauncher?.invoke(associationIntent)

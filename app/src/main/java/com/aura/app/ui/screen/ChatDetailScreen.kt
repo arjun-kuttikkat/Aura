@@ -56,6 +56,7 @@ private const val MEETUP_CONFIRMED = "Confirmed"
 @Composable
 fun ChatDetailScreen(
     listingId: String,
+    counterpartyWallet: String,
     onBack: () -> Unit,
     onConfirmMeetupPlan: (() -> Unit)? = null,
 ) {
@@ -77,7 +78,7 @@ fun ChatDetailScreen(
                 id = UUID.randomUUID().toString(),
                 listingId = listingId,
                 senderWallet = walletAddress!!,
-                receiverWallet = listing.sellerWallet,
+                receiverWallet = counterpartyWallet,
                 content = "Shared an image",
                 imageUrl = uri.toString(),
             )
@@ -90,9 +91,11 @@ fun ChatDetailScreen(
     }
 
     // 1. Initial Load
-    LaunchedEffect(listingId) {
-        messages = ChatRepository.getMessagesForListing(listingId)
-        walletAddress?.let { ChatRepository.markConversationAsRead(listingId, it) }
+    LaunchedEffect(listingId, counterpartyWallet, walletAddress) {
+        walletAddress?.let { wallet ->
+            messages = ChatRepository.getMessagesForConversation(listingId, wallet, counterpartyWallet)
+            ChatRepository.markConversationAsRead(listingId, wallet)
+        }
         // For official bot: send welcome message if first time
         if (isOfficialBot && messages.isEmpty()) {
             isAiTyping = true
@@ -114,13 +117,15 @@ fun ChatDetailScreen(
     }
 
     // 2. Realtime Subscription (for human-to-human chats)
-    LaunchedEffect(listingId) {
+    LaunchedEffect(listingId, counterpartyWallet, walletAddress) {
         if (!isOfficialBot) {
-            ChatRepository.observeMessages(listingId).collect { newMessage ->
-                if (messages.none { it.id == newMessage.id }) {
-                    messages = messages + newMessage
-                    listState.animateScrollToItem(messages.size - 1)
-                    walletAddress?.let { ChatRepository.markConversationAsRead(listingId, it) }
+            walletAddress?.let { wallet ->
+                ChatRepository.observeConversation(listingId, wallet, counterpartyWallet).collect { newMessage ->
+                    if (messages.none { it.id == newMessage.id }) {
+                        messages = messages + newMessage
+                        listState.animateScrollToItem(messages.size - 1)
+                        ChatRepository.markConversationAsRead(listingId, wallet)
+                    }
                 }
             }
         }
@@ -375,7 +380,7 @@ fun ChatDetailScreen(
                                 id = UUID.randomUUID().toString(),
                                 listingId = listingId,
                                 senderWallet = walletAddress!!,
-                                receiverWallet = listing!!.sellerWallet,
+                                receiverWallet = counterpartyWallet,
                                 content = text,
                             )
                             inputText = ""
@@ -434,7 +439,7 @@ fun ChatDetailScreen(
                         id = UUID.randomUUID().toString(),
                         listingId = listingId,
                         senderWallet = wallet,
-                        receiverWallet = listing.sellerWallet,
+                        receiverWallet = counterpartyWallet,
                         content = "📍 Meetup requested: $address at $time. Seller, please confirm.",
                     )
                     scope.launch {

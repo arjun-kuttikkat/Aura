@@ -299,7 +299,23 @@ Keep responses SHORT and warm. Never be clinical or robotic."""
                 put("messages", messages)
             }
 
-            val responseText = makeApiCall(requestBody.toString())
+            var responseText = ""
+            var success = false
+            for (attempt in 1..3) {
+                try {
+                    responseText = makeApiCall(requestBody.toString())
+                    success = true
+                    break
+                } catch (e: Exception) {
+                    Log.w(TAG, "Groq API attempt $attempt failed", e)
+                    if (attempt < 3) kotlinx.coroutines.delay(2000L)
+                }
+            }
+
+            if (!success) {
+                return@withContext "I'm having a little trouble connecting to the network right now. Give it a moment and try again!"
+            }
+
             val jsonElement = Json.parseToJsonElement(responseText)
             jsonElement.jsonObject["choices"]
                 ?.jsonArray?.get(0)
@@ -309,7 +325,7 @@ Keep responses SHORT and warm. Never be clinical or robotic."""
 
         } catch (e: Exception) {
             Log.e(TAG, "Chat with directive AI failed", e)
-            "Error: ${e.message ?: "Unknown API Error"} — Please try again."
+            "I ran into an unexpected issue. Mind trying that again?"
         }
     }
 
@@ -539,8 +555,8 @@ Respond ONLY with valid JSON: {"pass": true/false, "feedback": "1-2 sentences", 
         connection.setRequestProperty("Authorization", "Bearer ${BuildConfig.GROQ_API_KEY}")
         connection.setRequestProperty("Content-Type", "application/json")
         connection.doOutput = true
-        connection.connectTimeout = 30_000
-        connection.readTimeout = 60_000
+        connection.connectTimeout = 60_000
+        connection.readTimeout = 120_000
 
         connection.outputStream.use { it.write(requestBody.toByteArray()) }
 

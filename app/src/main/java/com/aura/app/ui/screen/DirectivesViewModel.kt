@@ -150,43 +150,57 @@ class DirectivesViewModel : ViewModel() {
 
     fun claimRewardsAndComplete(context: Context) {
         val missionData = _pendingMission.value ?: return
+        val appContext = context.applicationContext // Use app context to avoid memory leaks and invalidation
         
         viewModelScope.launch {
-            val scoreResult = missionData.verificationResult?.third ?: 50
-            val shopCreditsEarned = (scoreResult * 0.5f).toInt().coerceAtLeast(1)
-            val scaledAuraReward = (missionData.mission.auraReward * (scoreResult / 100f)).toInt().coerceAtLeast(1)
-            
-            // 1. Add Shop Credits 
-            AvatarPreferences.addCredits(context, shopCreditsEarned)
-            
-            // 2. Add Aura Points & update streak in DB
-            val wallet = WalletConnectionState.walletAddress.value
-            if (wallet != null) {
-                AuraRepository.addMissionAuraPoints(
-                    walletAddress = wallet,
+            try {
+                val scoreResult = missionData.verificationResult?.third ?: 50
+                val shopCreditsEarned = (scoreResult * 0.5f).toInt().coerceAtLeast(1)
+                val scaledAuraReward = (missionData.mission.auraReward * (scoreResult / 100f)).toInt().coerceAtLeast(1)
+                
+                // 1. Add Shop Credits 
+                AvatarPreferences.addCredits(appContext, shopCreditsEarned)
+                
+                // 2. Add Aura Points & update streak in DB
+                val wallet = WalletConnectionState.walletAddress.value
+                if (wallet != null) {
+                    AuraRepository.addMissionAuraPoints(
+                        walletAddress = wallet,
+                        auraReward = scaledAuraReward,
+                        missionTitle = missionData.mission.title
+                    )
+                }
+                
+                // 3. Persist to Mission History 
+                val record = CompletedMissionRecord(
+                    id = java.util.UUID.randomUUID().toString(),
+                    title = missionData.mission.title,
+                    emoji = missionData.mission.emoji,
                     auraReward = scaledAuraReward,
-                    missionTitle = missionData.mission.title
+                    aiFeedback = missionData.verificationResult?.second ?: "Completed outside camera context.",
+                    completedAtMillis = System.currentTimeMillis()
+                )
+                MissionHistoryStore.addRecord(appContext, record)
+                
+                // 4. Reset state
+                _pendingMission.value = null
+                _phase.value = MissionPhase.IDLE
+                _chatHistory.value = _chatHistory.value + ChatMsg(
+                    "assistant",
+                    "Amazing work! 🎉 You just earned $scaledAuraReward Aura points with a $scoreResult% photo score. Ready for another mission? Tell me how you're feeling!"
+                )
+            } catch (e: Exception) {
+                // Catch DataStore IOExceptions, context crashes, and any other unhandled errors
+                android.util.Log.e("DirectivesViewModel", "Error claiming rewards", e)
+                
+                // Still reset state so the user isn't stuck holding a pending mission
+                _pendingMission.value = null
+                _phase.value = MissionPhase.IDLE
+                _chatHistory.value = _chatHistory.value + ChatMsg(
+                    "assistant",
+                    "Ah, there was a tiny glitch saving your rewards, but your mission is marked complete! Want to try another?"
                 )
             }
-            
-            // 3. Persist to Mission History 
-            val record = CompletedMissionRecord(
-                id = java.util.UUID.randomUUID().toString(),
-                title = missionData.mission.title,
-                emoji = missionData.mission.emoji,
-                auraReward = scaledAuraReward,
-                aiFeedback = missionData.verificationResult?.second ?: "Completed outside camera context.",
-                completedAtMillis = System.currentTimeMillis()
-            )
-            MissionHistoryStore.addRecord(context, record)
-            
-            // 4. Reset state
-            _pendingMission.value = null
-            _phase.value = MissionPhase.IDLE
-            _chatHistory.value = _chatHistory.value + ChatMsg(
-                "assistant",
-                "Amazing work! 🎉 You just earned $scaledAuraReward Aura points with a $scoreResult% photo score. Ready for another mission? Tell me how you're feeling!"
-            )
         }
     }
 }

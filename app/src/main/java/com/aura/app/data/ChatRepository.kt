@@ -19,12 +19,22 @@ import java.time.format.DateTimeFormatter
 object ChatRepository {
     private val client = SupabaseClient.client
 
-    suspend fun getMessagesForListing(listingId: String): List<ChatMessage> {
+    suspend fun getMessagesForConversation(listingId: String, myWallet: String, counterpartyWallet: String): List<ChatMessage> {
         return try {
             client.postgrest["chat_messages"]
                 .select() {
                     filter {
                         eq("listing_id", listingId)
+                        or {
+                            and {
+                                eq("sender_wallet", myWallet)
+                                eq("receiver_wallet", counterpartyWallet)
+                            }
+                            and {
+                                eq("sender_wallet", counterpartyWallet)
+                                eq("receiver_wallet", myWallet)
+                            }
+                        }
                     }
                 }
                 .decodeList<ChatMessage>()
@@ -49,8 +59,8 @@ object ChatRepository {
                 .decodeList<ChatMessage>()
                 .sortedByDescending { it.createdAt }
             
-            // Group by listing ID and just return the latest message per conversation
-            allMessages.groupBy { it.listingId }.map { it.value.first() }
+            // Group by [listing ID + counterparty] and just return the latest message per conversation
+            allMessages.groupBy { "${it.listingId}_${if (it.senderWallet == myWallet) it.receiverWallet else it.senderWallet}" }.map { it.value.first() }
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
@@ -91,7 +101,7 @@ object ChatRepository {
      * after joining the channel" when navigating back to this screen (the cached channel would
      * already be joined). Unsubscribes when the flow collector is cancelled (e.g. user leaves screen).
      */
-    suspend fun observeMessages(listingId: String): Flow<ChatMessage> = callbackFlow {
+    suspend fun observeConversation(listingId: String, myWallet: String, counterpartyWallet: String): Flow<ChatMessage> = callbackFlow {
         val channelId = "chat_room_${listingId}_${UUID.randomUUID()}"
         val ch = client.realtime.channel(channelId)
         val pgFlow = ch.postgresChangeFlow<PostgresAction.Insert>("public") {
@@ -103,7 +113,9 @@ object ChatRepository {
             pgFlow.collect { action ->
                 try {
                     val msg = action.decodeRecord<ChatMessage>()
-                    if (msg.listingId == listingId) {
+                    if (msg.listingId == listingId && 
+                        ((msg.senderWallet == myWallet && msg.receiverWallet == counterpartyWallet) || 
+                         (msg.senderWallet == counterpartyWallet && msg.receiverWallet == myWallet))) {
                         trySend(msg)
                     }
                 } catch (_: Exception) {}

@@ -458,20 +458,25 @@ object AuraRepository {
 
         val reason = "Completed Mission: $missionTitle"
         val newScore = profile.auraScore + auraReward
-        invokeWithRetry(maxAttempts = 3, initialDelayMs = 400) {
-            supabase.postgrest["profiles"].update({
-                set("aura_score", newScore)
-                set("streak_days", streak)
-                set("last_scan_at", nowStr)
-                set("rank_title", com.aura.app.model.RankSystem.getRankInfo(newScore).run { "$rankName $tierString".trim() })
-            }) { filter { eq("wallet_address", profile.walletAddress) } }
-            profile.id?.let { uuid ->
-                try {
-                    supabase.postgrest["aura_history"].insert(
-                        AuraHistoryDto(userId = uuid, changeAmount = auraReward, reason = reason)
-                    )
-                } catch (_: Exception) {}
+        try {
+            invokeWithRetry(maxAttempts = 3, initialDelayMs = 400) {
+                supabase.postgrest["profiles"].update({
+                    set("aura_score", newScore)
+                    set("streak_days", streak)
+                    set("last_scan_at", nowStr)
+                    set("rank_title", com.aura.app.model.RankSystem.getRankInfo(newScore).run { "$rankName $tierString".trim() })
+                }) { filter { eq("wallet_address", profile.walletAddress) } }
+                profile.id?.let { uuid ->
+                    try {
+                        supabase.postgrest["aura_history"].insert(
+                            AuraHistoryDto(userId = uuid, changeAmount = auraReward, reason = reason)
+                        )
+                    } catch (_: Exception) {}
+                }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating profile after mission aura points (retries exhausted)", e)
+            // Even if network fails, proceed to update local state so user doesn't block
         }
 
         val updatedProfile = profile.copy(auraScore = newScore, streakDays = streak, lastScanAt = nowStr)
