@@ -52,7 +52,8 @@ async function signJwt(payload: Record<string, unknown>, secret: string): Promis
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-const JWT_SECRET = Deno.env.get("SUPABASE_JWT_SECRET")!
+// Use JWT_SECRET (Supabase rejects secret names with SUPABASE_ prefix)
+const JWT_SECRET = Deno.env.get("JWT_SECRET")!
 const NONCE_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
 const corsHeaders = {

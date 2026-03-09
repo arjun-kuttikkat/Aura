@@ -3,7 +3,6 @@ package com.aura.app.navigation
 object Routes {
     const val ONBOARDING = "onboarding"
     const val HOME = "home"
-    const val FAVORITES = "favorites"
     const val CHATS = "chats"
     const val REWARDS = "rewards"
     const val PROFILE = "profile"

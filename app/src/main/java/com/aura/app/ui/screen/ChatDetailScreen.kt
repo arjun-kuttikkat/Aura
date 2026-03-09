@@ -41,6 +41,8 @@ import com.aura.app.ui.theme.SolanaGreen
 import com.aura.app.ui.theme.UltraViolet
 import com.aura.app.ui.components.GlassCardDark
 import com.aura.app.ui.components.RequestLocationTimingSheet
+import com.aura.app.ui.components.HelpCentreDialog
+import com.aura.app.ui.components.HelpCentreItem
 import com.aura.app.wallet.WalletConnectionState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -65,7 +67,7 @@ fun ChatDetailScreen(
     var inputText by remember { mutableStateOf("") }
     var isAiTyping by remember { mutableStateOf(false) }
     var showPlanMeetup by remember { mutableStateOf(false) }
-    var helpClicked by remember { mutableStateOf(false) }
+    var showHelpCentre by remember { mutableStateOf(false) }
     var showLocationTimingSheet by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -149,7 +151,7 @@ fun ChatDetailScreen(
                 },
                 actions = {
                     if (!isOfficialBot && listing != null && onConfirmMeetupPlan != null) {
-                        IconButton(onClick = { helpClicked = true }) {
+                        IconButton(onClick = { showHelpCentre = true }) {
                             Text("Help", fontSize = 12.sp, color = Orange500)
                         }
                     }
@@ -169,7 +171,7 @@ fun ChatDetailScreen(
                 val hasMeetupRequest = messages.any { it.senderWallet != listing.sellerWallet && it.content.contains("📍 Meetup requested:") }
                 val hasSellerConfirmed = messages.any { it.senderWallet == listing.sellerWallet && it.content == MEETUP_CONFIRMED }
                 val isSeller = walletAddress == listing.sellerWallet
-                val confirmMeetupEnabled = walletAddress != null && hasMeetupRequest && (hasSellerConfirmed || helpClicked)
+                val confirmMeetupEnabled = walletAddress != null && hasMeetupRequest && hasSellerConfirmed
 
                 GlassCardDark(
                     modifier = Modifier
@@ -442,6 +444,18 @@ fun ChatDetailScreen(
                     }
                 }
             },
+        )
+    }
+
+    if (showHelpCentre) {
+        HelpCentreDialog(
+            items = listOf(
+                HelpCentreItem("Request a meetup", "As a buyer, expand this card and tap 'Request your preferred location and timing'. Enter where and when you'd like to meet."),
+                HelpCentreItem("Seller confirms", "Once the buyer sends a meetup request, the seller taps 'Confirm Meetup' in the chat. Both parties must agree before proceeding."),
+                HelpCentreItem("Start Meetup", "After the seller confirms, tap 'Start Meetup' to begin the trade flow. You'll go to payment, then the meetup location and verification."),
+                HelpCentreItem("Agree in chat first", "Coordinate the exact place and time in your messages before confirming. Use public, safe locations for in-person exchanges."),
+            ),
+            onDismiss = { showHelpCentre = false },
         )
     }
 }

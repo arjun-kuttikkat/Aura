@@ -60,7 +60,6 @@ import com.aura.app.ui.screen.EmiratePickerScreen
 
 private val MAIN_TAB_ROUTES = setOf(
     Routes.HOME,
-    Routes.FAVORITES,
     Routes.CHATS,
     Routes.DIRECTIVES,
     Routes.PROFILE,
@@ -131,12 +130,6 @@ fun NavGraph(
                         }
                     },
                     onNavigate = { route -> navController.navigate(route) },
-                )
-            }
-            composable(Routes.FAVORITES) {
-                com.aura.app.ui.screen.FavoritesScreen(
-                    onNavigateToHome = { navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } } },
-                    onListingClick = { listingId -> navController.navigate(Routes.listingDetail(listingId)) }
                 )
             }
             composable(Routes.CHATS) {

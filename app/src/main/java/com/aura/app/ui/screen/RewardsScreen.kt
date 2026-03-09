@@ -61,11 +61,10 @@ fun RewardsScreen() {
     val profile by AuraRepository.currentProfile.collectAsState(initial = null)
     val auraScoreRaw = profile?.auraScore ?: 50
     val streakRaw = profile?.streakDays ?: 0
-    val totalAura = com.aura.app.data.AuraPreferences.totalAuraEarned.collectAsState(initial = 0).value
     val completedToday = com.aura.app.data.DirectivesManager.completedToday.collectAsState(initial = 0).value
 
     val animatedAura by animateIntAsState(
-        targetValue = totalAura,
+        targetValue = auraScoreRaw,
         animationSpec = tween(1200, easing = FastOutSlowInEasing),
         label = "aura"
     )
@@ -152,7 +151,7 @@ fun RewardsScreen() {
                             color = Gold500,
                         )
                         Text(
-                            if (totalAura == 0) "Complete directives to earn tokens" else "$completedToday directives completed today",
+                            if (auraScoreRaw == 0) "Complete directives to earn tokens" else "$completedToday directives completed today",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

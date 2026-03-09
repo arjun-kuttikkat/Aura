@@ -107,7 +107,7 @@ object DirectivesManager {
         _activeDirectives.value = current
         _completedToday.value = _completedToday.value + 1
 
-        AuraPreferences.addAuraReward(directive.rewardAura)
+        AuraRepository.addAuraToProfile(directive.rewardAura, "Directive: ${directive.title}")
         Log.d(TAG, "Directive completed: ${directive.title}, reward: ${directive.rewardAura}")
         return directive.rewardAura
     }

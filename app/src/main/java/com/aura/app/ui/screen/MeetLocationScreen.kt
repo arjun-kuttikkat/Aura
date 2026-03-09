@@ -54,6 +54,8 @@ import com.aura.app.ui.theme.DarkVoid
 import com.aura.app.ui.theme.Gold500
 import com.aura.app.ui.theme.Orange500
 import com.aura.app.ui.theme.SlateElevated
+import com.aura.app.ui.components.HelpCentreDialog
+import com.aura.app.ui.components.HelpCentreItem
 import com.aura.app.util.MeetupLocationUtils
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.model.CameraPosition
@@ -84,6 +86,7 @@ fun MeetLocationScreen(
     val listing = listings.find { it.id == listingId }
     var geofencePassed by remember { mutableStateOf(false) }
     var liveAddressText by remember { mutableStateOf<String?>(null) }
+    var showHelpCentre by remember { mutableStateOf(false) }
 
     LaunchedEffect(listingId) {
         if (listing == null) AuraRepository.refreshListingsAwait()
@@ -134,7 +137,7 @@ fun MeetLocationScreen(
                     }
                 },
                 actions = {
-                    androidx.compose.material3.TextButton(onClick = onContinue) {
+                    androidx.compose.material3.TextButton(onClick = { showHelpCentre = true }) {
                         Text("Help", style = MaterialTheme.typography.labelSmall)
                     }
                 },
@@ -279,5 +282,17 @@ fun MeetLocationScreen(
                 }
             }
         }
+    }
+
+    if (showHelpCentre) {
+        HelpCentreDialog(
+            items = listOf(
+                HelpCentreItem("Geofence & arrival", "You must be within 50m of the meetup location to confirm arrival. The map shows the agreed meeting point and the valid radius."),
+                HelpCentreItem("Enable location", "Grant location permission so we can verify you've arrived. Your location is only used for this meetup verification."),
+                HelpCentreItem("Open in Google Maps", "Use this button to navigate to the meetup spot. Once you're within range, return to Aura and tap 'Confirm Arrival'."),
+                HelpCentreItem("Why confirm arrival?", "Confirming proves both parties are physically present. This unlocks the next step: in-person item verification and payment release."),
+            ),
+            onDismiss = { showHelpCentre = false },
+        )
     }
 }

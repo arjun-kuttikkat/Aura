@@ -55,6 +55,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.aura.app.ui.util.breathe
 import com.aura.app.ui.util.shimmerBorder
+import com.aura.app.ui.components.HelpCentreDialog
+import com.aura.app.ui.components.HelpCentreItem
 import androidx.compose.material.icons.filled.CheckCircle
 import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
@@ -81,6 +83,7 @@ fun EscrowPayScreen(
     var isPendingConfirmation by remember { mutableStateOf(false) }
     var isPaymentVerified by remember { mutableStateOf(false) }
     val paymentInProgress = remember { AtomicBoolean(false) }
+    var showHelpCentre by remember { mutableStateOf(false) }
 
     // Background Process Kill fix: resume confirmation if app was killed during wait
     LaunchedEffect(session?.id) {
@@ -121,13 +124,7 @@ fun EscrowPayScreen(
                 },
                 actions = {
                     androidx.compose.material3.TextButton(
-                        onClick = {
-                            status = EscrowState.LOCKED
-                            isPaymentVerified = true
-                            txSig = "help-bypass"
-                            errorMsg = null
-                            AuraRepository.updateTradeState(TradeState.ESCROW_LOCKED)
-                        },
+                        onClick = { showHelpCentre = true },
                     ) {
                         Text("Help", style = MaterialTheme.typography.labelSmall)
                     }
@@ -419,5 +416,17 @@ fun EscrowPayScreen(
             }
 
         }
+    }
+
+    if (showHelpCentre) {
+        HelpCentreDialog(
+            items = listOf(
+                HelpCentreItem("How does escrow work?", "Funds are held securely in escrow until both parties complete the meetup. The buyer signs and locks the payment; the seller receives it only after in-person verification."),
+                HelpCentreItem("Connect your wallet", "Ensure your Solana wallet is connected. If prompted, approve the connection in your wallet app to proceed with payment."),
+                HelpCentreItem("Sign and Lock Funds", "When you tap the button, your wallet will prompt you to sign the escrow transaction. This locks the payment until the meetup is verified—your funds stay safe."),
+                HelpCentreItem("What happens next?", "After locking funds, you’ll proceed to the meetup location. Complete the in-person verification to release the payment to the seller and receive your item."),
+            ),
+            onDismiss = { showHelpCentre = false },
+        )
     }
 }

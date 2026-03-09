@@ -65,7 +65,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import com.aura.app.data.AiChatResponder
-import com.aura.app.data.AuraPreferences
 import com.aura.app.data.AuraRepository
 import com.aura.app.data.ChatRepository
 import com.aura.app.data.TradeRiskOracle
@@ -340,7 +339,8 @@ fun ListingDetailScreen(
                 var isCheckingChat by remember { mutableStateOf(false) }
                 var showPayAuraDialog by remember { mutableStateOf(false) }
                 var showInsufficientAura by remember { mutableStateOf(false) }
-                val auraBalance by AuraPreferences.totalAuraEarned.collectAsState(initial = 0)
+                val profile by AuraRepository.currentProfile.collectAsState(initial = null)
+                val auraBalance = profile?.auraScore ?: 0
                 val isSeller = walletAddress == listing.sellerWallet
 
                 // ── Seller Aura Rank ───────────────────────────────────────
@@ -424,28 +424,74 @@ fun ListingDetailScreen(
                         }
                     }
 
+                    var isPayingAura by remember { mutableStateOf(false) }
+                    var payAuraError by remember { mutableStateOf<String?>(null) }
                     if (showPayAuraDialog) {
                         AlertDialog(
-                            onDismissRequest = { showPayAuraDialog = false },
+                            onDismissRequest = {
+                                if (!isPayingAura) {
+                                    showPayAuraDialog = false
+                                    payAuraError = null
+                                }
+                            },
                             title = { Text("Start chat", fontWeight = FontWeight.Bold) },
                             text = {
-                                Text(
-                                    "Pay 5 Aura points to open chat with the seller.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text(
+                                        "Pay 5 Aura points to open chat with the seller.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    if (isPayingAura) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Text("Processing…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                    payAuraError?.let { err ->
+                                        Text(
+                                            err,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    }
+                                }
                             },
                             confirmButton = {
-                                TextButton(onClick = {
-                                    AuraHaptics.lightTap(haptic)
-                                    if (AuraPreferences.spendAuraPoints(5)) {
-                                        showPayAuraDialog = false
-                                        onChatClicked()
-                                    }
-                                }) { Text("Pay 5 Aura & Chat", color = Orange500, fontWeight = FontWeight.Bold) }
+                                TextButton(
+                                    onClick = {
+                                        AuraHaptics.lightTap(haptic)
+                                        payAuraError = null
+                                        scope.launch {
+                                            isPayingAura = true
+                                            try {
+                                                if (AuraRepository.spendAuraPoints(5)) {
+                                                    showPayAuraDialog = false
+                                                    payAuraError = null
+                                                    onChatClicked()
+                                                } else {
+                                                    payAuraError = "Could not process. Please try again."
+                                                }
+                                            } catch (e: Exception) {
+                                                payAuraError = e.message ?: "Something went wrong. Please try again."
+                                            } finally {
+                                                isPayingAura = false
+                                            }
+                                        }
+                                    },
+                                    enabled = !isPayingAura,
+                                ) { Text("Pay 5 Aura & Chat", color = Orange500, fontWeight = FontWeight.Bold) }
                             },
                             dismissButton = {
-                                TextButton(onClick = { AuraHaptics.subtleTap(haptic); showPayAuraDialog = false }) {
+                                TextButton(
+                                    onClick = { AuraHaptics.subtleTap(haptic); showPayAuraDialog = false; payAuraError = null },
+                                    enabled = !isPayingAura,
+                                ) {
                                     Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             },

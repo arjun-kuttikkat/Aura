@@ -1,7 +1,5 @@
 package com.aura.app.data
 
-import com.aura.app.model.Listing
-import com.aura.app.model.MintedStatus
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -9,18 +7,6 @@ import org.junit.Test
  * Unit tests for AuraRepository pure functions and data mapping.
  */
 class AuraRepositoryTest {
-
-    @Test
-    fun `isFavorite returns false for unknown listing`() {
-        // Initial state should have no favorites
-        assertFalse(AuraRepository.isFavorite("nonexistent-listing"))
-    }
-
-    @Test
-    fun `getFavoriteListings returns empty when no favorites`() {
-        val favorites = AuraRepository.getFavoriteListings()
-        assertTrue("Should return empty list with no favorites", favorites.isEmpty())
-    }
 
     @Test
     fun `getListing returns null for unknown id`() {

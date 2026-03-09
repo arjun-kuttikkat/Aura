@@ -61,7 +61,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import android.content.Intent
 import android.net.Uri
-import com.aura.app.data.AuraPreferences
 import com.aura.app.data.AuraRepository
 import com.aura.app.data.LocalReceipt
 import com.aura.app.data.LocalReceiptStore
@@ -132,7 +131,7 @@ fun TradeCompleteScreen(
 
     LaunchedEffect(session?.id ?: "") {
         AuraHaptics.successPattern(context)
-        if (!session?.id.isNullOrBlank()) AuraPreferences.tryAwardTradeBonus(session!!.id)
+        if (!session?.id.isNullOrBlank()) AuraRepository.tryAwardTradeBonus(session!!.id)
         showCheck = true
         delay(400)
         showText = true

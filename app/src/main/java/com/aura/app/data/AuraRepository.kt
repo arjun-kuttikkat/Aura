@@ -125,14 +125,6 @@ data class TradeSessionRow(
     @SerialName("updated_at") val updatedAt: String? = null,
 )
 
-@Serializable
-data class FavoriteRow(
-    val id: String = "",
-    @SerialName("wallet_address") val walletAddress: String = "",
-    @SerialName("listing_id") val listingId: String = "",
-    @SerialName("created_at") val createdAt: String? = null,
-)
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Repository
 // ─────────────────────────────────────────────────────────────────────────────
@@ -153,9 +145,6 @@ object AuraRepository {
 
     private val _currentTradeSession = MutableStateFlow<TradeSession?>(null)
     val currentTradeSession: StateFlow<TradeSession?> = _currentTradeSession.asStateFlow()
-
-    private val _favoriteListingIds = MutableStateFlow<Set<String>>(emptySet())
-    val favoriteListingIds: StateFlow<Set<String>> = _favoriteListingIds.asStateFlow()
 
     val activeQuickReceiveUri = MutableStateFlow<String?>(null)
 
@@ -257,7 +246,6 @@ object AuraRepository {
                     }
                 }
                 _currentProfile.value = p
-                loadFavorites(walletAddress)
             } else {
                 val newProfile = ProfileDto(walletAddress = walletAddress)
                 val insertedList = supabase.postgrest["profiles"]
@@ -420,55 +408,6 @@ object AuraRepository {
         return com.aura.app.model.AuraCheckResult(rating, feedback, streakMaintained, creditsEarned)
     }
 
-    // ── Favorites ─────────────────────────────────────────────────────────────
-
-    suspend fun loadFavorites(walletAddress: String) {
-        try {
-            val rows = db.from("favorites")
-                .select { filter { eq("wallet_address", walletAddress) } }
-                .decodeList<FavoriteRow>()
-            _favoriteListingIds.value = rows.map { it.listingId }.toSet()
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to load favorites: ${e.message}")
-        }
-    }
-
-    fun getFavoriteListings(): List<Listing> {
-        val ids = _favoriteListingIds.value
-        return _listings.value.filter { it.id in ids }
-    }
-
-    suspend fun toggleFavorite(listingId: String) {
-        val wallet = com.aura.app.wallet.WalletConnectionState.walletAddress.value ?: return
-        val current = _favoriteListingIds.value
-        if (listingId in current) {
-            _favoriteListingIds.value = current - listingId
-            try {
-                db.from("favorites").delete {
-                    filter {
-                        eq("wallet_address", wallet)
-                        eq("listing_id", listingId)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to remove favorite: ${e.message}")
-                _favoriteListingIds.value = current // rollback
-            }
-        } else {
-            _favoriteListingIds.value = current + listingId
-            try {
-                db.from("favorites").insert(
-                    FavoriteRow(walletAddress = wallet, listingId = listingId)
-                )
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to add favorite: ${e.message}")
-                _favoriteListingIds.value = current // rollback
-            }
-        }
-    }
-
-    fun isFavorite(listingId: String): Boolean = listingId in _favoriteListingIds.value
-
     /** Aura System: Add points when user completes a mission (Directives). */
     suspend fun addMissionAuraPoints(walletAddress: String, auraReward: Int, missionTitle: String) {
         val profile = _currentProfile.value ?: return
@@ -525,6 +464,67 @@ object AuraRepository {
             }
         }
         Log.i(TAG, "Mission Completed: +$auraReward score, streak now $streak")
+    }
+
+    /** Spend Aura points (deduct from profile). Returns true if successful. */
+    suspend fun spendAuraPoints(amount: Int): Boolean {
+        val profile = _currentProfile.value ?: return false
+        if (profile.auraScore < amount) return false
+        val newScore = profile.auraScore - amount
+        val updatedProfile = profile.copy(auraScore = newScore)
+        return try {
+            supabase.postgrest["profiles"].update({
+                set("aura_score", newScore)
+            }) { filter { eq("wallet_address", profile.walletAddress) } }
+            _currentProfile.value = updatedProfile
+            profile.id?.let { uuid ->
+                try {
+                    val history = AuraHistoryDto(userId = uuid, changeAmount = -amount, reason = "Chat unlock")
+                    supabase.postgrest["aura_history"].insert(history)
+                } catch (_: Exception) {}
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "spendAuraPoints failed", e)
+            false
+        }
+    }
+
+    /** Add Aura to current user's profile (directives, trade bonus). Fire-and-forget. */
+    fun addAuraToProfile(amount: Int, reason: String) {
+        scope.launch {
+            val profile = _currentProfile.value ?: return@launch
+            val newScore = profile.auraScore + amount
+            val updatedProfile = profile.copy(auraScore = newScore)
+            val rankInfo = com.aura.app.model.RankSystem.getRankInfo(newScore)
+            val rankTitleValue = "${rankInfo.rankName} ${rankInfo.tierString}".trim()
+            try {
+                supabase.postgrest["profiles"].update({
+                    set("aura_score", newScore)
+                    set("rank_title", rankTitleValue)
+                }) { filter { eq("wallet_address", profile.walletAddress) } }
+                _currentProfile.value = updatedProfile
+                profile.id?.let { uuid ->
+                    try {
+                        val history = AuraHistoryDto(userId = uuid, changeAmount = amount, reason = reason)
+                        supabase.postgrest["aura_history"].insert(history)
+                    } catch (_: Exception) {}
+                }
+                Log.i(TAG, "addAuraToProfile: +$amount ($reason)")
+            } catch (e: Exception) {
+                Log.e(TAG, "addAuraToProfile failed", e)
+            }
+        }
+    }
+
+    private val _rewardedTradeIds = mutableSetOf<String>()
+
+    /** Award trade completion bonus (10 Aura). Returns true if awarded. */
+    fun tryAwardTradeBonus(sessionId: String): Boolean {
+        if (sessionId.isBlank() || sessionId in _rewardedTradeIds) return false
+        _rewardedTradeIds.add(sessionId)
+        addAuraToProfile(10, "Verified trade bonus")
+        return true
     }
 
     // ── Listings ──────────────────────────────────────────────────────────────
@@ -1153,13 +1153,8 @@ object AuraRepository {
             feeExempt = isRadiant,
             releaseAuthority = releaseAuth,
         )
-        // Pre-flight simulate so we surface errors before wallet popup (avoids Phantom "Simulation failed")
-        val simResult = com.aura.app.wallet.SolanaRpc.simulateTransaction(txBytes)
-        if (simResult is com.aura.app.wallet.SolanaRpc.SimulateResult.Failed) {
-            Log.e(TAG, "Escrow init pre-flight simulate failed: ${simResult.message}")
-            throw IllegalStateException("Transaction would fail: ${simResult.message}. Ensure escrow program is deployed on mainnet and RPC matches your wallet.")
-        }
-        // Do NOT call updateTradeState here — wait for wallet signing confirmation
+        // Pre-flight simulation removed: allow wallet to open for signing regardless of RPC/simulate result.
+        // Transaction may still fail on-chain; user will see wallet errors instead of blocking error message.
         return txBytes
     }
 
@@ -1455,7 +1450,10 @@ object AuraRepository {
         )
     }
 
-    suspend fun getEscrowStatus(tradeId: String): EscrowStatus {
+    suspend fun getEscrowStatus(tradeId: String): EscrowStatus =
+        fetchEscrowStatusFromDb(tradeId)
+
+    private suspend fun fetchEscrowStatusFromDb(tradeId: String): EscrowStatus {
         try {
             val sessions = db.from("trade_sessions")
                 .select { filter { eq("id", tradeId) } }

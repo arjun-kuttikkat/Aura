@@ -49,6 +49,7 @@ jobs:
           RELEASE_AUTHORITY_PUBKEY: ${{ secrets.RELEASE_AUTHORITY_PUBKEY }}
         run: |
           {
+            echo "sdk.dir=$ANDROID_HOME"
             echo "SUPABASE_URL=${SUPABASE_URL:-https://placeholder.supabase.co}"
             echo "SUPABASE_KEY=${SUPABASE_KEY:-placeholder-anon-key}"
             echo "HELIUS_API_KEY=${HELIUS_API_KEY:-placeholder}"
@@ -75,6 +76,7 @@ jobs:
         with:
           name: test-results
           path: app/build/reports/tests/
+        continue-on-error: true
 
       - name: Upload lint results
         if: always()
@@ -82,6 +84,7 @@ jobs:
         with:
           name: lint-results
           path: app/build/reports/lint-results-debug.html
+        continue-on-error: true
 
       - name: Build release APK
         if: github.ref == 'refs/heads/main'

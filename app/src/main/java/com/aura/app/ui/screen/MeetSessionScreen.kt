@@ -102,6 +102,8 @@ import com.aura.app.util.NfcHandoverManager
 import com.aura.app.util.NfcHandshakeResult
 import com.aura.app.wallet.WalletConnectionState
 import com.aura.app.ui.util.HapticEngine
+import com.aura.app.ui.components.HelpCentreDialog
+import com.aura.app.ui.components.HelpCentreItem
 import com.aura.app.ui.util.pulseGlow
 import com.aura.app.ui.util.springScale
 import com.funkatronics.encoders.Base58
@@ -138,6 +140,7 @@ fun MeetSessionScreen(
     var showAiMismatchPopup by remember { mutableStateOf(false) }
     var aiMismatchMessage by remember { mutableStateOf("") }
     var showQrScanner by remember { mutableStateOf(false) }
+    var showHelpCentre by remember { mutableStateOf(false) }
     val imageCapture = remember { ImageCapture.Builder().build() }
     val context = LocalContext.current
     val activity = context as? Activity
@@ -315,14 +318,7 @@ fun MeetSessionScreen(
                 },
                 actions = {
                     androidx.compose.material3.TextButton(
-                        onClick = {
-                            if (!aiScanDone) {
-                                aiScanDone = true
-                                AuraRepository.updateTradeState(TradeState.VERIFIED_PASS)
-                            } else {
-                                onHandshakeComplete()
-                            }
-                        },
+                        onClick = { showHelpCentre = true },
                     ) {
                         Text("Help", style = MaterialTheme.typography.labelSmall)
                     }
@@ -784,6 +780,18 @@ fun MeetSessionScreen(
                 }
             }
         }
+    }
+
+    if (showHelpCentre) {
+        HelpCentreDialog(
+            items = listOf(
+                HelpCentreItem("AI Item Scan", "Point your camera at the item you're buying. Our AI verifies it matches the listing before you proceed. Ensure good lighting and a clear view of the item."),
+                HelpCentreItem("Tap phones together", "Both buyer and seller hold their phones together. The seller taps their device against the buyer's to confirm you're both physically present."),
+                HelpCentreItem("No NFC? Use QR Code", "If your device doesn't support NFC, tap 'Use QR Code Instead' to show a QR code. The seller can scan it to complete the verification."),
+                HelpCentreItem("Verification tips", "Stay within 50m of the meetup location. Use a safe, public place. Keep your device unlocked for NFC—never share it with strangers."),
+            ),
+            onDismiss = { showHelpCentre = false },
+        )
     }
 }
 

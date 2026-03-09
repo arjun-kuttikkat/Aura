@@ -377,9 +377,9 @@ fun CreateListingScreen(
                         AuraRepository.verifyPhoto("", bytes, "aura_check")
                     }
                 }
-                delay(600)
+                delay(120)
                 publishPhase = PublishPhase.PHOTO_VERIFIED
-                delay(900)
+                delay(80)
                 publishPhase = PublishPhase.CREATING_LISTING
                 val (lat, lng, locationStr) = getCurrentLocationWithAddress(context)
                 if (lat == null || lng == null) {
@@ -405,12 +405,12 @@ fun CreateListingScreen(
                     meetupRadiusMeters = meetupRadiusMeters,
                 )
                 publishPhase = PublishPhase.MINTING_NFT
-                delay(800)
+                delay(80)
                 try {
                     AuraRepository.mintListing(listing.id)
                 } catch (_: Exception) {}
                 publishPhase = PublishPhase.NFT_MINTED
-                delay(2200)
+                delay(500)
                 step = PublishStep.PUBLISH_SUCCESS
             } catch (e: Exception) {
                 errorMsg = e.message ?: "Failed to publish"
@@ -1786,9 +1786,9 @@ private fun PublishProgressStep(phase: PublishPhase) {
 private fun PublishSuccessStep(onBackToMarketplace: () -> Unit) {
     var showCheck by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        delay(400)
+        delay(150)
         showCheck = true
-        delay(1800)
+        delay(800)
         onBackToMarketplace()
     }
 
