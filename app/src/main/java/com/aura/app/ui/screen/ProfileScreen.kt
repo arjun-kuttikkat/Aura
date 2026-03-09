@@ -528,6 +528,34 @@ fun ProfileScreen(
                 }
             }
 
+            // My Listings
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Gold500.copy(alpha = 0.10f))
+                        .border(1.dp, Gold500.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                        .clickable { onNavigate(com.aura.app.navigation.Routes.MY_LISTINGS) }
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = Gold500, modifier = Modifier.size(22.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("My Listings", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = Gold500)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = Gold500.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
         }
     }

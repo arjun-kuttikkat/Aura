@@ -35,6 +35,7 @@ object Routes {
     const val AVATAR_CREATOR = "avatar_creator"
     const val AVATAR_STORE   = "avatar_store"
     const val EMIRATE_PICKER = "emirate_picker"
+    const val MY_LISTINGS = "my_listings"
 
     fun listingDetail(listingId: String) = "listing_detail/$listingId"
     fun meetLocation(listingId: String) = "meet_location/$listingId"

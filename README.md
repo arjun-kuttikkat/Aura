@@ -62,6 +62,38 @@ Aura is a **Solana-native Android marketplace** that uses **NFC cryptographic ve
 
 ---
 
+## 📖 The Aura Experience (Demo Walkthrough)
+
+To understand how Aura transforms physical commerce, here is a step-by-step walkthrough of a real transaction and our gamified trust system:
+
+**1. Listing & AI Verification**
+The seller lists an item using our native camera to take macro-level close-ups. Our AI (Groq Vision) scans the physical details and instantly creates a permanent, tamper-proof digital receipt on Solana for a fraction of a cent.
+
+**2. Secure Chat & Escrow**
+A buyer finds the item. To eliminate spam bots, opening a chat requires a micro-fee in Aura points. After agreeing on a price, the buyer locks their funds directly into a secure Anchor smart contract. The funds are safe, allowing both parties to confidently arrange a meetup.
+
+**3. Location & Liveness Check**
+At the meetup, the app utilizes GPS to confirm both phones are in close proximity before the transfer process can begin. The buyer scans the item, and the AI matches it against the original digital record to ensure authenticity and prevent bait-and-switch scams.
+
+**4. Cryptographic Handover**
+Once satisfied, the buyer and seller simply tap their phones together. A background NFC read instantly triggers the smart contract to release the funds directly to the seller. In case of NFC failure, a secure, dynamic QR code serves as a fallback.
+
+**5. Building Trust (The Aura Core)**
+Trust on Aura is earned, not bought. Central to the user profile is the **Aura Core**—a 3D representation of a user's reliability. New users start with a dim spark that grows brighter with consistent app usage and successful trades. 
+
+**6. Wellness & Anti-Sybil Missions**
+To grow their Core, users interact with a built-in AI guide that provides custom daily missions (e.g., taking a photo of a local landmark). The smart camera enforces physical presence, preventing spoofing via screenshots. This builds a healthy habit and acts as a robust anti-Sybil mechanism.
+
+**7. Ranks & Rewards**
+Completing physical missions earns stars, moving users up the ranking system. Reaching the top "Radiant" rank unlocks zero-fee transactions. However, missing daily streaks causes the Aura Core to visibly decay, transparently reflecting activity levels.
+
+**8. Hotzones & Territorial Dominance**
+Highly active sellers can claim "Hotzones" (physical geographic areas). Controlling a zone prioritizes the seller's items in local searches and earns them a protocol fee cut from trades occurring within their territory.
+
+This combination of hardware-verified trades and gamified, daily engagement turns local commerce into a secure, positive, and habit-forming experience.
+
+---
+
 ## 🏗️ Architecture
 
 ```mermaid
@@ -209,23 +241,109 @@ cd Aura
 ./gradlew assembleDebug
 ```
 
-### Supabase Setup
+### 🔑 1. Environment Secrets (`local.properties`)
 
-1. Create a Supabase project
-2. Run `supabase/migrations/001_schema.sql` in SQL Editor
-3. Deploy edge functions: `supabase functions deploy`
-4. Set env vars: `NFC_MASTER_AES_KEY`, `SOLANA_AUTHORITY_KEY`, `HELIUS_API_KEY`
+Aura uses `local.properties` to manage sensitive API keys. This file is excluded from Git to keep your credentials safe.
 
-### Groq AI Setup
+1.  **Create the file**: Copy `local.properties.example` to `local.properties`.
+2.  **Fill in the following keys**:
 
-Add to `local.properties` (copy from `local.properties.example`):
+#### **A. Supabase (Backend & Auth)**
+- **Get the keys**: Go to your [Supabase Dashboard](https://supabase.com/dashboard) → Project Settings → API.
+- `SUPABASE_URL`: Your project's API URL.
+- `SUPABASE_KEY`: Your `anon` (public) key.
+- `SUPABASE_JWT_SECRET`: Found in Project Settings → API → JWT Settings. Required for Edge Function auth.
 
-```properties
-GROQ_API_KEY=your-groq-api-key
-GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
-```
+#### **B. Groq AI (Vision & Intelligence)**
+- **Get the key**: Create an account at [console.groq.com](https://console.groq.com/keys).
+- `GROQ_API_KEY`: Your Groq API key.
+- `GROQ_MODEL`: Set to `meta-llama/llama-4-scout-17b-16e-instruct` (recommended for Aura).
 
-Get an API key at [console.groq.com](https://console.groq.com). The model is optional — it defaults to `meta-llama/llama-4-scout-17b-16e-instruct`.
+#### **C. Helius (Solana RPC)**
+- **Get the key**: Sign up at [helius.dev](https://www.helius.dev/) for a free-tier RPC node.
+- `HELIUS_RPC_URL`: Format: `https://mainnet.helius-rpc.com/?api-key=YOUR_KEY`. Aura uses this to communicate with the Solana blockchain.
+
+#### **D. Google Maps (Location Services)**
+- **Get the key**: Visit the [Google Cloud Console](https://console.cloud.google.com/).
+- **Enable API**: Enable the "Maps SDK for Android".
+- **Restrict Key**: Ensure you restrict the key to the Android platform using your app's package name (`com.aura.app`) and SHA-1 fingerprint.
+- `MAPS_API_KEY`: Your restricted Google Maps API key.
+
+#### **E. Solana Authority & Treasury**
+- `SOLANA_AUTHORITY_KEY`: The Base58 private key of the wallet that will act as the platform authority (for minting NFTs and managing escrow). **Warning: Never use a main wallet for this.**
+- `TREASURY_WALLET`: The Base58 **Public Key** where protocol fees or escrow holds are sent.
+
+---
+
+### 🗄️ 2. Database Setup (Supabase)
+
+1. **Initialize Schema**: Go to the SQL Editor in Supabase.
+2. **Run Migrations**: Open and execute the SQL files in `supabase/migrations/` in chronological order. **Critical:** Ensure `001_schema.sql` is run first.
+3. **Storage Configuration**:
+   - The migration `20260305120000_storage_listing_images.sql` creates a `listing-images` bucket.
+   - **Manual Check**: Verify in Supabase Dashboard → Storage that `listing-images` exists and its privacy is set to **Public**.
+4. **Enable Realtime**:
+   - Go to Database → Replication → `supabase_realtime` publication.
+   - Add the `listings` and `trade_sessions` tables to the publication.
+5. **Deploy Edge Functions**:
+   Aura uses multiple Edge Functions for secure on-chain operations and AI validation.
+   ```bash
+   # Essential Functions
+   supabase functions deploy wallet-auth      # Handles Solana wallet-based login
+   supabase functions deploy verify-sun       # NFC CMAC verification
+   supabase functions deploy verify-photo     # Groq Vision AI validation
+   supabase functions deploy rpc-proxy        # Helius RPC proxying
+   
+   # Trading & Escrow
+   supabase functions deploy mint-nft         # Metaplex Core minting
+   supabase functions deploy release-escrow-photo
+   supabase functions deploy promote-listing
+   
+   # Metadata & Aura System
+   supabase functions deploy receipt-metadata
+   supabase functions deploy mint-receipt-nft
+   supabase functions deploy aura-core-nft
+   supabase functions deploy mint-aura-token
+   supabase functions deploy blinks-action    # Solana Blinks support
+   ```
+6. **Set Function Secrets**:
+   Provide your keys to the Supabase environment. This is critical for authentication and RPC proxying:
+   ```bash
+   # Auth & Encryption
+   supabase secrets set JWT_SECRET=your_jwt_secret         # Must match Project Settings -> API
+   supabase secrets set NFC_MASTER_AES_KEY=your_key        # For NTAG 424 DNA verification
+   
+   # Blockchain & AI
+   supabase secrets set HELIUS_API_KEY=your_key            # Proxied via rpc-proxy
+   supabase secrets set SOLANA_AUTHORITY_KEY=your_key      # Wallet for minting/escrow
+   supabase secrets set GROQ_API_KEY=your_key              # For verify-photo
+   ```
+
+---
+
+### 📡 3. Hardware & Wallet Requirements ("The Rest")
+
+To test Aura's core features (Proof-of-Handover), you need the following:
+
+#### **A. NFC Hardware (NTAG 424 DNA)**
+- Aura requires **NXP NTAG 424 DNA** tags for cryptographic security.
+- Standard NTAG213/215 tags **will not work** as they lacks AES-128-CMAC support.
+- The tags must be configured with a Diversified Key matching your `NFC_MASTER_AES_KEY`.
+
+#### **B. Solana Mobile Wallet Adapter (MWA)**
+- You must have a Solana wallet app (Phantom, Solflare, etc.) installed on your Android device.
+- Ensure the wallet is set to **Devnet** or **Mainnet** depending on your `HELIUS_RPC_URL`.
+
+#### **C. Biometrics**
+- Aura uses Google ML Kit for Face Liveness. This works best on physical devices with a front-facing camera.
+
+---
+
+### 📦 4. Build Environment
+
+- **IDE**: Android Studio Ladybug (2024.2.1) or newer.
+- **SDK**: Android SDK 34 (API 26 minimum).
+- **Gradle**: The project uses Version Catalogs (`libs.versions.toml`).
 
 ---
 

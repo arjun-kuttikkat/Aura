@@ -238,7 +238,7 @@ fun HomeScreen(
             state = listState,
             columns = GridCells.Adaptive(minSize = gridMinCellSize),
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = contentPaddingHorizontal, end = contentPaddingHorizontal, top = contentPaddingHorizontal, bottom = 100.dp),
+            contentPadding = PaddingValues(start = contentPaddingHorizontal, end = contentPaddingHorizontal, top = contentPaddingHorizontal, bottom = contentPaddingHorizontal),
             horizontalArrangement = Arrangement.spacedBy(if (isCompact) 8.dp else 12.dp),
             verticalArrangement = Arrangement.spacedBy(if (isCompact) 12.dp else 16.dp),
         ) {
@@ -817,6 +817,12 @@ private fun HeroBannerCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    "${auraPoints % 100} / 100 to next star",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(start = 8.dp)) {
                 Box(

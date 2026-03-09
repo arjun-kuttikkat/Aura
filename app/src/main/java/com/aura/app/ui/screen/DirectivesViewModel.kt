@@ -87,6 +87,16 @@ class DirectivesViewModel : ViewModel() {
         }
     }
 
+    fun refreshHistory(context: Context) {
+        viewModelScope.launch {
+            val wallet = WalletConnectionState.walletAddress.value
+            if (!wallet.isNullOrBlank()) {
+                val records = MissionHistoryStore.fetchHistoryOnce(wallet)
+                _completedMissions.value = records
+            }
+        }
+    }
+
     // ── Chat Actions ──
     fun sendMessage(userMsg: String) {
         if (userMsg.isBlank() || _isAiThinking.value) return
@@ -214,23 +224,24 @@ class DirectivesViewModel : ViewModel() {
                 }
                 
                 // 3. Persist to Mission History (local + Supabase for account-level persistence)
-                val record = CompletedMissionRecord(
-                    id = java.util.UUID.randomUUID().toString(),
-                    title = missionData.mission.title,
-                    emoji = missionData.mission.emoji,
-                    auraReward = scaledAuraReward,
-                    aiFeedback = missionData.verificationResult?.second ?: "Completed outside camera context.",
-                    completedAtMillis = System.currentTimeMillis()
-                )
-                MissionHistoryStore.addRecord(appContext, record)
-                // Persist to Supabase so missions survive logout/reinstall (only when wallet connected)
                 if (wallet != null) {
+                    val record = CompletedMissionRecord(
+                        id = java.util.UUID.randomUUID().toString(),
+                        userWallet = wallet,
+                        title = missionData.mission.title,
+                        emoji = missionData.mission.emoji,
+                        auraReward = scaledAuraReward,
+                        aiFeedback = missionData.verificationResult?.second ?: "Completed outside camera context.",
+                        completedAtMillis = System.currentTimeMillis()
+                    )
+                    MissionHistoryStore.addRecord(appContext, record)
                     val profile = AuraRepository.currentProfile.value
                     AuraRepository.insertCompletedMission(
                         walletAddress = wallet,
                         profileId = profile?.id,
                         record = record,
                     )
+                    loadHistory(appContext)
                 }
                 
                 // 4. Reset state

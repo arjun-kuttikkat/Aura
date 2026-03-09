@@ -9,6 +9,7 @@ import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.storage.Storage
 import io.github.jan.supabase.functions.Functions
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.defaultRequest
 import android.content.Context
 
 object SupabaseClient {
@@ -42,6 +43,12 @@ object SupabaseClient {
                 requestTimeoutMillis = 90_000
                 connectTimeoutMillis = 30_000
                 socketTimeoutMillis = 90_000
+            }
+            // Add Wallet Address header for RLS support (requesting_wallet() SQL function)
+            defaultRequest {
+                AuraPreferences.walletAddress.value?.let { wallet ->
+                    headers["x-wallet-address"] = wallet
+                }
             }
         }
         install(Postgrest)

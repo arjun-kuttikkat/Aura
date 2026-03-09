@@ -203,7 +203,7 @@ object AuraRepository {
                 // --- Aura System: Decay Logic & Star Protection ---
                 val lastScanStr = p.lastScanAt
                 var updatedAuraScore = p.auraScore
-                var updatedStreakDays = p.streakDays
+                var updatedStreak = p.streakDays
                 var updated = false
                 if (lastScanStr != null) {
                     try {
@@ -213,7 +213,7 @@ object AuraRepository {
                         
                         if (daysSince > 1) {
                             // Streak broken — reset to 0
-                            updatedStreakDays = 0
+                            updatedStreak = 0
                             val decayDays = daysSince - 1
                             var actualDecayDays = decayDays
                             
@@ -228,6 +228,7 @@ object AuraRepository {
                             
                             if (actualDecayDays > 0) {
                                 updatedAuraScore = (p.auraScore - (actualDecayDays * 100)).coerceAtLeast(0)
+                                updatedStreak = 0 // Streak broken
                             }
                             updated = true
                         } else {
@@ -250,8 +251,10 @@ object AuraRepository {
 
                     p = p.copy(
                         auraScore = updatedAuraScore,
-                        streakDays = updatedStreakDays,
-                        lastScanAt = finalNowStr
+                        streakDays = updatedStreak,
+                        lastScanAt = finalNowStr,
+                        rankTitle = rankTitle,
+                        pointsToNextRank = rankInfo.pointsToNextStar
                     )
                     try {
                         supabase.postgrest["profiles"].update({
@@ -259,6 +262,7 @@ object AuraRepository {
                             set("streak_days", p.streakDays)
                             set("last_scan_at", p.lastScanAt)
                             set("rank_title", rankTitle)
+                            set("points_to_next_rank", rankInfo.pointsToNextStar)
                         }) { filter { eq("wallet_address", p.walletAddress) } }
                     } catch (e: Exception) {
                         Log.e(TAG, "Error updating profile sync", e)
@@ -307,22 +311,28 @@ object AuraRepository {
                 } catch (e:Exception) { streak += 1 }
             } else streak += 1
 
-            val updatedProfile = profile.copy(auraScore = newScore, streakDays = streak, lastScanAt = nowStr)
-
-            val rankInfo = com.aura.app.model.RankSystem.getRankInfo(updatedProfile.auraScore)
+            val rankInfo = com.aura.app.model.RankSystem.getRankInfo(newScore)
             val rankTitleValue = "${rankInfo.rankName} ${rankInfo.tierString}".trim()
+            
+            val updatedProfile = profile.copy(
+                auraScore = newScore,
+                streakDays = streak,
+                lastScanAt = nowStr,
+                rankTitle = rankTitleValue,
+                pointsToNextRank = rankInfo.pointsToNextStar
+            )
 
             supabase.postgrest["profiles"].update({
                 set("aura_score", updatedProfile.auraScore)
                 set("streak_days", updatedProfile.streakDays)
                 set("last_scan_at", updatedProfile.lastScanAt)
                 set("rank_title", rankTitleValue)
+                set("points_to_next_rank", rankInfo.pointsToNextStar)
             }) { filter { eq("wallet_address", profile.walletAddress) } }
 
             withContext(Dispatchers.Main.immediate) {
                 _currentProfile.value = updatedProfile
             }
-            loadProfile(profile.walletAddress)
 
             profile.id?.let { uuid ->
                 val history = AuraHistoryDto(userId = uuid, changeAmount = scoreGained, reason = "Completed Mirror Ritual")
@@ -410,10 +420,15 @@ object AuraRepository {
         }
 
         val newScore = profile.auraScore + creditsEarned
-        val updatedProfile = profile.copy(auraScore = newScore, streakDays = streak, lastScanAt = nowStr)
-
-        val rankInfo = com.aura.app.model.RankSystem.getRankInfo(updatedProfile.auraScore)
+        val rankInfo = com.aura.app.model.RankSystem.getRankInfo(newScore)
         val rankTitleValue = "${rankInfo.rankName} ${rankInfo.tierString}".trim()
+        val updatedProfile = profile.copy(
+            auraScore = newScore,
+            streakDays = streak,
+            lastScanAt = nowStr,
+            rankTitle = rankTitleValue,
+            pointsToNextRank = rankInfo.pointsToNextStar
+        )
 
         try {
             invokeWithRetry(maxAttempts = 3, initialDelayMs = 400) {
@@ -422,6 +437,7 @@ object AuraRepository {
                     set("streak_days", updatedProfile.streakDays)
                     set("last_scan_at", updatedProfile.lastScanAt)
                     set("rank_title", rankTitleValue)
+                    set("points_to_next_rank", rankInfo.pointsToNextStar)
                 }) { filter { eq("wallet_address", profile.walletAddress) } }
             }
         } catch (e: Exception) {
@@ -431,7 +447,6 @@ object AuraRepository {
         withContext(Dispatchers.Main.immediate) {
             _currentProfile.value = updatedProfile
         }
-        loadProfile(profile.walletAddress)
 
         profile.id?.let { uuid ->
             scope.launch {
@@ -475,13 +490,15 @@ object AuraRepository {
 
         val reason = "Completed Mission: $missionTitle"
         val newScore = profile.auraScore + auraReward
+        val rankInfo = com.aura.app.model.RankSystem.getRankInfo(newScore)
         try {
             invokeWithRetry(maxAttempts = 3, initialDelayMs = 400) {
                 supabase.postgrest["profiles"].update({
                     set("aura_score", newScore)
                     set("streak_days", streak)
                     set("last_scan_at", nowStr)
-                    set("rank_title", com.aura.app.model.RankSystem.getRankInfo(newScore).run { "$rankName $tierString".trim() })
+                    set("rank_title", "${rankInfo.rankName} ${rankInfo.tierString}".trim())
+                    set("points_to_next_rank", rankInfo.pointsToNextStar)
                 }) { filter { eq("wallet_address", profile.walletAddress) } }
                 profile.id?.let { uuid ->
                     try {
@@ -496,11 +513,16 @@ object AuraRepository {
             // Even if network fails, proceed to update local state so user doesn't block
         }
 
-        val updatedProfile = profile.copy(auraScore = newScore, streakDays = streak, lastScanAt = nowStr)
+        val updatedProfile = profile.copy(
+            auraScore = newScore,
+            streakDays = streak,
+            lastScanAt = nowStr,
+            rankTitle = "${rankInfo.rankName} ${rankInfo.tierString}".trim(),
+            pointsToNextRank = rankInfo.pointsToNextStar
+        )
         withContext(Dispatchers.Main.immediate) {
             _currentProfile.value = updatedProfile
         }
-        loadProfile(walletAddress)
         Log.i(TAG, "Mission Completed: +$auraReward score, streak now $streak")
     }
 
@@ -517,7 +539,7 @@ object AuraRepository {
                 ZoneOffset.UTC
             ).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
             val row = CompletedMissionRow(
-                id = record.id,
+                id = record.id ?: UUID.randomUUID().toString(),
                 profileId = profileId,
                 walletAddress = walletAddress,
                 title = record.title,
@@ -548,6 +570,7 @@ object AuraRepository {
                 } ?: System.currentTimeMillis()
                 com.aura.app.model.CompletedMissionRecord(
                     id = row.id,
+                    userWallet = row.walletAddress,
                     title = row.title,
                     emoji = row.emoji,
                     auraReward = row.auraReward,
@@ -575,10 +598,13 @@ object AuraRepository {
 
         // Direct update with retry
         val newScoreFallback = profile.auraScore - amount
+        val rankInfo = com.aura.app.model.RankSystem.getRankInfo(newScoreFallback)
         return try {
             invokeWithRetry(maxAttempts = 3, initialDelayMs = 400) {
                 supabase.postgrest["profiles"].update({
                     set("aura_score", newScoreFallback)
+                    set("rank_title", "${rankInfo.rankName} ${rankInfo.tierString}".trim())
+                    set("points_to_next_rank", rankInfo.pointsToNextStar)
                 }) { filter { eq("wallet_address", wallet) } }
                 profile.id?.let { uuid ->
                     try {
@@ -589,9 +615,12 @@ object AuraRepository {
                 }
             }
             withContext(Dispatchers.Main.immediate) {
-                _currentProfile.value = profile.copy(auraScore = newScoreFallback)
+                _currentProfile.value = profile.copy(
+                    auraScore = newScoreFallback,
+                    rankTitle = "${rankInfo.rankName} ${rankInfo.tierString}".trim(),
+                    pointsToNextRank = rankInfo.pointsToNextStar
+                )
             }
-            loadProfile(wallet)
             true
         } catch (e: Exception) {
             Log.e(TAG, "spendAuraPoints failed", e)
@@ -615,9 +644,11 @@ object AuraRepository {
                 val p = profile
                 invokeWithRetry(maxAttempts = 4, initialDelayMs = 500) {
                     val ns = p.auraScore + amount
+                    val rankInfo = com.aura.app.model.RankSystem.getRankInfo(ns)
                     supabase.postgrest["profiles"].update({
                         set("aura_score", ns)
-                        set("rank_title", com.aura.app.model.RankSystem.getRankInfo(ns).run { "$rankName $tierString".trim() })
+                        set("rank_title", "${rankInfo.rankName} ${rankInfo.tierString}".trim())
+                        set("points_to_next_rank", rankInfo.pointsToNextStar)
                     }) { filter { eq("wallet_address", wallet) } }
                     p.id?.let { uuid ->
                         try {
@@ -627,9 +658,12 @@ object AuraRepository {
                         } catch (_: Exception) {}
                     }
                     withContext(Dispatchers.Main.immediate) {
-                        _currentProfile.value = p.copy(auraScore = ns)
+                        _currentProfile.value = p.copy(
+                            auraScore = ns,
+                            rankTitle = "${rankInfo.rankName} ${rankInfo.tierString}".trim(),
+                            pointsToNextRank = rankInfo.pointsToNextStar
+                        )
                     }
-                    loadProfile(wallet)
                     Log.i(TAG, "addAuraToProfile: +$amount ($reason) -> $ns")
                 }
             } catch (e: Exception) {
@@ -695,6 +729,45 @@ object AuraRepository {
     }
 
     fun getListing(id: String): Listing? = _listings.value.find { it.id == id }
+
+    /** Fetch all active listings owned by the given wallet address from Supabase. */
+    suspend fun fetchUserListings(walletAddress: String): List<Listing> {
+        return try {
+            val rows = db.from("marketplace_listings").select {
+                filter { eq("seller_wallet", walletAddress) }
+                limit(count = 200)
+            }.decodeList<ListingRow>()
+            rows
+                .filter { it.soldAt == null && it.isActive }
+                .map { it.toDomain() }
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchUserListings failed: ${e.message}", e)
+            emptyList()
+        }
+    }
+
+    /**
+     * Update the price of an existing listing. Returns true on success.
+     * Also patches the in-memory listings state so the UI refreshes without a full reload.
+     */
+    suspend fun updateListingPrice(listingId: String, newPriceLamports: Long): Boolean {
+        return try {
+            db.from("marketplace_listings").update({
+                set("price_lamports", newPriceLamports)
+            }) {
+                filter { eq("id", listingId) }
+            }
+            // Patch in-memory state
+            _listings.value = _listings.value.map { listing ->
+                if (listing.id == listingId) listing.copy(priceLamports = newPriceLamports) else listing
+            }
+            Log.d(TAG, "updateListingPrice: $listingId -> $newPriceLamports lamports")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "updateListingPrice failed: ${e.message}", e)
+            false
+        }
+    }
 
     // ── Context for offline cache (set from Application or MainActivity) ──
     var appContext: android.content.Context? = null
