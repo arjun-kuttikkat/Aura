@@ -175,7 +175,9 @@ object AuraRepository {
 
     suspend fun loadProfile(walletAddress: String) {
         if (walletAddress.isEmpty()) {
-            _currentProfile.value = null
+            withContext(Dispatchers.Main.immediate) {
+                _currentProfile.value = null
+            }
             return
         }
         try {
@@ -245,14 +247,18 @@ object AuraRepository {
                         Log.e(TAG, "Error updating profile sync", e)
                     }
                 }
-                _currentProfile.value = p
+                withContext(Dispatchers.Main.immediate) {
+                    _currentProfile.value = p
+                }
             } else {
                 val newProfile = ProfileDto(walletAddress = walletAddress)
                 val insertedList = supabase.postgrest["profiles"]
                     .insert(newProfile) { select() }
                     .decodeList<ProfileDto>()
                 if (insertedList.isNotEmpty()) {
-                    _currentProfile.value = insertedList.first()
+                    withContext(Dispatchers.Main.immediate) {
+                        _currentProfile.value = insertedList.first()
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -296,7 +302,10 @@ object AuraRepository {
                 set("rank_title", rankTitleValue)
             }) { filter { eq("wallet_address", profile.walletAddress) } }
 
-            _currentProfile.value = updatedProfile
+            withContext(Dispatchers.Main.immediate) {
+                _currentProfile.value = updatedProfile
+            }
+            loadProfile(profile.walletAddress)
 
             profile.id?.let { uuid ->
                 val history = AuraHistoryDto(userId = uuid, changeAmount = scoreGained, reason = "Completed Mirror Ritual")
@@ -349,7 +358,15 @@ object AuraRepository {
         }
 
         val creditsEarned = (rating * 1.5).toInt()
-        val profile = _currentProfile.value ?: return com.aura.app.model.AuraCheckResult(rating, feedback, true, creditsEarned)
+        var profile = _currentProfile.value
+        if (profile == null) {
+            val wallet = com.aura.app.wallet.WalletConnectionState.walletAddress.value
+            if (!wallet.isNullOrBlank()) {
+                loadProfile(wallet)
+                profile = _currentProfile.value
+            }
+        }
+        if (profile == null) return com.aura.app.model.AuraCheckResult(rating, feedback, true, creditsEarned)
 
         val lastScanStr = profile.lastScanAt
         val nowStr = submissionOriginTime.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
@@ -382,17 +399,22 @@ object AuraRepository {
         val rankTitleValue = "${rankInfo.rankName} ${rankInfo.tierString}".trim()
 
         try {
-            supabase.postgrest["profiles"].update({
-                set("aura_score", updatedProfile.auraScore)
-                set("streak_days", updatedProfile.streakDays)
-                set("last_scan_at", updatedProfile.lastScanAt)
-                set("rank_title", rankTitleValue)
-            }) { filter { eq("wallet_address", profile.walletAddress) } }
+            invokeWithRetry(maxAttempts = 3, initialDelayMs = 400) {
+                supabase.postgrest["profiles"].update({
+                    set("aura_score", updatedProfile.auraScore)
+                    set("streak_days", updatedProfile.streakDays)
+                    set("last_scan_at", updatedProfile.lastScanAt)
+                    set("rank_title", rankTitleValue)
+                }) { filter { eq("wallet_address", profile.walletAddress) } }
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error updating profile after Aura check", e)
+            Log.e(TAG, "Error updating profile after Aura check (retries exhausted)", e)
         }
 
-        _currentProfile.value = updatedProfile
+        withContext(Dispatchers.Main.immediate) {
+            _currentProfile.value = updatedProfile
+        }
+        loadProfile(profile.walletAddress)
 
         profile.id?.let { uuid ->
             scope.launch {
@@ -408,10 +430,15 @@ object AuraRepository {
         return com.aura.app.model.AuraCheckResult(rating, feedback, streakMaintained, creditsEarned)
     }
 
-    /** Aura System: Add points when user completes a mission (Directives). */
+    /** Aura System: Add points when user completes a mission (Directives). Ultra-reliable with retry. */
     suspend fun addMissionAuraPoints(walletAddress: String, auraReward: Int, missionTitle: String) {
-        val profile = _currentProfile.value ?: return
-        if (profile.walletAddress != walletAddress) return
+        if (walletAddress.isEmpty()) return
+        var profile = _currentProfile.value
+        if (profile == null) {
+            loadProfile(walletAddress)
+            profile = _currentProfile.value
+        }
+        if (profile == null || profile.walletAddress != walletAddress) return
 
         val submissionOriginTime = OffsetDateTime.now(ZoneOffset.UTC)
         val nowStr = submissionOriginTime.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
@@ -423,66 +450,69 @@ object AuraRepository {
                 val lastScanDate = OffsetDateTime.parse(lastScanStr).withOffsetSameInstant(ZoneOffset.UTC).toLocalDate()
                 val nowDate = submissionOriginTime.toLocalDate()
                 val daysBetween = ChronoUnit.DAYS.between(lastScanDate, nowDate)
-                
-                if (daysBetween == 1L) {
-                    streak += 1
-                } else if (daysBetween > 1L) {
-                    streak = 1
-                }
+                if (daysBetween == 1L) streak += 1 else if (daysBetween > 1L) streak = 1
             } catch (e: Exception) { streak += 1 }
         } else {
             streak += 1
         }
 
+        val reason = "Completed Mission: $missionTitle"
         val newScore = profile.auraScore + auraReward
-        val updatedProfile = profile.copy(auraScore = newScore, streakDays = streak, lastScanAt = nowStr)
-
-        val rankInfo = com.aura.app.model.RankSystem.getRankInfo(updatedProfile.auraScore)
-        val rankTitleValue = "${rankInfo.rankName} ${rankInfo.tierString}".trim()
-
-        try {
+        invokeWithRetry(maxAttempts = 3, initialDelayMs = 400) {
             supabase.postgrest["profiles"].update({
-                set("aura_score", updatedProfile.auraScore)
-                set("streak_days", updatedProfile.streakDays)
-                set("last_scan_at", updatedProfile.lastScanAt)
-                set("rank_title", rankTitleValue)
+                set("aura_score", newScore)
+                set("streak_days", streak)
+                set("last_scan_at", nowStr)
+                set("rank_title", com.aura.app.model.RankSystem.getRankInfo(newScore).run { "$rankName $tierString".trim() })
             }) { filter { eq("wallet_address", profile.walletAddress) } }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error updating profile after completed mission", e)
-        }
-
-        _currentProfile.value = updatedProfile
-
-        profile.id?.let { uuid ->
-            scope.launch {
+            profile.id?.let { uuid ->
                 try {
-                    val history = AuraHistoryDto(userId = uuid, changeAmount = auraReward, reason = "Completed Mission: $missionTitle")
-                    supabase.postgrest["aura_history"].insert(history)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error inserting aura history for completed mission: ${e.message}")
-                }
+                    supabase.postgrest["aura_history"].insert(
+                        AuraHistoryDto(userId = uuid, changeAmount = auraReward, reason = reason)
+                    )
+                } catch (_: Exception) {}
             }
         }
+
+        val updatedProfile = profile.copy(auraScore = newScore, streakDays = streak, lastScanAt = nowStr)
+        withContext(Dispatchers.Main.immediate) {
+            _currentProfile.value = updatedProfile
+        }
+        loadProfile(walletAddress)
         Log.i(TAG, "Mission Completed: +$auraReward score, streak now $streak")
     }
 
-    /** Spend Aura points (deduct from profile). Returns true if successful. */
+    /** Spend Aura points (deduct from profile). Returns true if successful. Ultra-reliable with retry. */
     suspend fun spendAuraPoints(amount: Int): Boolean {
-        val profile = _currentProfile.value ?: return false
+        val wallet = com.aura.app.wallet.WalletConnectionState.walletAddress.value
+        if (wallet.isNullOrBlank()) return false
+        var profile = _currentProfile.value
+        if (profile == null) {
+            loadProfile(wallet)
+            profile = _currentProfile.value
+        }
+        if (profile == null) return false
         if (profile.auraScore < amount) return false
-        val newScore = profile.auraScore - amount
-        val updatedProfile = profile.copy(auraScore = newScore)
+
+        // Direct update with retry
+        val newScoreFallback = profile.auraScore - amount
         return try {
-            supabase.postgrest["profiles"].update({
-                set("aura_score", newScore)
-            }) { filter { eq("wallet_address", profile.walletAddress) } }
-            _currentProfile.value = updatedProfile
-            profile.id?.let { uuid ->
-                try {
-                    val history = AuraHistoryDto(userId = uuid, changeAmount = -amount, reason = "Chat unlock")
-                    supabase.postgrest["aura_history"].insert(history)
-                } catch (_: Exception) {}
+            invokeWithRetry(maxAttempts = 3, initialDelayMs = 400) {
+                supabase.postgrest["profiles"].update({
+                    set("aura_score", newScoreFallback)
+                }) { filter { eq("wallet_address", wallet) } }
+                profile.id?.let { uuid ->
+                    try {
+                        supabase.postgrest["aura_history"].insert(
+                            AuraHistoryDto(userId = uuid, changeAmount = -amount, reason = "Chat unlock")
+                        )
+                    } catch (_: Exception) {}
+                }
             }
+            withContext(Dispatchers.Main.immediate) {
+                _currentProfile.value = profile.copy(auraScore = newScoreFallback)
+            }
+            loadProfile(wallet)
             true
         } catch (e: Exception) {
             Log.e(TAG, "spendAuraPoints failed", e)
@@ -490,29 +520,41 @@ object AuraRepository {
         }
     }
 
-    /** Add Aura to current user's profile (directives, trade bonus). Fire-and-forget. */
+    /** Add Aura to current user's profile (trade bonus). Ultra-reliable with retry. */
     fun addAuraToProfile(amount: Int, reason: String) {
         scope.launch {
-            val profile = _currentProfile.value ?: return@launch
-            val newScore = profile.auraScore + amount
-            val updatedProfile = profile.copy(auraScore = newScore)
-            val rankInfo = com.aura.app.model.RankSystem.getRankInfo(newScore)
-            val rankTitleValue = "${rankInfo.rankName} ${rankInfo.tierString}".trim()
+            val wallet = com.aura.app.wallet.WalletConnectionState.walletAddress.value
+            if (wallet.isNullOrBlank()) return@launch
+            var profile = _currentProfile.value
+            if (profile == null) {
+                loadProfile(wallet)
+                profile = _currentProfile.value
+            }
+            if (profile == null) return@launch
+
             try {
-                supabase.postgrest["profiles"].update({
-                    set("aura_score", newScore)
-                    set("rank_title", rankTitleValue)
-                }) { filter { eq("wallet_address", profile.walletAddress) } }
-                _currentProfile.value = updatedProfile
-                profile.id?.let { uuid ->
-                    try {
-                        val history = AuraHistoryDto(userId = uuid, changeAmount = amount, reason = reason)
-                        supabase.postgrest["aura_history"].insert(history)
-                    } catch (_: Exception) {}
+                val p = profile
+                invokeWithRetry(maxAttempts = 4, initialDelayMs = 500) {
+                    val ns = p.auraScore + amount
+                    supabase.postgrest["profiles"].update({
+                        set("aura_score", ns)
+                        set("rank_title", com.aura.app.model.RankSystem.getRankInfo(ns).run { "$rankName $tierString".trim() })
+                    }) { filter { eq("wallet_address", wallet) } }
+                    p.id?.let { uuid ->
+                        try {
+                            supabase.postgrest["aura_history"].insert(
+                                AuraHistoryDto(userId = uuid, changeAmount = amount, reason = reason)
+                            )
+                        } catch (_: Exception) {}
+                    }
+                    withContext(Dispatchers.Main.immediate) {
+                        _currentProfile.value = p.copy(auraScore = ns)
+                    }
+                    loadProfile(wallet)
+                    Log.i(TAG, "addAuraToProfile: +$amount ($reason) -> $ns")
                 }
-                Log.i(TAG, "addAuraToProfile: +$amount ($reason)")
             } catch (e: Exception) {
-                Log.e(TAG, "addAuraToProfile failed", e)
+                Log.e(TAG, "addAuraToProfile failed after retries", e)
             }
         }
     }
@@ -755,6 +797,7 @@ object AuraRepository {
                 } else it
             }
             refreshListingsAwait()
+            loadProfile(wallet)
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to promote listing with Aura points", e)

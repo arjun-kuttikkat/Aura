@@ -166,7 +166,10 @@ fun HomeScreen(
                 scope.launch {
                     isRefreshing = true
                     try {
-                        AuraRepository.refreshListingsAwait()
+                        withContext(Dispatchers.IO) {
+                            AuraRepository.refreshListingsAwait()
+                            walletAddress?.let { AuraRepository.loadProfile(it) }
+                        }
                     } finally {
                         isRefreshing = false
                     }

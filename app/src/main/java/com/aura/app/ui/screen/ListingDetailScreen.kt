@@ -112,6 +112,10 @@ fun ListingDetailScreen(
     LaunchedEffect(listingId) {
         if (listing == null) AuraRepository.refreshListingsAwait()
     }
+    // Ensure profile is loaded for Pay Aura to Chat balance check
+    LaunchedEffect(walletAddress) {
+        walletAddress?.let { AuraRepository.loadProfile(it) }
+    }
 
     Scaffold(
         topBar = {

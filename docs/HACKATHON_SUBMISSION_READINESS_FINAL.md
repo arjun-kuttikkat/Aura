@@ -71,6 +71,24 @@
 
 ---
 
+## Build & APK
+
+**Local build:**
+```bash
+./gradlew clean assembleRelease
+# APK: app/build/outputs/apk/release/app-release.apk
+```
+
+**Debug APK (faster, installable):**
+```bash
+./gradlew assembleDebug
+# APK: app/build/outputs/apk/debug/app-debug.apk
+```
+
+**CI:** Push to `main` triggers full build + unit tests + lint. Release APK is uploaded as an artifact.
+
+---
+
 ## Pre-Submission Checklist
 
 ### Required
@@ -101,9 +119,15 @@
 - `SUPABASE_URL`, `SUPABASE_KEY`
 - `HELIUS_RPC_URL` or `HELIUS_API_KEY`
 - `GROQ_API_KEY`
-- `TREASURY_WALLET`, `RELEASE_AUTHORITY_PUBKEY`
+- `TREASURY_WALLET`, `RELEASE_AUTHORITY_PUBKEY` (or `SOLANA_AUTHORITY_KEY`)
 
 See `local.properties.example` for template. Judges need these to build; document in README.
+
+**CI (GitHub Actions):** Set these as repo secrets for builds on `main`/`develop`:
+- `SUPABASE_URL`, `SUPABASE_KEY`, `HELIUS_API_KEY`, `GROQ_API_KEY`
+- `TREASURY_WALLET`, `RELEASE_AUTHORITY_PUBKEY` (or `SOLANA_AUTHORITY_KEY`)
+
+Release APK artifact is uploaded on pushes to `main`.
 
 ---
 

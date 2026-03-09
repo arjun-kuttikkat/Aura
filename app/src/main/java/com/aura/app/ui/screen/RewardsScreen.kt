@@ -49,6 +49,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import com.aura.app.data.AuraRepository
 import com.aura.app.navigation.LocalBottomNavInset
+import com.aura.app.wallet.WalletConnectionState
+import androidx.compose.runtime.LaunchedEffect
 import com.aura.app.ui.components.GlassCard
 import com.aura.app.ui.components.MainTopBar
 import com.aura.app.ui.theme.DarkBase
@@ -59,6 +61,12 @@ import com.aura.app.ui.theme.Orange700
 @Composable
 fun RewardsScreen() {
     val profile by AuraRepository.currentProfile.collectAsState(initial = null)
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
+
+    LaunchedEffect(walletAddress) {
+        walletAddress?.let { AuraRepository.loadProfile(it) }
+    }
+
     val auraScoreRaw = profile?.auraScore ?: 50
     val streakRaw = profile?.streakDays ?: 0
     val completedToday = com.aura.app.data.DirectivesManager.completedToday.collectAsState(initial = 0).value

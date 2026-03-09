@@ -20,10 +20,10 @@ class AuraRepositoryTest {
         // Abu Dhabi: approx 24.4539, 54.3773
         // Expected distance: ~130 km
         // Using reflection to test the private method
+        val doublePrimitive = Double::class.javaPrimitiveType!!
         val method = AuraRepository::class.java.getDeclaredMethod(
             "haversineMeters",
-            Double::class.java, Double::class.java,
-            Double::class.java, Double::class.java
+            doublePrimitive, doublePrimitive, doublePrimitive, doublePrimitive
         )
         method.isAccessible = true
         val distance = method.invoke(AuraRepository, 25.2048, 55.2708, 24.4539, 54.3773) as Double

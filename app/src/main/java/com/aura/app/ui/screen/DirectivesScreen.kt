@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aura.app.data.AuraRepository
 import com.aura.app.data.GroqAIService
+import com.aura.app.wallet.WalletConnectionState
 import com.aura.app.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -56,8 +57,14 @@ fun DirectivesScreen(
     val completedMissions by viewModel.completedMissions.collectAsState()
 
     val profile by AuraRepository.currentProfile.collectAsState()
+    val walletAddress by WalletConnectionState.walletAddress.collectAsState(initial = null)
 
     var chatInput by remember { mutableStateOf("") }
+
+    // Ensure profile is loaded for Aura display and mission claim
+    LaunchedEffect(walletAddress) {
+        walletAddress?.let { AuraRepository.loadProfile(it) }
+    }
     var showFullChat by remember { mutableStateOf(false) }
 
     // Init load history

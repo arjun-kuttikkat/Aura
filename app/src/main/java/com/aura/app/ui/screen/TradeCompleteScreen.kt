@@ -129,8 +129,10 @@ fun TradeCompleteScreen(
         }
     }
 
-    LaunchedEffect(session?.id ?: "") {
+    LaunchedEffect(session?.id ?: "", walletAddress) {
         AuraHaptics.successPattern(context)
+        // Ensure profile is loaded before awarding trade bonus
+        walletAddress?.let { AuraRepository.loadProfile(it) }
         if (!session?.id.isNullOrBlank()) AuraRepository.tryAwardTradeBonus(session!!.id)
         showCheck = true
         delay(400)
